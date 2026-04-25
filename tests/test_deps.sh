@@ -11,3 +11,24 @@ pass "have sh"
 
 ! cw_have_cmd cw-definitely-not-a-binary-2026 || { echo "FAIL: bogus binary should be absent" >&2; exit 1; }
 pass "missing bogus"
+
+# 2. cw_tmux_version_ok requires tmux ≥ 3.0.
+# We mock by overriding cw_tmux_version_string in subshells.
+
+assert_tmux_ok() {
+  local version="$1" expected_code="$2"
+  ( cw_tmux_version_string() { printf '%s\n' "$version"; }
+    set +e
+    cw_tmux_version_ok
+    code=$?
+    set -e
+    [[ "$code" -eq "$expected_code" ]] || { echo "FAIL: tmux=$version expected $expected_code got $code" >&2; exit 1; }
+  )
+}
+
+assert_tmux_ok "tmux 3.0a"  0
+assert_tmux_ok "tmux 3.4"   0
+assert_tmux_ok "tmux 4.1"   0
+assert_tmux_ok "tmux 2.9a"  1
+assert_tmux_ok "tmux 1.8"   1
+pass "tmux version gate ≥ 3.0"
