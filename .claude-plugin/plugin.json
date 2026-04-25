@@ -1,0 +1,21 @@
+{
+  "name": "clone-wars",
+  "version": "0.0.1-pre1",
+  "description": "Multi-model tmux pane orchestration for Claude Code — spawn codex/gemini/claude TUIs as attachable clone troopers",
+  "author": {
+    "name": "liupan",
+    "email": "dragonrider.liupan@gmail.com"
+  },
+  "homepage": "https://github.com/WingsOfPanda/clone-wars",
+  "repository": "https://github.com/WingsOfPanda/clone-wars",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "multi-agent",
+    "orchestration",
+    "tmux",
+    "codex",
+    "gemini"
+  ]
+}
