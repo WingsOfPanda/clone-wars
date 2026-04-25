@@ -1,0 +1,37 @@
+# config/commanders.yaml — curated clone-trooper name pool; user-editable.
+# /clone-wars:spawn random codex <topic> "..." picks an unused commander from this pool.
+# Names are matched case-insensitively; conventionally lowercase at use site.
+commanders:
+  - rex
+  - cody
+  - wolffe
+  - bly
+  - fox
+  - gree
+  - ponds
+  - bacara
+  - neyo
+  - doom
+  - faie
+  - hunter
+  - wrecker
+  - tech
+  - crosshair
+  - echo
+  - fives
+  - jesse
+  - kix
+  - tup
+  - dogma
+  - hardcase
+  - thorn
+  - thire
+  - stone
+  - bow
+  - keeli
+  - trauma
+  - blackout
+  - colt
+  - havoc
+  - vill
+  - deviss
