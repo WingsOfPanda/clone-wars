@@ -61,3 +61,17 @@ out=$(cw_contract_binary nope 2>/dev/null) || rc=$?
 assert_eq "$out" "" "empty for missing"
 [[ "${rc:-0}" -ne 0 ]] || { echo "FAIL: expected non-zero rc for missing provider" >&2; exit 1; }
 pass "missing provider returns non-zero"
+
+# 5. Nested binary: fields don't shadow the canonical 2-space-indent binary: field.
+cat > "$TMP/cw/contracts.yaml" <<'YAML'
+alpha:
+  modes:
+    binary: NESTED-SHOULD-NOT-MATCH
+  binary: alpha-bin
+beta:
+  binary: beta-bin
+YAML
+
+assert_eq "$(cw_contract_binary alpha)" "alpha-bin" "alpha lookup ignores nested binary"
+assert_eq "$(cw_contract_binary beta)"  "beta-bin"  "beta lookup unaffected"
+pass "nested binary field doesn't shadow canonical"

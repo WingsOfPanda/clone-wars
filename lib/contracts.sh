@@ -26,6 +26,9 @@ cw_contracts_providers() {
 }
 
 # Print the `binary:` field of <provider>, or empty + non-zero exit if not found.
+# binary: must appear at exactly 2-space indent (direct child of provider key) —
+# tighter than [[:space:]]+ to avoid matching nested binary: fields if any future
+# schema change introduces one.
 cw_contract_binary() {
   local provider="$1" path bin
   path=$(cw_contracts_path)
@@ -37,9 +40,9 @@ cw_contract_binary() {
       in_block = (key == p)
       next
     }
-    in_block && /^[[:space:]]+binary:[[:space:]]*/ {
+    in_block && /^  binary:[[:space:]]*/ {
       val = $0
-      sub(/^[[:space:]]+binary:[[:space:]]*/, "", val)
+      sub(/^  binary:[[:space:]]*/, "", val)
       gsub(/^[ \t]+|[ \t\r]+$/, "", val)
       print val
       exit
