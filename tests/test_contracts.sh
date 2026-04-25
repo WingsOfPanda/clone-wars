@@ -19,3 +19,45 @@ pass "contracts path"
 mkdir -p "$TMP/cw"; touch "$TMP/cw/contracts.yaml"
 cw_contracts_exists || { echo "FAIL: should exist after touch" >&2; exit 1; }
 pass "contracts existence check"
+
+# 3. Provider enumeration + binary lookup against a fixture.
+cat > "$TMP/cw/contracts.yaml" <<'YAML'
+codex:
+  binary: codex
+  modes:
+    full:      [--dangerously-bypass-approvals-and-sandbox]
+    read-only: [--sandbox, read-only]
+  default_mode: full
+  ready_timeout_s: 30
+
+gemini:
+  binary: gemini
+  modes:
+    full:      [--approval-mode, yolo]
+    read-only: [--approval-mode, default]
+  default_mode: full
+  ready_timeout_s: 30
+
+claude:
+  binary: claude
+  modes:
+    full:      [--dangerously-skip-permissions]
+    read-only: []
+  default_mode: full
+  ready_timeout_s: 60
+YAML
+
+PROVS=$(cw_contracts_providers | tr '\n' ' ' | sed 's/ $//')
+assert_eq "$PROVS" "codex gemini claude" "provider list in file order"
+pass "providers enumerated"
+
+assert_eq "$(cw_contract_binary codex)"  "codex"  "codex binary"
+assert_eq "$(cw_contract_binary gemini)" "gemini" "gemini binary"
+assert_eq "$(cw_contract_binary claude)" "claude" "claude binary"
+pass "binary lookup"
+
+# 4. Missing provider returns non-zero with empty stdout.
+out=$(cw_contract_binary nope 2>/dev/null) || rc=$?
+assert_eq "$out" "" "empty for missing"
+[[ "${rc:-0}" -ne 0 ]] || { echo "FAIL: expected non-zero rc for missing provider" >&2; exit 1; }
+pass "missing provider returns non-zero"
