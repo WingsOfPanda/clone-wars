@@ -1,0 +1,30 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "clone-wars",
+  "description": "Multi-model tmux pane orchestration for Claude Code",
+  "owner": {
+    "name": "liupan",
+    "email": "dragonrider.liupan@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "clone-wars",
+      "description": "Spawn codex/gemini/claude TUIs as attachable tmux panes; orchestrate them via file-based IPC",
+      "version": "0.0.1-pre1",
+      "source": "./",
+      "category": "orchestration",
+      "homepage": "https://github.com/WingsOfPanda/clone-wars",
+      "tags": [
+        "multi-agent",
+        "orchestration",
+        "tmux",
+        "delegation"
+      ],
+      "author": {
+        "name": "liupan",
+        "email": "dragonrider.liupan@gmail.com"
+      }
+    }
+  ],
+  "version": "0.0.1-pre1"
+}
