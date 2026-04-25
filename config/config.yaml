@@ -1,0 +1,10 @@
+# config/config.yaml — global Clone Wars defaults; user-editable.
+# Path: $CLONE_WARS_HOME/config.yaml (default ~/.clone-wars/config.yaml).
+
+split:
+  primary:   right          # split direction for the first clone in a topic (right|left|up|down)
+  secondary: down           # split direction for subsequent clones in the same topic
+  layout:    main-vertical  # reapplied after 3+ panes (main-vertical|even-horizontal|even-vertical|tiled)
+
+ready_timeout_default_s:   30   # spawn-time wait for {"event":"ready"} in outbox.jsonl
+collect_timeout_default_s: 600  # collect-time wait for {"event":"done"|"error"}
