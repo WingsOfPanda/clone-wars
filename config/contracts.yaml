@@ -1,0 +1,40 @@
+# config/contracts.yaml — shipped defaults; copied to $CLONE_WARS_HOME on first medic run.
+# Each provider row has:
+#   binary:           CLI executable name (must be on PATH)
+#   modes:            map of mode-name -> args list passed to the CLI
+#                     two modes are reserved: 'full' (yolo/bypass) and 'read-only'
+#   default_mode:     mode used by /clone-wars:spawn when --mode is omitted
+#   ready_timeout_s:  how long /clone-wars:spawn waits for the trooper's "ready"
+#                     event in outbox.jsonl before giving up
+#   identity_injection: how the conductor delivers identity.md to the pane
+#                       (send-keys-paste = tmux load-buffer + paste-buffer + Enter)
+#
+# Modes that have no native equivalent on a given provider are shipped as best-effort
+# (claude has no read-only sandbox today; gemini approximates via --approval-mode default).
+
+codex:
+  binary: codex
+  modes:
+    full:      [--dangerously-bypass-approvals-and-sandbox]
+    read-only: [--sandbox, read-only]
+  default_mode: full
+  ready_timeout_s: 30
+  identity_injection: send-keys-paste
+
+gemini:
+  binary: gemini
+  modes:
+    full:      [--approval-mode, yolo]
+    read-only: [--approval-mode, default]   # best-effort; gemini has no true read-only
+  default_mode: full
+  ready_timeout_s: 30
+  identity_injection: send-keys-paste
+
+claude:
+  binary: claude
+  modes:
+    full:      [--dangerously-skip-permissions]
+    read-only: []                            # best-effort; claude TUI has no read-only flag
+  default_mode: full
+  ready_timeout_s: 60
+  identity_injection: send-keys-paste
