@@ -22,3 +22,7 @@ cw_tmux_version_ok() {
   major=${major//[^0-9]/}
   [[ -n "$major" && "$major" -ge 3 ]]
 }
+
+cw_in_tmux_session() {
+  [[ -n "${TMUX:-}" ]]
+}

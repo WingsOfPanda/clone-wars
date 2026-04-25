@@ -32,3 +32,10 @@ assert_tmux_ok "tmux 4.1"   0
 assert_tmux_ok "tmux 2.9a"  1
 assert_tmux_ok "tmux 1.8"   1
 pass "tmux version gate ≥ 3.0"
+
+# 3. cw_in_tmux_session is 0 iff $TMUX is set non-empty.
+( unset TMUX; ! cw_in_tmux_session ) || { echo "FAIL: expected fail when TMUX unset" >&2; exit 1; }
+pass "not in tmux"
+
+( TMUX=/tmp/x,123,0 cw_in_tmux_session ) || { echo "FAIL: expected ok when TMUX set" >&2; exit 1; }
+pass "in tmux"
