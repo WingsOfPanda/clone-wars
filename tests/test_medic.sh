@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# tests/test_medic.sh — runs bin/medic.sh in a controlled $CLONE_WARS_HOME and inspects output.
+set -euo pipefail
+cd "$(dirname "$0")"
+source lib/assert.sh
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+export CLONE_WARS_HOME="$TMP/cw"
+
+# Seed the state dir with shipped config so medic finds the files it needs.
+mkdir -p "$CLONE_WARS_HOME"
+cp ../config/contracts.yaml         "$CLONE_WARS_HOME/contracts.yaml"
+cp ../config/commanders.yaml        "$CLONE_WARS_HOME/commanders.yaml"
+cp ../config/identity-template.md   "$CLONE_WARS_HOME/identity-template.md"
+
+# Run medic. Capture combined stdout+stderr; the exit code reflects medic's verdict.
+out=$(bash ../bin/medic.sh 2>&1) || rc=$?
+echo "--- medic output ---"
+echo "$out"
+echo "--- end ---"
+
+# Test 1: tmux check appears in output.
+assert_contains "$out" "tmux" "tmux check appears in output"
+pass "tmux check present"
+
+# Test 2: state-dir line shows the resolved CLONE_WARS_HOME.
+assert_contains "$out" "$CLONE_WARS_HOME" "resolved state dir printed"
+pass "state dir printed"
+
+# Test 3: contracts.yaml line is mentioned.
+assert_contains "$out" "contracts.yaml" "contracts.yaml line"
+pass "contracts.yaml present"
+
+# Test 4: at least one provider name appears.
+[[ "$out" == *codex* || "$out" == *gemini* || "$out" == *claude* ]] \
+  || { echo "FAIL: no provider mentioned" >&2; exit 1; }
+pass "providers enumerated"
+
+# Test 5: a Verdict line is present.
+[[ "$out" == *"Verdict:"* ]] || { echo "FAIL: no Verdict line" >&2; exit 1; }
+pass "verdict line present"
