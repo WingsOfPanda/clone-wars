@@ -10,7 +10,8 @@
 #                       (send-keys-paste = tmux load-buffer + paste-buffer + Enter)
 #
 # Modes that have no native equivalent on a given provider are shipped as best-effort
-# (claude has no read-only sandbox today; gemini approximates via --approval-mode default).
+# (gemini approximates read-only via --approval-mode default; claude approximates it via
+# --permission-mode plan).
 
 codex:
   binary: codex
@@ -33,8 +34,8 @@ gemini:
 claude:
   binary: claude
   modes:
-    full:      [--dangerously-skip-permissions]
-    read-only: []                            # best-effort; claude TUI has no read-only flag
+    full:      [--permission-mode, auto]
+    read-only: [--permission-mode, plan]     # best-effort; plan mode is read-only-ish
   default_mode: full
   ready_timeout_s: 60
   identity_injection: send-keys-paste
