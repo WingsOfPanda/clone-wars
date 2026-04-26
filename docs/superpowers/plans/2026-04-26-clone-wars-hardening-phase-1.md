@@ -31,7 +31,7 @@ All Task commits land on this branch. The hook policy blocks direct commits to `
 
 | File | Status | Responsibility |
 |---|---|---|
-| `lib/ipc.sh` | modify | Extend `cw_state_archive` with optional suffix; add `cw_pane_meta_write`'s `model` field; add `cw_pane_meta_model` reader |
+| `lib/ipc.sh` | modify | Extend `cw_state_archive` with optional suffix; `cw_pane_meta_write` embeds `commander` + `model` fields; add `cw_pane_meta_model`, `cw_pane_meta_commander`, `cw_pane_meta_read_for_dir` readers |
 | `lib/argsfile.sh` | **NEW** | `cw_args_file_load <path>` — parse a one-line args file into shell tokens |
 | `bin/spawn.sh` | modify | Reorder validation before tmux check; add commander regex; FAIL path archives state with `FAILED` suffix; add `--args-file` flag; consume `cw_pane_meta_model` |
 | `bin/send.sh` | modify | Replace dir-name parser with `cw_pane_meta_model`; add `--args-file` flag |
@@ -41,7 +41,8 @@ All Task commits land on this branch. The hook policy blocks direct commits to `
 | `bin/medic.sh` | modify | Add `pane-border-status` WARN check |
 | `commands/spawn.md`, `send.md`, `collect.md`, `list.md`, `teardown.md`, `medic.md` | modify | Switch from `$ARGUMENTS` inline to temp-file + `--args-file` |
 | `tests/test_ipc_archive.sh` | **NEW** | Cover `cw_state_archive` suffix support + collision behavior |
-| `tests/test_pane_meta.sh` | **NEW** | Cover `cw_pane_meta_write` model field + `cw_pane_meta_model` reader (with backward-compat fallback) |
+| `tests/test_pane_meta.sh` | **NEW** | Cover `cw_pane_meta_write` commander+model fields + the three readers (with backward-compat fallback) + hyphenated-model round-trip in iteration paths |
+| `tests/test_spawn_rollback.sh` | **NEW** | Assert `cw_state_archive` with `FAILED` suffix removes the source dir and produces an archive ending in `-FAILED`; static check that `bin/spawn.sh` actually wires the FAIL branch to it |
 | `tests/test_spawn_validation.sh` | **NEW** | Cover commander + topic regex via direct invocation of `bin/spawn.sh` (validation runs before tmux check) |
 | `tests/test_argsfile.sh` | **NEW** | Cover `cw_args_file_load` parsing of various args-file contents |
 | `.claude-plugin/plugin.json` | modify | Bump to `0.0.4` |
@@ -188,10 +189,72 @@ EOF
 
 **Files:**
 - Modify: `/home/liupan/CC/clone-wars/bin/spawn.sh:148-156` (FAIL path)
+- Test: `/home/liupan/CC/clone-wars/tests/test_spawn_rollback.sh` (new)
 
-This task has no automated test — the failure path requires a real tmux session + a misbehaving provider, which the test harness can't synthesize cleanly. Smoke-tested manually post-merge (see Step 2.3).
+The end-to-end "spawn-fails-then-respawn-succeeds" path requires a real tmux session, which the unit-test harness can't synthesize without an elaborate fake-tmux scaffold. Instead we test in two layers, both pure-bash: the rollback **semantics** (a unit test on `cw_state_archive` with the `FAILED` suffix), and the rollback **wiring** (a static `grep` that asserts `bin/spawn.sh`'s FAIL branch actually invokes the archive call). Manual smoke (Step 2.4) covers the runtime integration.
 
-- [ ] **Step 2.1: Patch the FAIL branch in `bin/spawn.sh`**
+- [ ] **Step 2.1: Write the failing rollback test**
+
+Create `tests/test_spawn_rollback.sh`:
+
+```bash
+#!/usr/bin/env bash
+# tests/test_spawn_rollback.sh
+set -euo pipefail
+cd "$(dirname "$0")"
+source lib/assert.sh
+source ../lib/log.sh
+source ../lib/state.sh
+source ../lib/ipc.sh
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+export CLONE_WARS_HOME="$TMP/cw"
+
+# 1. Simulate a half-built state dir from a failed spawn.
+SRC=$(cw_trooper_dir rex codex demo)
+mkdir -p "$SRC"
+echo 'partial' > "$SRC/identity.md"
+
+# 2. Invoke the rollback (same call the FAIL branch will make).
+DST=$(cw_state_archive rex codex demo FAILED)
+
+# 3. Source dir is gone.
+[[ ! -d "$SRC" ]] || { echo "FAIL: state dir still present after rollback: $SRC" >&2; exit 1; }
+pass "state dir removed"
+
+# 4. Archive exists with -FAILED suffix and preserved contents.
+assert_file_exists "$DST" "FAILED archive created"
+[[ "$DST" =~ -FAILED$ ]] || { echo "FAIL: archive missing FAILED suffix: $DST" >&2; exit 1; }
+assert_file_exists "$DST/identity.md" "archived files preserved"
+pass "archive has FAILED suffix and contents"
+
+# 5. Re-spawn semantics: state slot freed, fresh trooper_dir is creatable.
+mkdir -p "$SRC"
+[[ -d "$SRC" ]] || { echo "FAIL: cannot recreate state dir post-rollback" >&2; exit 1; }
+pass "state slot freed for retry"
+
+# 6. Static wiring check: bin/spawn.sh's FAIL branch invokes
+#    cw_state_archive with the FAILED suffix. Without this, the lib
+#    semantics above are correct but the production spawn path could
+#    silently regress (e.g., if someone reverts the FAIL-branch edit).
+grep -qE 'cw_state_archive[[:space:]]+"\$COMMANDER"[[:space:]]+"\$MODEL"[[:space:]]+"\$TOPIC"[[:space:]]+FAILED' \
+  ../bin/spawn.sh \
+  || { echo "FAIL: bin/spawn.sh FAIL branch missing 'cw_state_archive ... FAILED' call" >&2; exit 1; }
+pass "bin/spawn.sh FAIL branch wired to rollback"
+
+echo "  ALL: ok"
+```
+
+- [ ] **Step 2.2: Run the test to verify it fails**
+
+```bash
+cd /home/liupan/CC/clone-wars && bash tests/test_spawn_rollback.sh
+```
+
+Expected: tests 1–5 pass (Task 1 already shipped suffix support); test 6 FAILs because `bin/spawn.sh` doesn't yet call `cw_state_archive ... FAILED` on the FAIL branch. That's the regression we're about to fix.
+
+- [ ] **Step 2.3: Patch the FAIL branch in `bin/spawn.sh`**
 
 Current code (lines 148-156):
 
@@ -223,7 +286,15 @@ if ! cw_outbox_wait "$COMMANDER" "$MODEL" "$TOPIC" ready "$READY_TIMEOUT" >/dev/
 fi
 ```
 
-- [ ] **Step 2.2: Lint-pass the change**
+- [ ] **Step 2.4: Run the test to verify it passes**
+
+```bash
+cd /home/liupan/CC/clone-wars && bash tests/test_spawn_rollback.sh
+```
+
+Expected: All 6 `PASS:` lines, then `ALL: ok`.
+
+- [ ] **Step 2.5: Lint-pass the change**
 
 ```bash
 cd /home/liupan/CC/clone-wars && bash -n bin/spawn.sh && echo "syntax OK"
@@ -231,7 +302,15 @@ cd /home/liupan/CC/clone-wars && bash -n bin/spawn.sh && echo "syntax OK"
 
 Expected: `syntax OK`.
 
-- [ ] **Step 2.3: Manual smoke test (post-commit, in tmux session)**
+- [ ] **Step 2.6: Run the full suite**
+
+```bash
+cd /home/liupan/CC/clone-wars && bash tests/run.sh
+```
+
+Expected: every test passes including `test_spawn_rollback.sh`.
+
+- [ ] **Step 2.7: Manual smoke test (post-commit, in tmux session)**
 
 After commit, validate end-to-end:
 
@@ -252,11 +331,11 @@ bash bin/teardown.sh rollback-test
 
 This is documentation, not an automated step. Note in the PR description.
 
-- [ ] **Step 2.4: Commit**
+- [ ] **Step 2.8: Commit**
 
 ```bash
 cd /home/liupan/CC/clone-wars
-git add bin/spawn.sh
+git add bin/spawn.sh tests/test_spawn_rollback.sh
 git commit -m "$(cat <<'EOF'
 fix(spawn): roll back state dir on bootstrap failure (#1)
 
@@ -452,16 +531,18 @@ EOF
 
 ---
 
-## Task 4 — `lib/ipc.sh` + 4 bin scripts: persist `model` in `pane.json` (#3)
+## Task 4 — `lib/ipc.sh` + 4 bin scripts: persist `commander` + `model` in `pane.json` (#3)
 
 **Why fourth:** Touches the most files (1 lib + 4 bins), best done in isolation. Backward-compat preserved via dir-name fallback so any in-flight v0.0.3 troopers continue working.
 
+**Critical correctness note (Codex review finding).** Iterating directories without a known commander (in `bin/list.sh` and `bin/teardown.sh`'s topic-mode loop) must NOT reconstruct the canonical `commander` and `model` from `${name%-*}` / `${name##*-}`. For a hyphenated model key (e.g., `claude-haiku`), a dir named `rex-claude-haiku` parses to commander=`rex-claude` model=`haiku` — wrong, and propagates to every subsequent path lookup. To eliminate this entire class of bug, `pane.json` now persists **both** commander and model, and the iteration paths read both authoritatively from `pane.json`. Name-parsing is only used as a fallback path-locator hint, never as the source of truth.
+
 **Files:**
-- Modify: `/home/liupan/CC/clone-wars/lib/ipc.sh:128-143` (`cw_pane_meta_write` + `cw_pane_meta_read`; add `cw_pane_meta_model`)
-- Modify: `/home/liupan/CC/clone-wars/bin/send.sh:30-45` (model resolution)
-- Modify: `/home/liupan/CC/clone-wars/bin/list.sh:34-63` (model resolution per-trooper)
-- Modify: `/home/liupan/CC/clone-wars/bin/collect.sh:32-43` (model resolution)
-- Modify: `/home/liupan/CC/clone-wars/bin/teardown.sh:57-66, 113-123` (model resolution in both branches)
+- Modify: `/home/liupan/CC/clone-wars/lib/ipc.sh:128-143` (`cw_pane_meta_write` + `cw_pane_meta_read`; add `cw_pane_meta_model`, `cw_pane_meta_commander`, `cw_pane_meta_read_for_dir`)
+- Modify: `/home/liupan/CC/clone-wars/bin/send.sh:30-45` (model resolution; commander is an input arg)
+- Modify: `/home/liupan/CC/clone-wars/bin/list.sh:34-63` (replace per-trooper name-parse with `cw_pane_meta_read_for_dir`)
+- Modify: `/home/liupan/CC/clone-wars/bin/collect.sh:32-43` (model resolution; commander is an input arg)
+- Modify: `/home/liupan/CC/clone-wars/bin/teardown.sh:57-66` (topic-mode loop → use `cw_pane_meta_read_for_dir`); `:113-123` (2-arg branch → model resolution; commander is an input arg)
 - Test: `/home/liupan/CC/clone-wars/tests/test_pane_meta.sh` (new)
 
 - [ ] **Step 4.1: Write the failing test**
@@ -474,6 +555,7 @@ Create `tests/test_pane_meta.sh`:
 set -euo pipefail
 cd "$(dirname "$0")"
 source lib/assert.sh
+source ../lib/log.sh
 source ../lib/state.sh
 source ../lib/ipc.sh
 
@@ -481,42 +563,61 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 export CLONE_WARS_HOME="$TMP/cw"
 
-# 1. cw_pane_meta_write embeds the model field.
+# 1. cw_pane_meta_write embeds commander + model fields.
 mkdir -p "$(cw_trooper_dir rex codex demo)"
 cw_pane_meta_write rex codex demo '%42'
 META=$(cw_pane_meta_path rex codex demo)
 assert_file_exists "$META" "pane.json created"
 grep -q '"pane_id":"%42"' "$META" || { echo "FAIL: pane_id missing" >&2; exit 1; }
+grep -q '"commander":"rex"' "$META" || { echo "FAIL: commander field missing" >&2; exit 1; }
 grep -q '"model":"codex"' "$META" || { echo "FAIL: model field missing" >&2; exit 1; }
-pass "pane_meta_write embeds model"
+pass "pane_meta_write embeds commander+model"
 
 # 2. cw_pane_meta_model returns the model field when present.
 got=$(cw_pane_meta_model rex codex demo)
 assert_eq "$got" "codex" "reader returns embedded model"
 pass "pane_meta_model returns embedded value"
 
-# 3. Hyphenated model keys round-trip cleanly (the whole point of #3).
+# 3. cw_pane_meta_commander returns the commander field when present.
+got=$(cw_pane_meta_commander rex codex demo)
+assert_eq "$got" "rex" "reader returns embedded commander"
+pass "pane_meta_commander returns embedded value"
+
+# 4. Hyphenated model keys round-trip cleanly (the whole point of #3).
 mkdir -p "$(cw_trooper_dir rex claude-haiku demo)"
 cw_pane_meta_write rex claude-haiku demo '%99'
-got=$(cw_pane_meta_model rex claude-haiku demo)
-assert_eq "$got" "claude-haiku" "hyphenated model round-trips"
-pass "hyphenated model"
+got_m=$(cw_pane_meta_model rex claude-haiku demo)
+got_c=$(cw_pane_meta_commander rex claude-haiku demo)
+assert_eq "$got_m" "claude-haiku" "hyphenated model round-trips"
+assert_eq "$got_c" "rex" "commander correct alongside hyphenated model"
+pass "hyphenated model + commander"
 
-# 4. Backward compat: pane.json without "model" field falls back to dir-name parse.
+# 5. cw_pane_meta_read_for_dir returns commander, model, pane_id from a dir
+#    path WITHOUT relying on dir-name parsing for hyphenated models.
+DIR=$(cw_trooper_dir rex claude-haiku demo)
+mapfile -t META_OUT < <(cw_pane_meta_read_for_dir "$DIR")
+assert_eq "${META_OUT[0]}" "rex" "read_for_dir commander"
+assert_eq "${META_OUT[1]}" "claude-haiku" "read_for_dir model (hyphenated)"
+assert_eq "${META_OUT[2]}" "%99" "read_for_dir pane_id"
+pass "read_for_dir authoritative for hyphenated models"
+
+# 6. Backward compat: pane.json without commander/model fields falls back to
+#    dir-name parse (with the known caveat that hyphenated models lose data,
+#    but at least non-hyphenated v0.0.3 troopers keep working).
 mkdir -p "$(cw_trooper_dir cody codex demo)"
 META_OLD=$(cw_pane_meta_path cody codex demo)
 printf '{"pane_id":"%%55","spawned_at":"2026-04-26T00:00:00Z"}\n' > "$META_OLD"
-# Capture stderr to verify the deprecation warning fires (once).
+unset _CW_PANE_META_FALLBACK_WARNED
 out=$(cw_pane_meta_model cody codex demo 2>&1 1>/tmp/cw-meta-out)
 val=$(cat /tmp/cw-meta-out); rm -f /tmp/cw-meta-out
 assert_eq "$val" "codex" "fallback returns dir-parsed model"
-assert_contains "$out" "deprecation" "fallback emits deprecation warning"
-pass "backward-compat fallback"
+assert_contains "$out" "predates v0.0.4" "fallback emits deprecation warning"
+pass "backward-compat fallback (model)"
 
-# 5. Warning fires only ONCE per shell invocation.
-out2=$(cw_pane_meta_model cody codex demo 2>&1 1>/dev/null)
+# 7. Warning fires only ONCE per shell invocation across both readers.
+out2=$(cw_pane_meta_commander cody codex demo 2>&1 1>/dev/null)
 [[ -z "$out2" ]] || { echo "FAIL: warning fired twice; out2='$out2'" >&2; exit 1; }
-pass "fallback warning is one-shot"
+pass "fallback warning is one-shot across readers"
 
 echo "  ALL: ok"
 ```
@@ -527,21 +628,23 @@ echo "  ALL: ok"
 cd /home/liupan/CC/clone-wars && bash tests/test_pane_meta.sh
 ```
 
-Expected: FAIL on test 1 (no `model` field today) — `cw_pane_meta_write` only writes `pane_id` + `spawned_at`.
+Expected: FAIL on test 1 (no `commander` or `model` fields today) — `cw_pane_meta_write` only writes `pane_id` + `spawned_at`.
 
-- [ ] **Step 4.3: Update `lib/ipc.sh` (write `model`, add reader, add fallback)**
+- [ ] **Step 4.3: Update `lib/ipc.sh` (write commander+model, add three readers)**
 
 Replace `cw_pane_meta_write` and `cw_pane_meta_read` (lines 128-143) with:
 
 ```bash
 # cw_pane_meta_write <commander> <model> <topic> <pane_id>
-# Write pane.json. v0.0.4 adds "model" so consumers don't have to parse the
-# state dir name (which broke for hyphenated model keys).
+# Write pane.json. v0.0.4 adds "commander" + "model" so consumers don't
+# have to parse the state dir name (which broke for hyphenated model keys
+# in iteration paths where the commander wasn't otherwise known).
 cw_pane_meta_write() {
   local commander="$1" model="$2" topic="$3" pane="$4"
   local meta; meta=$(cw_pane_meta_path "$commander" "$model" "$topic")
   local ts; ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  printf '{"pane_id":"%s","model":"%s","spawned_at":"%s"}\n' "$pane" "$model" "$ts" > "$meta"
+  printf '{"pane_id":"%s","commander":"%s","model":"%s","spawned_at":"%s"}\n' \
+    "$pane" "$commander" "$model" "$ts" > "$meta"
 }
 
 # cw_pane_meta_read <commander> <model> <topic>
@@ -553,13 +656,21 @@ cw_pane_meta_read() {
 }
 
 # Internal one-shot guard so the fallback warning fires at most once per
-# shell invocation (per fallback path), not once per trooper iterated.
+# shell invocation across all three readers (model/commander/read_for_dir),
+# not once per trooper iterated.
 _CW_PANE_META_FALLBACK_WARNED=""
 
+_cw_pane_meta_fallback_warn() {
+  if [[ -z "$_CW_PANE_META_FALLBACK_WARNED" ]]; then
+    log_warn "pane.json predates v0.0.4 (no 'commander'/'model' fields); using dir-name parser as fallback. Hyphenated model keys may be misparsed in list/teardown until the affected troopers are torn down + respawned. This deprecation notice will be removed in a future version."
+    _CW_PANE_META_FALLBACK_WARNED=1
+  fi
+}
+
 # cw_pane_meta_model <commander> <model_hint> <topic>
-# Return the model recorded in pane.json. Falls back to <model_hint> (the
-# value derived from the state dir name by the caller) when pane.json
-# pre-dates v0.0.4 and lacks the field; emits a one-time deprecation warning.
+# Return the model recorded in pane.json. <model_hint> is the value the
+# caller derived from the state dir name (used both to locate pane.json
+# and as the fallback return when pane.json predates v0.0.4).
 cw_pane_meta_model() {
   local commander="$1" model_hint="$2" topic="$3"
   local meta; meta=$(cw_pane_meta_path "$commander" "$model_hint" "$topic")
@@ -571,15 +682,64 @@ cw_pane_meta_model() {
       return 0
     fi
   fi
-  if [[ -z "$_CW_PANE_META_FALLBACK_WARNED" ]]; then
-    log_warn "pane.json predates v0.0.4 (no 'model' field); using dir-name parser as fallback. This is a deprecation notice and will be removed in a future version."
-    _CW_PANE_META_FALLBACK_WARNED=1
-  fi
+  _cw_pane_meta_fallback_warn
   printf '%s\n' "$model_hint"
+}
+
+# cw_pane_meta_commander <commander_hint> <model_hint> <topic>
+# Return the commander recorded in pane.json. Hints are the values the
+# caller derived from the state dir name; both arrive used to locate
+# pane.json. Falls back to <commander_hint> when pane.json predates v0.0.4.
+cw_pane_meta_commander() {
+  local commander_hint="$1" model_hint="$2" topic="$3"
+  local meta; meta=$(cw_pane_meta_path "$commander_hint" "$model_hint" "$topic")
+  if [[ -f "$meta" ]]; then
+    local val
+    val=$(awk -F'"' '/"commander"/ {print $4; exit}' "$meta")
+    if [[ -n "$val" ]]; then
+      printf '%s\n' "$val"
+      return 0
+    fi
+  fi
+  _cw_pane_meta_fallback_warn
+  printf '%s\n' "$commander_hint"
+}
+
+# cw_pane_meta_read_for_dir <trooper_dir>
+# Reads pane.json from the given absolute trooper-dir path and emits THREE
+# lines on stdout: <commander>, <model>, <pane_id>. Use this from any
+# iteration path that walks state/<repo-hash>/<topic>/* without a known
+# commander — it's the ONLY safe way to recover the canonical commander
+# and model when the model key contains hyphens. Falls back to dir-name
+# parsing for legacy v0.0.3 pane.json files (with one-time warning).
+cw_pane_meta_read_for_dir() {
+  local dir="$1"
+  local meta="$dir/pane.json"
+  local name="${dir%/}"; name="${name##*/}"
+  # Hint values: ambiguous for hyphenated models, used only when pane.json
+  # lacks the canonical fields.
+  local commander="${name%-*}"
+  local model="${name##*-}"
+  local pane=""
+  if [[ -f "$meta" ]]; then
+    local m_commander m_model m_pane
+    m_commander=$(awk -F'"' '/"commander"/ {print $4; exit}' "$meta")
+    m_model=$(awk -F'"' '/"model"/    {print $4; exit}' "$meta")
+    m_pane=$(awk    -F'"' '/"pane_id"/  {print $4; exit}' "$meta")
+    [[ -n "$m_commander" ]] && commander="$m_commander"
+    [[ -n "$m_model"     ]] && model="$m_model"
+    pane="$m_pane"
+    if [[ -z "$m_commander" || -z "$m_model" ]]; then
+      _cw_pane_meta_fallback_warn
+    fi
+  else
+    _cw_pane_meta_fallback_warn
+  fi
+  printf '%s\n%s\n%s\n' "$commander" "$model" "$pane"
 }
 ```
 
-Note: `cw_pane_meta_model`'s second arg is a `model_hint` — the caller passes the dir-parsed value as a fallback so `cw_pane_meta_path` can locate the file, and the same value is returned if pane.json lacks `model`. This is by design: the function is meant to be a drop-in for the existing dir-parse pattern.
+Note: `cw_pane_meta_model` and `cw_pane_meta_commander` take hint args because their callers already know the dir-name segments; they're meant as drop-in replacements where the pre-existing `commander` / `model` variables from the caller are still in scope. `cw_pane_meta_read_for_dir` is for iteration paths where neither commander nor model is known a priori — there, name-parsing is fundamentally ambiguous for hyphenated model keys, so the function reads pane.json as the source of truth and only falls back to ambiguous parsing for legacy state.
 
 - [ ] **Step 4.4: Run the test to verify it passes**
 
@@ -674,30 +834,46 @@ fi
 MODEL=$(cw_pane_meta_model "$COMMANDER" "$MODEL_HINT" "$TOPIC")
 ```
 
-- [ ] **Step 4.7: Update `bin/list.sh` (per-trooper inside the loop)**
+- [ ] **Step 4.7: Update `bin/list.sh` (per-trooper iteration uses `cw_pane_meta_read_for_dir`)**
 
-In `bin/list.sh`, in the inner loop (line 38-62), the existing parsing is:
+This is the iteration path Codex flagged: `bin/list.sh` walks `state/<hash>/<topic>/*` directories without a known commander, so name-parsing is ambiguous for hyphenated models. We use the pane.json-driven helper as the source of truth for the loop body.
+
+In `bin/list.sh`, replace the inner loop body (lines 38-62), which currently looks like:
 
 ```bash
+  for trooper_dir in "$topic_dir"*/; do
+    [[ -d "$trooper_dir" ]] || continue
     name="${trooper_dir%/}"; name="${name##*/}"
     commander="${name%-*}"
     model="${name##*-}"
     pane=$(cw_pane_meta_read "$commander" "$model" "$topic" 2>/dev/null || echo '?')
+    state='[ORPHAN]'
+    if [[ "$pane" != '?' ]] && cw_pane_alive "$pane"; then
+      outbox=$(cw_outbox_path "$commander" "$model" "$topic")
+      ...
 ```
 
-Replace with:
+with:
 
 ```bash
-    name="${trooper_dir%/}"; name="${name##*/}"
-    commander="${name%-*}"
-    model_hint="${name##*-}"
-    model=$(cw_pane_meta_model "$commander" "$model_hint" "$topic")
-    pane=$(cw_pane_meta_read "$commander" "$model" "$topic" 2>/dev/null || echo '?')
+  for trooper_dir in "$topic_dir"*/; do
+    [[ -d "$trooper_dir" ]] || continue
+    mapfile -t META < <(cw_pane_meta_read_for_dir "$trooper_dir")
+    commander="${META[0]}"
+    model="${META[1]}"
+    pane="${META[2]:-?}"
+    [[ -z "$pane" ]] && pane='?'
+    state='[ORPHAN]'
+    if [[ "$pane" != '?' ]] && cw_pane_alive "$pane"; then
+      outbox=$(cw_outbox_path "$commander" "$model" "$topic")
+      ...
 ```
 
-Note: `model` (not `model_hint`) is now used in the rest of the loop body — `cw_outbox_path "$commander" "$model" "$topic"`, the `printf` at the end. The local `model` shadows the dir-parse value with the canonical pane.json value when available.
+The remaining loop body (the `case "$last_event"` block and the final `printf`) is unchanged because it already uses the local `commander` and `model` variables. Net effect: when pane.json contains the v0.0.4 fields, hyphenated model keys round-trip correctly; legacy pane.json triggers the one-time warning and degrades to the old (ambiguous-for-hyphens) name-parse behavior.
 
 - [ ] **Step 4.8: Update `bin/teardown.sh` (both branches)**
+
+The topic-mode loop is the OTHER iteration path Codex flagged: it walks dirs without a known commander, so it MUST use `cw_pane_meta_read_for_dir`.
 
 In `bin/teardown.sh:57-66` (the `teardown_topic` loop):
 
@@ -716,11 +892,13 @@ Replace with:
 ```bash
   for trooper_dir in "$topic_dir"/*/; do
     [[ -d "$trooper_dir" ]] || continue
-    local name="${trooper_dir%/}"; name="${name##*/}"
-    local commander="${name%-*}" model_hint="${name##*-}"
-    local model; model=$(cw_pane_meta_model "$commander" "$model_hint" "$topic")
-    local pane; pane=$(cw_pane_meta_read "$commander" "$model" "$topic" 2>/dev/null || echo '')
+    local _META; mapfile -t _META < <(cw_pane_meta_read_for_dir "$trooper_dir")
+    local commander="${_META[0]}"
+    local model="${_META[1]}"
+    local pane="${_META[2]}"
 ```
+
+The 2-arg branch already has `commander` provided as input — model resolution is the only change there:
 
 In `bin/teardown.sh:113-123` (the 2-arg branch):
 
@@ -894,11 +1072,15 @@ EOF
 
 **Why last:** Touches the most files (1 new lib + 6 commands + 6 bin scripts). Doing it last avoids merge conflicts with prior tasks.
 
+**Critical correctness note (Codex review finding).** A naive fence that does `printf '%s\n' "$ARGUMENTS" > tmpfile` STILL leaves `$ARGUMENTS` interpolated into the bash command line by Claude Code's slash-command host BEFORE bash parses it. An adversarial input like `demo"; echo PWNED >&2; #` closes the printf string and runs the injection before any of our defenses fire. The fix has to keep `$ARGUMENTS` out of the bash source entirely.
+
+**The approach:** the command markdown directs Claude (the LLM following the directive) to use the **`Write` tool** — not Bash — to put `$ARGUMENTS` literally into the args file. The `Write` tool takes `file_path` and `content` as string parameters; it does NOT pipe through bash, so no shell expansion occurs on `content`. After the file is written, Bash invokes the bin script with `--args-file <path>`. The user's input never appears in any bash command line.
+
 **Files:**
 - Create: `/home/liupan/CC/clone-wars/lib/argsfile.sh`
 - Modify: each of `bin/spawn.sh`, `bin/send.sh`, `bin/collect.sh`, `bin/list.sh`, `bin/teardown.sh`, `bin/medic.sh` (add `--args-file` parsing block at top of arg handling)
-- Modify: each of `commands/spawn.md`, `commands/send.md`, `commands/collect.md`, `commands/list.md`, `commands/teardown.md`, `commands/medic.md` (switch from `$ARGUMENTS` inline to temp-file)
-- Test: `/home/liupan/CC/clone-wars/tests/test_argsfile.sh` (new)
+- Modify: each of `commands/spawn.md`, `commands/send.md`, `commands/collect.md`, `commands/list.md`, `commands/teardown.md`, `commands/medic.md` (switch from `$ARGUMENTS` inline to a Bash+Write+Bash three-step flow)
+- Test: `/home/liupan/CC/clone-wars/tests/test_argsfile.sh` (new — covers parser, including adversarial payloads)
 
 - [ ] **Step 6.1: Write the failing test**
 
@@ -934,12 +1116,33 @@ assert_eq "${#TOKS[@]}" "4" "4 tokens including the quoted phrase"
 assert_eq "${TOKS[3]}" "do the auth review please" "quoted phrase preserved"
 pass "quoted arg"
 
-# 4. Adversarial: shell metacharacters in a literal token are NOT executed.
+# 4. Adversarial: shell metacharacters in a quoted token are NOT executed.
 echo 'rex codex demo "; rm -rf /"' > "$TMP"
 mapfile -t TOKS < <(cw_args_file_load "$TMP")
 assert_eq "${#TOKS[@]}" "4" "4 tokens"
 assert_eq "${TOKS[3]}" "; rm -rf /" "metacharacters preserved as literal text"
 pass "metacharacters quoted-safe"
+
+# 5. Adversarial regression: simulate the exact payload that broke through the
+#    naive printf-based fence (Codex review finding #1). The file content is
+#    what /clone-wars:spawn would produce after the Write tool step. Verify
+#    that loading the file does NOT execute the embedded command — we should
+#    get back the literal payload as one token.
+PAYLOAD_FILE=$(mktemp)
+trap 'rm -f "$TMP" "$PAYLOAD_FILE" /tmp/cw-injection-canary' EXIT
+rm -f /tmp/cw-injection-canary
+# Note: the file content here is the LITERAL expansion of $ARGUMENTS as it
+# would arrive via Claude's Write tool — no shell parsing involved during
+# write. We only test the loader's parse semantics.
+printf '%s\n' 'rex codex demo "; touch /tmp/cw-injection-canary; #"' > "$PAYLOAD_FILE"
+mapfile -t TOKS < <(cw_args_file_load "$PAYLOAD_FILE")
+[[ ! -e /tmp/cw-injection-canary ]] || {
+  echo "FAIL: injection canary was created — payload executed during parse" >&2
+  rm -f /tmp/cw-injection-canary
+  exit 1
+}
+assert_eq "${TOKS[3]}" "; touch /tmp/cw-injection-canary; #" "payload returned as literal token"
+pass "injection canary not triggered"
 
 echo "  ALL: ok"
 ```
@@ -1014,33 +1217,61 @@ fi
 
 Repeat for `bin/send.sh`, `bin/collect.sh`, `bin/list.sh`, `bin/teardown.sh`, `bin/medic.sh` — same block, inserted after the last `source` line of each.
 
-- [ ] **Step 6.6: Update each `commands/*.md` to use the temp-file flow**
+- [ ] **Step 6.6: Update each `commands/*.md` to use the Bash+Write+Bash three-step flow**
+
+The flow per command:
+1. **Bash**: resolve and create the args directory, print the absolute args-file path. No user input touches this command.
+2. **Write tool** (NOT Bash): write `$ARGUMENTS` literally into the path from step 1. The `Write` tool's `content` parameter is a string, not a shell command, so `$ARGUMENTS` never interpolates into bash source.
+3. **Bash**: invoke the bin script with `--args-file <path>`. Path comes from step 1; user input is in the file, not the command line.
 
 For `commands/spawn.md`, replace the Steps section with:
 
-```markdown
+````markdown
 ## Steps
 
-1. Use the Bash tool to write `$ARGUMENTS` to a temp file and invoke spawn:
+The user's `$ARGUMENTS` may contain shell metacharacters. To prevent injection, we keep it out of any bash source: write it via the Write tool (a literal string parameter), then invoke the bin script with `--args-file`.
+
+1. Use the Bash tool to resolve the args-file path:
 
    ```
-   ARGS_FILE=$(mktemp -t cw-args-XXXXXX) && \
-     printf '%s\n' "$ARGUMENTS" > "$ARGS_FILE" && \
-     "${CLAUDE_PLUGIN_ROOT}/bin/spawn.sh" --args-file "$ARGS_FILE"; \
-     rc=$?; rm -f "$ARGS_FILE"; exit $rc
+   ARGS_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args"
+   mkdir -p "$ARGS_DIR"
+   echo "$ARGS_DIR/spawn.txt"
    ```
 
-2. Show the script's output to the user verbatim — it reports the spawned pane id, state
-   directory, and ready status.
+   The script prints the absolute path; remember it for steps 2 and 3.
 
-3. If spawn FAILs, the script also dumps the trooper pane's last 25 lines and its outbox
-   contents to stderr — surface those to the user so they can diagnose. Common causes:
-   commander already deployed on this topic (run `/clone-wars:teardown <commander> <topic>`
-   first), provider binary not on PATH, or the trooper TUI took longer than the
-   `ready_timeout_s` from `contracts.yaml` (raise it for that provider).
-```
+2. Use the Write tool to put `$ARGUMENTS` into that path:
 
-Apply the analogous edit to `commands/send.md`, `commands/collect.md`, `commands/list.md`, `commands/teardown.md`, `commands/medic.md` — replace the `$ARGUMENTS`-inline invocation with the temp-file pattern, substituting the right verb. Keep all the existing "show output verbatim" / "if FAIL" guidance below the Bash invocation block.
+   - `file_path`: the path printed by step 1 (an absolute path under `~/.clone-wars/_args/`).
+   - `content`: the literal value of `$ARGUMENTS` (the slash-command argument string, exactly as the user typed it).
+
+   IMPORTANT: do NOT echo, printf, or otherwise quote `$ARGUMENTS` into a shell command — pass it directly as the Write tool's `content` parameter. This is the entire reason for the Write step.
+
+3. Use the Bash tool to invoke spawn:
+
+   ```
+   "${CLAUDE_PLUGIN_ROOT}/bin/spawn.sh" --args-file "${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args/spawn.txt"
+   ```
+
+4. Show the script's output to the user verbatim — it reports the spawned pane id, state directory, and ready status.
+
+5. If spawn FAILs, the script also dumps the trooper pane's last 25 lines and its outbox contents to stderr — surface those to the user so they can diagnose. Common causes: commander already deployed on this topic (run `/clone-wars:teardown <commander> <topic>` first), provider binary not on PATH, or the trooper TUI took longer than the `ready_timeout_s` from `contracts.yaml` (raise it for that provider).
+````
+
+Apply the analogous edit to the other five command files. The pattern is identical except the verb in step 1's `echo` line and step 3's invocation:
+
+| File | Step 1 echo path | Step 3 invocation |
+|---|---|---|
+| `commands/send.md` | `"$ARGS_DIR/send.txt"` | `"${CLAUDE_PLUGIN_ROOT}/bin/send.sh" --args-file "${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args/send.txt"` |
+| `commands/collect.md` | `"$ARGS_DIR/collect.txt"` | `"${CLAUDE_PLUGIN_ROOT}/bin/collect.sh" --args-file "${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args/collect.txt"` |
+| `commands/list.md` | `"$ARGS_DIR/list.txt"` | `"${CLAUDE_PLUGIN_ROOT}/bin/list.sh" --args-file "${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args/list.txt"` |
+| `commands/teardown.md` | `"$ARGS_DIR/teardown.txt"` | `"${CLAUDE_PLUGIN_ROOT}/bin/teardown.sh" --args-file "${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args/teardown.txt"` |
+| `commands/medic.md` | `"$ARGS_DIR/medic.txt"` | `"${CLAUDE_PLUGIN_ROOT}/bin/medic.sh" --args-file "${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args/medic.txt"` |
+
+The "show output verbatim" / "if FAIL" prose below each invocation stays as it was in v0.0.3, just renumbered to steps 4 and 5.
+
+**Note on per-verb args files:** using `<verb>.txt` (one file per command, overwritten each invocation) is intentional — slash commands run sequentially in a conductor session and each verb's invocation is self-contained. If two slash commands ever raced, the second would overwrite the first's args file before its bin script read it; in practice the Bash → Write → Bash sequence within a single command is atomic from the user's perspective.
 
 - [ ] **Step 6.7: Lint-pass every bin script**
 
@@ -1061,16 +1292,36 @@ cd /home/liupan/CC/clone-wars && bash tests/run.sh
 
 Expected: every test passes including the new `test_argsfile.sh`.
 
-- [ ] **Step 6.9: Manual smoke-test the temp-file path (in tmux)**
+- [ ] **Step 6.9: Manual smoke-test the args-file path (in tmux)**
+
+Two checks: (a) the happy path matches direct CLI usage; (b) the adversarial slash-command path doesn't execute injected code.
 
 ```bash
-# In a tmux session:
-ARGS=$(mktemp); printf '%s\n' 'rex codex argsmoke' > "$ARGS"
-bash bin/spawn.sh --args-file "$ARGS"
-# Expect: identical behavior to `bash bin/spawn.sh rex codex argsmoke`.
+# In a tmux session — happy path:
+ARGS_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args"
+mkdir -p "$ARGS_DIR"
+printf '%s\n' 'rex codex argsmoke' > "$ARGS_DIR/spawn.txt"
+bash bin/spawn.sh --args-file "$ARGS_DIR/spawn.txt"
+# Expect: spawned identically to `bash bin/spawn.sh rex codex argsmoke`.
 bash bin/teardown.sh argsmoke
-rm -f "$ARGS"
 ```
+
+```bash
+# Adversarial path — confirm an embedded-quote payload in the args file
+# does NOT execute when loaded by cw_args_file_load:
+rm -f /tmp/cw-injection-canary
+printf '%s\n' 'rex codex injsmoke "; touch /tmp/cw-injection-canary; #"' > "$ARGS_DIR/spawn.txt"
+bash bin/spawn.sh --args-file "$ARGS_DIR/spawn.txt"
+# Expect: spawn fails at commander/topic validation OR fails because the
+# trailing token isn't a valid initial-prompt context — but the canary file
+# must NOT exist:
+[[ ! -e /tmp/cw-injection-canary ]] && echo "OK: canary not triggered" || echo "FAIL: injection executed"
+# Cleanup:
+rm -f /tmp/cw-injection-canary "$ARGS_DIR/spawn.txt"
+[[ -d ~/.clone-wars/state/*/injsmoke ]] && bash bin/teardown.sh injsmoke
+```
+
+The slash-command-level adversarial test (typing the literal payload into a `/clone-wars:spawn` invocation in a real Claude Code session) is a separate manual verification documented in the PR description — it requires the user to interact with the conductor to trigger the Write-tool path.
 
 - [ ] **Step 6.10: Commit**
 
@@ -1080,15 +1331,22 @@ git add lib/argsfile.sh bin/*.sh commands/*.md tests/test_argsfile.sh
 git commit -m "$(cat <<'EOF'
 fix(commands): fence off shell injection from \$ARGUMENTS (#5)
 
-Each commands/*.md now writes \$ARGUMENTS to a mktemp'd file and
-invokes the bin script with --args-file <path> instead of inlining
-\$ARGUMENTS into the bash command line. The bin scripts read the file
-via lib/argsfile.sh's cw_args_file_load (xargs-based, quote-aware,
-no shell expansion).
+Each commands/*.md now uses a Bash → Write tool → Bash sequence:
+1. Bash resolves the args-file path under \$CLONE_WARS_HOME/_args/
+2. Write tool puts \$ARGUMENTS literally into that path (the Write tool
+   takes \"content\" as a string parameter — no shell interpolation).
+3. Bash invokes bin/<verb>.sh --args-file <path>.
 
-A user typing /clone-wars:spawn rex codex demo \"; rm -rf /\" now
-gets the literal string ; rm -rf / as the prompt argument, not
-a chained shell command.
+Critical: \$ARGUMENTS never appears in any bash command line. The earlier
+naive design that did 'printf \"%s\" \"\$ARGUMENTS\" > tmpfile' was still
+vulnerable because slash-command host substitutes \$ARGUMENTS into bash
+source before bash parses it; an embedded double-quote payload broke
+out and ran the injection before the file was written. The Write-tool
+detour eliminates that surface entirely.
+
+Bin scripts gain a --args-file flag that delegates to lib/argsfile.sh's
+cw_args_file_load — xargs-based, quote-aware, no shell expansion on
+file contents.
 
 Backward compatible: bin scripts still accept positional args directly
 when invoked from the CLI without --args-file.
@@ -1202,7 +1460,14 @@ Before handing this plan off, verify:
 - [x] **Placeholder scan:** No "TBD", "TODO", "implement later", or vague "add error handling" instructions. Every code step has the exact code; every command step has the exact invocation and expected output. ✓
 - [x] **Type / signature consistency:**
   - `cw_state_archive` signature: `<commander> <model> <topic> [<suffix>]` — used identically in Task 1 (definition) and Task 2 (invocation). ✓
-  - `cw_pane_meta_model` signature: `<commander> <model_hint> <topic>` — defined in Task 4.3, called identically in Task 4.5/4.6/4.7/4.8. ✓
+  - `cw_pane_meta_write` signature: `<commander> <model> <topic> <pane_id>` — unchanged from v0.0.3, only the body changes (writes commander+model into pane.json). Existing callers in `bin/spawn.sh` need no edit. ✓
+  - `cw_pane_meta_model` signature: `<commander> <model_hint> <topic>` — defined in Task 4.3, called identically in Task 4.5/4.6/4.8. ✓
+  - `cw_pane_meta_commander` signature: `<commander_hint> <model_hint> <topic>` — defined in Task 4.3, exercised by tests in Task 4.1. ✓
+  - `cw_pane_meta_read_for_dir` signature: `<trooper_dir>` → emits commander, model, pane_id on stdout (3 lines) — defined in Task 4.3, called identically from `bin/list.sh` (Task 4.7) and `bin/teardown.sh`'s topic-mode loop (Task 4.8). ✓
   - `cw_args_file_load` signature: `<path>` — defined in Task 6.3, called identically in Task 6.5. ✓
-- [x] **TDD discipline:** Every task that adds testable code has a failing-test step before the implementation step (Tasks 1, 3, 4, 6). Tasks without unit tests (2, 5) have explicit manual-smoke steps. ✓
+- [x] **TDD discipline:** Every task that adds testable code has a failing-test step before the implementation step (Tasks 1, 2, 3, 4, 6). Task 5 has no unit test (medic check is integration-level visible in tmux). ✓
 - [x] **Frequent commits:** One commit per task. Engineer can stop after any commit and have working software. ✓
+- [x] **Codex adversarial review findings addressed:**
+  - Finding 1 (critical, $ARGUMENTS interpolation) → Task 6.6 now uses Bash → Write → Bash; user input never enters bash source. Test 6.1 case 5 covers an adversarial canary; Step 6.9 documents the slash-command-level manual smoke. ✓
+  - Finding 2 (high, hyphenated-model in iteration paths) → Task 4 persists `commander` alongside `model` in pane.json; new `cw_pane_meta_read_for_dir` is the source of truth for `bin/list.sh` and `bin/teardown.sh` topic-mode. Test 4.1 case 4 covers the hyphenated-model round-trip. ✓
+  - Finding 3 (medium, no automated rollback test) → Task 2 now includes `tests/test_spawn_rollback.sh` (lib semantics + static wiring grep on `bin/spawn.sh`). ✓
