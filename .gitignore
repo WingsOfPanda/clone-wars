@@ -1,0 +1,24 @@
+# Editor / OS
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local test scratch
+/tmp/clone-wars-*
+.tmp/
+.cache/
+
+# Node (if/when we add packaging)
+node_modules/
+npm-debug.log
+package-lock.json
+yarn.lock
+
+# Dist artifacts
+dist/
+build/
