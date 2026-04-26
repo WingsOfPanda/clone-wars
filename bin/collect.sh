@@ -12,6 +12,17 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && p
 source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/ipc.sh"
+source "$PLUGIN_ROOT/lib/argsfile.sh"
+
+# --args-file <path> — read tokens from <path> and replace positional args.
+# Used by commands/*.md to fence off shell injection from $ARGUMENTS.
+if [[ "${1:-}" == "--args-file" ]]; then
+  [[ -n "${2:-}" ]] || { echo "--args-file requires a path" >&2; exit 2; }
+  args_file="$2"
+  shift 2
+  mapfile -t _TOKENS < <(cw_args_file_load "$args_file")
+  set -- "${_TOKENS[@]}" "$@"
+fi
 
 usage() {
   echo "Usage: $0 <commander> <topic> [--timeout <seconds>]" >&2

@@ -1,7 +1,7 @@
 ---
 description: Gracefully kill trooper panes (8s colored banner) and archive their state
 argument-hint: <topic> | <commander> <topic> | --all
-allowed-tools: Bash
+allowed-tools: Bash, Write
 ---
 
 # /clone-wars:teardown
@@ -22,12 +22,29 @@ deploys driven by Clone Wars stay forensically reconstructable.
 
 ## Steps
 
-1. Use the Bash tool to run:
+The user's `$ARGUMENTS` may contain shell metacharacters. To prevent injection, we keep it out of any bash source: write it via the Write tool (a literal string parameter), then invoke the bin script with `--args-file`.
+
+1. Use the Bash tool to resolve the args-file path:
 
    ```
-   "${CLAUDE_PLUGIN_ROOT}/bin/teardown.sh" $ARGUMENTS
+   ARGS_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args"
+   mkdir -p "$ARGS_DIR"
+   echo "$ARGS_DIR/teardown.txt"
    ```
 
-2. Show the script's output to the user verbatim. The script blocks for ~9 seconds while
-   the graceful banner countdown runs, so the response will be a beat slower than the
-   other commands — this is normal.
+   The script prints the absolute path; remember it for steps 2 and 3.
+
+2. Use the Write tool to put `$ARGUMENTS` into that path:
+
+   - `file_path`: the path printed by step 1 (an absolute path under `~/.clone-wars/_args/`).
+   - `content`: the literal value of `$ARGUMENTS` (the slash-command argument string, exactly as the user typed it).
+
+   IMPORTANT: do NOT echo, printf, or otherwise quote `$ARGUMENTS` into a shell command — pass it directly as the Write tool's `content` parameter. This is the entire reason for the Write step.
+
+3. Use the Bash tool to invoke teardown:
+
+   ```
+   "${CLAUDE_PLUGIN_ROOT}/bin/teardown.sh" --args-file "${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args/teardown.txt"
+   ```
+
+4. Show the script's output to the user verbatim. The script blocks for ~9 seconds while the graceful banner countdown runs, so the response will be a beat slower than the other commands — this is normal.
