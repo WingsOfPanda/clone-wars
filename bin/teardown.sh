@@ -125,7 +125,10 @@ case "${1:-}" in
       for d in "$topic_dir"/${commander}-*/; do
         [[ -d "$d" ]] || continue
         name="${d%/}"; name="${name##*/}"
-        model_hint="${name##*-}"
+        # Strip the known-commander prefix to recover the FULL model
+        # (handles hyphenated models like claude-haiku correctly; the
+        # last-dash strip ${name##*-} would have returned just 'haiku').
+        model_hint="${name#${commander}-}"
         model=$(cw_pane_meta_model "$commander" "$model_hint" "$topic")
         pane=$(cw_pane_meta_read "$commander" "$model" "$topic" 2>/dev/null || echo '')
         if [[ -n "$pane" ]] && cw_pane_alive "$pane"; then
