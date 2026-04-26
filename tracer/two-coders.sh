@@ -36,6 +36,7 @@ PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/deps.sh"
+source "$PLUGIN_ROOT/lib/colors.sh"
 
 state_root=$(cw_state_root)
 repo_hash=$(cw_repo_hash)
@@ -53,11 +54,23 @@ INBOX_B="$DIR_B/inbox.md";  OUTBOX_B="$DIR_B/outbox.jsonl";  IDENTITY_B="$DIR_B/
 
 PANE_A=""; PANE_B=""
 cleanup() {
+  # Graceful shutdown: snapshot each trooper's TUI content, respawn the
+  # pane with a shell that prints the snapshot + colored "JOB DONE" banner
+  # + 8s countdown. Preserves the conversation visible while panes close.
   for p in "$PANE_A" "$PANE_B"; do
     if [[ -n "$p" ]]; then
-      log_info "killing pane $p"
-      tmux kill-pane -t "$p" 2>/dev/null || true
+      label=$(tmux display-message -p -t "$p" '#{@cw_label}' 2>/dev/null)
+      [[ -z "$label" ]] && label="trooper"
+      color=$(tmux display-message -p -t "$p" '#{@cw_color}' 2>/dev/null)
+      snap=$(mktemp -t cw-snap-XXXXXX.txt)
+      tmux capture-pane -p -e -t "$p" > "$snap" 2>/dev/null
+      tmux respawn-pane -k -t "$p" \
+        "cat '$snap'; '$PLUGIN_ROOT/bin/_close-banner.sh' '$label' '$color'; rm -f '$snap'" 2>/dev/null
     fi
+  done
+  sleep 9
+  for p in "$PANE_A" "$PANE_B"; do
+    [[ -n "$p" ]] && tmux kill-pane -t "$p" 2>/dev/null
   done
   log_info "state dirs preserved at: $DIR_A and $DIR_B"
 }
@@ -121,25 +134,25 @@ EOF
 
 log_info "spawning $COMMANDER_A pane (right-split of conductor)"
 PANE_A=$(tmux split-window -P -F '#{pane_id}' -h -c "$PLUGIN_ROOT" "codex --dangerously-bypass-approvals-and-sandbox")
-LABEL_A="$COMMANDER_A-$MODEL-$TOPIC"
+LABEL_A=$(cw_label_for "$COMMANDER_A" "$MODEL" "$TOPIC")
+# @cw_label/@cw_color/@cw_label_fmt are OSC-immune custom user-options. Set
+# immediately at spawn so /clone-wars:list and the active-border hook can
+# read them even before codex finishes booting.
+tmux set-option -p -t "$PANE_A" @cw_label "$LABEL_A"
+tmux set-option -p -t "$PANE_A" @cw_color "$(cw_color_for "$COMMANDER_A")"
+tmux set-option -p -t "$PANE_A" @cw_label_fmt "$(cw_label_fmt "$COMMANDER_A" "$MODEL" "$TOPIC")"
 log_ok "  $LABEL_A in pane $PANE_A"
 
 # Per DESIGN.md §Pane layout: 2nd clone in same topic splits DOWN from the 1st.
 log_info "spawning $COMMANDER_B pane (down-split of $PANE_A)"
 PANE_B=$(tmux split-window -P -F '#{pane_id}' -v -t "$PANE_A" -c "$PLUGIN_ROOT" "codex --dangerously-bypass-approvals-and-sandbox")
-LABEL_B="$COMMANDER_B-$MODEL-$TOPIC"
+LABEL_B=$(cw_label_for "$COMMANDER_B" "$MODEL" "$TOPIC")
+tmux set-option -p -t "$PANE_B" @cw_label "$LABEL_B"
+tmux set-option -p -t "$PANE_B" @cw_color "$(cw_color_for "$COMMANDER_B")"
+tmux set-option -p -t "$PANE_B" @cw_label_fmt "$(cw_label_fmt "$COMMANDER_B" "$MODEL" "$TOPIC")"
 log_ok "  $LABEL_B in pane $PANE_B"
 
-# Identification via @cw_label — a custom tmux pane user-option that's
-# OSC-immune (codex's OSC title sequences write `pane_title`, which is a
-# different variable). Set immediately at spawn; survives codex bootstrap and
-# any subsequent title emissions for the lifetime of the pane.
-# Visible in tmux's pane border via `pane-border-format` set to:
-#   ' #{?@cw_label,#{@cw_label},#{pane_title}} '
-tmux set-option -p -t "$PANE_A" @cw_label "$LABEL_A"
-tmux set-option -p -t "$PANE_B" @cw_label "$LABEL_B"
 tmux display-message "spawned 2 troopers: $LABEL_A ($PANE_A), $LABEL_B ($PANE_B)"
-log_ok "panes labeled (@cw_label): $LABEL_A, $LABEL_B"
 
 # Both bootstrap in parallel; sleep once for the longest.
 log_info "sleeping 10s for both codex instances to bootstrap"

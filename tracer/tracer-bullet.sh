@@ -28,6 +28,7 @@ PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/deps.sh"
+source "$PLUGIN_ROOT/lib/colors.sh"
 
 state_root=$(cw_state_root)
 repo_hash=$(cw_repo_hash)
@@ -41,8 +42,18 @@ identity="$trooper_dir/identity.md"
 
 PANE_ID=""
 cleanup() {
+  # Graceful shutdown: snapshot the trooper's TUI content, respawn the pane
+  # with a shell that prints the snapshot + a colored "JOB DONE" banner +
+  # 8s countdown. Preserves the conversation visible while the pane closes.
   if [[ -n "$PANE_ID" ]]; then
-    log_info "tracer cleanup: killing pane $PANE_ID"
+    label=$(tmux display-message -p -t "$PANE_ID" '#{@cw_label}' 2>/dev/null)
+    [[ -z "$label" ]] && label="$COMMANDER-$MODEL-$TOPIC"
+    color=$(tmux display-message -p -t "$PANE_ID" '#{@cw_color}' 2>/dev/null)
+    snap=$(mktemp -t cw-snap-XXXXXX.txt)
+    tmux capture-pane -p -e -t "$PANE_ID" > "$snap" 2>/dev/null
+    tmux respawn-pane -k -t "$PANE_ID" \
+      "cat '$snap'; '$PLUGIN_ROOT/bin/_close-banner.sh' '$label' '$color'; rm -f '$snap'" 2>/dev/null
+    sleep 9
     tmux kill-pane -t "$PANE_ID" 2>/dev/null || true
   fi
   log_info "tracer state preserved at: $trooper_dir"
@@ -104,14 +115,15 @@ EOF
 
 log_info "spawning codex pane via tmux split-window -h"
 PANE_ID=$(tmux split-window -P -F '#{pane_id}' -h -c "$PLUGIN_ROOT" "codex --dangerously-bypass-approvals-and-sandbox")
-TROOPER_LABEL="$COMMANDER-$MODEL-$TOPIC"
+TROOPER_LABEL=$(cw_label_for "$COMMANDER" "$MODEL" "$TOPIC")
 
-# Identification via @cw_label — a custom tmux pane user-option that's
-# OSC-immune (codex's OSC title sequences write `pane_title`, which is a
-# different variable). Set immediately at spawn; survives codex bootstrap and
-# any subsequent title emissions for the lifetime of the pane. Visible in
-# tmux's pane border via `pane-border-format ' #{?@cw_label,#{@cw_label},#{pane_title}} '`.
+# Identification via OSC-immune custom user-options. Set immediately so
+# /clone-wars:list and the active-border hook can read them even before
+# codex finishes booting. Visible via the Morandi-aware pane-border-format:
+#   ' #{?@cw_label_fmt,#{@cw_label_fmt},#[fg=#{?@cw_color,#{@cw_color},default}#,bold]#{?@cw_label,#{@cw_label},#{pane_title}}#[default]} '
 tmux set-option -p -t "$PANE_ID" @cw_label "$TROOPER_LABEL"
+tmux set-option -p -t "$PANE_ID" @cw_color "$(cw_color_for "$COMMANDER")"
+tmux set-option -p -t "$PANE_ID" @cw_label_fmt "$(cw_label_fmt "$COMMANDER" "$MODEL" "$TOPIC")"
 tmux display-message "spawned $TROOPER_LABEL in pane $PANE_ID"
 log_ok "pane created: $PANE_ID  (@cw_label=$TROOPER_LABEL)"
 
