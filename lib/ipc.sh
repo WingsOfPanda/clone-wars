@@ -31,16 +31,23 @@ cw_state_init() {
   touch "$dir/outbox.jsonl"
 }
 
-# cw_state_archive <commander> <model> <topic>
-# Move a trooper's state dir to $CLONE_WARS_HOME/archive/<repo-hash>/<topic>/<commander>-<model>-<ts>/.
-# Used by /clone-wars:teardown for forensics.
+# cw_state_archive <commander> <model> <topic> [<suffix>]
+# Move a trooper's state dir to archive/<repo-hash>/<topic>/<commander>-<model>-<ts>[-<suffix>]/.
+# Counter loop appends -2, -3, ... if the path exists (handles same-second collisions).
 cw_state_archive() {
-  local commander="$1" model="$2" topic="$3"
-  local src dst ts
+  local commander="$1" model="$2" topic="$3" suffix="${4:-}"
+  local src dst base ts n
   src=$(cw_trooper_dir "$commander" "$model" "$topic")
   [[ -d "$src" ]] || return 0
   ts=$(date -u +"%Y%m%dT%H%M%SZ")
-  dst="$(cw_state_root)/archive/$(cw_repo_hash)/$topic/${commander}-${model}-${ts}"
+  base="$(cw_state_root)/archive/$(cw_repo_hash)/$topic/${commander}-${model}-${ts}"
+  [[ -n "$suffix" ]] && base="${base}-${suffix}"
+  dst="$base"
+  n=2
+  while [[ -e "$dst" ]]; do
+    dst="${base}-${n}"
+    n=$((n + 1))
+  done
   mkdir -p "$(dirname "$dst")"
   mv "$src" "$dst"
   printf '%s\n' "$dst"
