@@ -1,14 +1,81 @@
 #!/usr/bin/env bash
-# bin/send.sh — STUB for v0.0.1-pre1.
+# bin/send.sh — write a task to a trooper's inbox and nudge the pane.
+#
+# Usage:
+#   bin/send.sh <commander> <topic> <message-or-@file>
+#
+# Looks up the trooper's pane via pane.json (written by spawn). The model
+# segment is inferred by listing state/<repo-hash>/<topic>/<commander>-* —
+# there should be exactly one match (commander+topic uniqueness is enforced
+# by spawn).
+
 set -uo pipefail
+
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 source "$PLUGIN_ROOT/lib/log.sh"
-cat <<EOF
-/clone-wars:send — args received: $*
+source "$PLUGIN_ROOT/lib/state.sh"
+source "$PLUGIN_ROOT/lib/deps.sh"
+source "$PLUGIN_ROOT/lib/ipc.sh"
+source "$PLUGIN_ROOT/lib/tmux.sh"
 
-This command is a stub in v0.0.1-pre1. The runtime (write inbox.md, append
-END_OF_INSTRUCTION, nudge the pane via tmux send-keys) lands in v0.0.1 after the
-tracer-bullet validates the IPC mechanics. See docs/DESIGN.md §/clone-wars-send.
+usage() {
+  echo "Usage: $0 <commander> <topic> <message-or-@file>" >&2
+}
+
+[[ $# -ge 3 ]] || { usage; exit 2; }
+
+COMMANDER="$1"; TOPIC="$2"; shift 2
+MSG_OR_FILE="$*"
+
+# ------------------------------------------------------------ Resolve model
+
+TOPIC_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC"
+MODEL=""
+if [[ -d "$TOPIC_DIR" ]]; then
+  for d in "$TOPIC_DIR"/${COMMANDER}-*; do
+    [[ -d "$d" ]] || continue
+    MODEL="${d##*/${COMMANDER}-}"
+    break
+  done
+fi
+if [[ -z "$MODEL" ]]; then
+  log_error "no trooper '$COMMANDER' on topic '$TOPIC' (state dir absent)"
+  log_error "  spawn first: /clone-wars:spawn $COMMANDER <model> $TOPIC"
+  exit 1
+fi
+
+# ------------------------------------------------------------ Resolve pane
+
+PANE=$(cw_pane_meta_read "$COMMANDER" "$MODEL" "$TOPIC") || {
+  log_error "pane.json missing for $COMMANDER-$MODEL on $TOPIC"
+  exit 1
+}
+if ! cw_pane_alive "$PANE"; then
+  log_error "$COMMANDER's pane $PANE is gone (orphan); run /clone-wars:teardown $COMMANDER $TOPIC"
+  exit 1
+fi
+
+# ------------------------------------------------------------ Resolve task body
+
+if [[ "$MSG_OR_FILE" == @* ]]; then
+  task_file="${MSG_OR_FILE#@}"
+  [[ -f "$task_file" ]] || { log_error "file not found: $task_file"; exit 1; }
+  TASK="$(cat "$task_file")"
+else
+  TASK="$MSG_OR_FILE"
+fi
+
+# ------------------------------------------------------------ Write + nudge
+
+cw_inbox_write "$COMMANDER" "$MODEL" "$TOPIC" "$TASK"
+INBOX=$(cw_inbox_path "$COMMANDER" "$MODEL" "$TOPIC")
+log_info "wrote inbox at $INBOX; nudging pane $PANE"
+cw_pane_send "$PANE" "Read $INBOX and execute the task. Reply when done."
+
+cat <<EOF
+
+  trooper:  $COMMANDER-$MODEL on $TOPIC
+  pane:     $PANE
+  inbox:    $INBOX
+  status:   queued — use /clone-wars:collect $COMMANDER $TOPIC to wait for {done}
 EOF
-log_warn "send is a stub in v0.0.1-pre1"
-exit 0

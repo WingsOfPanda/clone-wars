@@ -1,14 +1,68 @@
 #!/usr/bin/env bash
-# bin/collect.sh — STUB for v0.0.1-pre1.
+# bin/collect.sh — block until a trooper reports {done} or {error}.
+#
+# Usage:
+#   bin/collect.sh <commander> <topic> [--timeout <seconds>]
+#
+# Prints the matching JSON event line on success. Exit 1 on timeout or {error}.
+
 set -uo pipefail
+
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 source "$PLUGIN_ROOT/lib/log.sh"
-cat <<EOF
-/clone-wars:collect — args received: $*
+source "$PLUGIN_ROOT/lib/state.sh"
+source "$PLUGIN_ROOT/lib/ipc.sh"
 
-This command is a stub in v0.0.1-pre1. The runtime (tail outbox.jsonl until
-{event:done|error}, print summary) lands in v0.0.1 after the tracer-bullet
-validates the IPC mechanics. See docs/DESIGN.md §/clone-wars-collect.
-EOF
-log_warn "collect is a stub in v0.0.1-pre1"
-exit 0
+usage() {
+  echo "Usage: $0 <commander> <topic> [--timeout <seconds>]" >&2
+}
+
+[[ $# -ge 2 ]] || { usage; exit 2; }
+
+COMMANDER="$1"; TOPIC="$2"; shift 2
+TIMEOUT=600
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --timeout)   TIMEOUT="$2"; shift 2 ;;
+    --timeout=*) TIMEOUT="${1#*=}"; shift ;;
+    *)           echo "unknown arg: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+# ------------------------------------------------------------ Resolve model
+
+TOPIC_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC"
+MODEL=""
+if [[ -d "$TOPIC_DIR" ]]; then
+  for d in "$TOPIC_DIR"/${COMMANDER}-*; do
+    [[ -d "$d" ]] || continue
+    MODEL="${d##*/${COMMANDER}-}"
+    break
+  done
+fi
+[[ -n "$MODEL" ]] || { log_error "no trooper '$COMMANDER' on topic '$TOPIC'"; exit 1; }
+
+# ------------------------------------------------------------ Poll outbox
+
+OUTBOX=$(cw_outbox_path "$COMMANDER" "$MODEL" "$TOPIC")
+log_info "tailing $OUTBOX (timeout ${TIMEOUT}s)"
+
+for ((i = 0; i < TIMEOUT; i++)); do
+  if grep -q '"event":"done"' "$OUTBOX" 2>/dev/null; then
+    EVENT=$(grep '"event":"done"' "$OUTBOX" | tail -n1)
+    log_ok "{done} received"
+    echo "$EVENT"
+    exit 0
+  fi
+  if grep -q '"event":"error"' "$OUTBOX" 2>/dev/null; then
+    EVENT=$(grep '"event":"error"' "$OUTBOX" | tail -n1)
+    log_error "{error} received from $COMMANDER"
+    echo "$EVENT"
+    exit 1
+  fi
+  sleep 1
+done
+
+log_error "timeout after ${TIMEOUT}s; outbox tail:"
+tail -n 5 "$OUTBOX" >&2
+exit 1
