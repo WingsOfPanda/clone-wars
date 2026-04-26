@@ -46,6 +46,25 @@ else
   warn=1
 fi
 
+# 2b. pane-border-format reads @cw_label_fmt / @cw_label so trooper labels
+# (with Morandi colors) show on pane borders. Cosmetic-only (runtime works
+# without it; spawn just sets the user-options and moves on), so this is
+# always WARN — never FAIL.
+if cw_in_tmux_session && tmux info >/dev/null 2>&1; then
+  pbf=$(tmux show-options -g pane-border-format 2>/dev/null)
+  if [[ "$pbf" == *@cw_label* ]]; then
+    log_ok "pane-border-format: @cw_label-aware (trooper names visible on pane borders)"
+  else
+    log_warn "pane-border-format doesn't read @cw_label; trooper names won't show on pane borders"
+    log_warn "  fix: add to ~/.tmux.conf:"
+    log_warn "    set -g pane-border-status top"
+    log_warn "    set -g pane-border-format ' #{?@cw_label_fmt,#{@cw_label_fmt},#[fg=#{?@cw_color,#{@cw_color},default}#,bold]#{?@cw_label,#{@cw_label},#{pane_title}}#[default]} '"
+    log_warn "  optional: focused trooper pane gets its commander's color outline"
+    log_warn "    set-hook -g after-select-pane 'set-option -g pane-active-border-style \"fg=#{?@cw_color,#{@cw_color},green}\"'"
+    warn=1
+  fi
+fi
+
 # 3. state dir resolves and is writable
 if cw_state_ensure 2>/dev/null && [[ -w "$state_root" ]]; then
   log_ok "state dir: $state_root (writable)"
