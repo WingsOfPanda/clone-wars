@@ -37,10 +37,11 @@ for topic_dir in "$REPO_DIR"/*/; do
   [[ -z "$TOPIC_FILTER" || "$topic" == "$TOPIC_FILTER" ]] || continue
   for trooper_dir in "$topic_dir"*/; do
     [[ -d "$trooper_dir" ]] || continue
-    name="${trooper_dir%/}"; name="${name##*/}"
-    commander="${name%-*}"
-    model="${name##*-}"
-    pane=$(cw_pane_meta_read "$commander" "$model" "$topic" 2>/dev/null || echo '?')
+    mapfile -t META < <(cw_pane_meta_read_for_dir "$trooper_dir")
+    commander="${META[0]}"
+    model="${META[1]}"
+    pane="${META[2]:-?}"
+    [[ -z "$pane" ]] && pane='?'
     state='[ORPHAN]'
     if [[ "$pane" != '?' ]] && cw_pane_alive "$pane"; then
       outbox=$(cw_outbox_path "$commander" "$model" "$topic")

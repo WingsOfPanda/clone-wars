@@ -28,21 +28,25 @@ COMMANDER="$1"; TOPIC="$2"; shift 2
 MSG_OR_FILE="$*"
 
 # ------------------------------------------------------------ Resolve model
+# Locate the state dir (its name's last segment is the model hint), then
+# read the canonical model from pane.json (v0.0.4+); fallback to hint for
+# legacy state dirs.
 
 TOPIC_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC"
-MODEL=""
+MODEL_HINT=""
 if [[ -d "$TOPIC_DIR" ]]; then
   for d in "$TOPIC_DIR"/${COMMANDER}-*; do
     [[ -d "$d" ]] || continue
-    MODEL="${d##*/${COMMANDER}-}"
+    MODEL_HINT="${d##*/${COMMANDER}-}"
     break
   done
 fi
-if [[ -z "$MODEL" ]]; then
+if [[ -z "$MODEL_HINT" ]]; then
   log_error "no trooper '$COMMANDER' on topic '$TOPIC' (state dir absent)"
   log_error "  spawn first: /clone-wars:spawn $COMMANDER <model> $TOPIC"
   exit 1
 fi
+MODEL=$(cw_pane_meta_model "$COMMANDER" "$MODEL_HINT" "$TOPIC")
 
 # ------------------------------------------------------------ Resolve pane
 

@@ -32,15 +32,16 @@ done
 # ------------------------------------------------------------ Resolve model
 
 TOPIC_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC"
-MODEL=""
+MODEL_HINT=""
 if [[ -d "$TOPIC_DIR" ]]; then
   for d in "$TOPIC_DIR"/${COMMANDER}-*; do
     [[ -d "$d" ]] || continue
-    MODEL="${d##*/${COMMANDER}-}"
+    MODEL_HINT="${d##*/${COMMANDER}-}"
     break
   done
 fi
-[[ -n "$MODEL" ]] || { log_error "no trooper '$COMMANDER' on topic '$TOPIC'"; exit 1; }
+[[ -n "$MODEL_HINT" ]] || { log_error "no trooper '$COMMANDER' on topic '$TOPIC'"; exit 1; }
+MODEL=$(cw_pane_meta_model "$COMMANDER" "$MODEL_HINT" "$TOPIC")
 
 # ------------------------------------------------------------ Poll outbox
 

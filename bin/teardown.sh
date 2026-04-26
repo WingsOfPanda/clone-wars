@@ -56,9 +56,10 @@ teardown_topic() {
   local pending_panes=()
   for trooper_dir in "$topic_dir"/*/; do
     [[ -d "$trooper_dir" ]] || continue
-    local name="${trooper_dir%/}"; name="${name##*/}"
-    local commander="${name%-*}" model="${name##*-}"
-    local pane; pane=$(cw_pane_meta_read "$commander" "$model" "$topic" 2>/dev/null || echo '')
+    local _META; mapfile -t _META < <(cw_pane_meta_read_for_dir "$trooper_dir")
+    local commander="${_META[0]}"
+    local model="${_META[1]}"
+    local pane="${_META[2]}"
     if [[ -n "$pane" ]] && cw_pane_alive "$pane"; then
       pending_panes+=("$pane")
       any_kicked=1
@@ -113,7 +114,8 @@ case "${1:-}" in
       for d in "$topic_dir"/${commander}-*/; do
         [[ -d "$d" ]] || continue
         name="${d%/}"; name="${name##*/}"
-        model="${name##*-}"
+        model_hint="${name##*-}"
+        model=$(cw_pane_meta_model "$commander" "$model_hint" "$topic")
         pane=$(cw_pane_meta_read "$commander" "$model" "$topic" 2>/dev/null || echo '')
         if [[ -n "$pane" ]] && cw_pane_alive "$pane"; then
           pending_pane="$pane"
