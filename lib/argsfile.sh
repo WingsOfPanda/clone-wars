@@ -3,10 +3,11 @@
 # Used by bin/*.sh when invoked via `--args-file <path>` from the command
 # markdown directives — fences off shell injection from $ARGUMENTS.
 #
-# Parsing semantics: standard bash word-splitting via `read -ra` against
-# the file's first line, EXCEPT we run it inside a controlled subshell with
-# default IFS so shell metacharacters in the file are NOT re-interpreted —
-# they survive as literal text inside their containing quoted token.
+# Parsing semantics: tokenize via `xargs -n1 printf '%s\n'`. xargs parses
+# single/double quotes per POSIX rules and emits one whitespace-separated
+# token per line. Bash never sees the file content as source — that's the
+# load-bearing property: $(...), backticks, ; chained commands, etc., all
+# survive as literal text inside their containing quoted token.
 
 cw_args_file_load() {
   local path="$1"
@@ -14,9 +15,9 @@ cw_args_file_load() {
   local line
   IFS= read -r line < "$path" || true
   [[ -n "$line" ]] || return 0
-  # Use eval-with-printf trick: wrap each token in single quotes via xargs,
-  # then declare into an array. xargs handles double-quoted phrases per its
-  # standard parsing rules.
+  # xargs reads stdin once with -n1 and prints each token to stdout on its
+  # own line. The 2>/dev/null swallows xargs's "unmatched quote" warnings
+  # for malformed input — best-effort tokenization, garbage in / garbage out.
   local tokens=()
   while IFS= read -r tok; do
     tokens+=("$tok")
