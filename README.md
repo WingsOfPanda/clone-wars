@@ -173,19 +173,6 @@ For everything else: `docs/DESIGN.md` §Failure modes.
 
 ---
 
-## Scope
-
-Clone Wars is the **trimmed primitive**: spawn, send, collect, list, teardown. It
-deliberately does *not* do worktree isolation, role routing, multi-conductor coordination,
-MCP servers, mobile control, or pattern learning. If you need that larger surface, look at
-[oh-my-claudecode](https://github.com/yeachan-heo/oh-my-claudecode) — it's the source
-pattern this plugin distills from.
-
-The whole point of Clone Wars is to be small enough to drop into any project and be useful
-on day one.
-
----
-
 ## License
 
 MIT — see `LICENSE`.
