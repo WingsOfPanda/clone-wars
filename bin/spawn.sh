@@ -56,16 +56,26 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# ------------------------------------------------------------ Validation
-
-cw_in_tmux_session  || { log_error "must run inside a tmux session"; exit 1; }
-cw_have_cmd tmux    || { log_error "tmux not on PATH"; exit 1; }
-cw_tmux_version_ok  || { log_error "tmux >= 3.0 required"; exit 1; }
-
+# ------------------------------------------------------------ Input validation
+# Run this FIRST so malformed args fail fast without depending on tmux/state.
+# Both regexes match: lowercase, digits, hyphens; 1-32 chars.
 if ! [[ "$TOPIC" =~ ^[a-z0-9-]+$ ]] || (( ${#TOPIC} > 32 )); then
   log_error "topic must match [a-z0-9-]+ and be <= 32 chars; got: '$TOPIC'"
   exit 2
 fi
+# 'random' is a sentinel — let it through; it's resolved against the pool below.
+if [[ "$COMMANDER" != "random" ]]; then
+  if ! [[ "$COMMANDER" =~ ^[a-z0-9-]+$ ]] || (( ${#COMMANDER} > 32 )) || [[ -z "$COMMANDER" ]]; then
+    log_error "commander must match [a-z0-9-]+ and be <= 32 chars (or 'random'); got: '$COMMANDER'"
+    exit 2
+  fi
+fi
+
+# ------------------------------------------------------------ Environment validation
+
+cw_in_tmux_session  || { log_error "must run inside a tmux session"; exit 1; }
+cw_have_cmd tmux    || { log_error "tmux not on PATH"; exit 1; }
+cw_tmux_version_ok  || { log_error "tmux >= 3.0 required"; exit 1; }
 
 if [[ "$COMMANDER" == "random" ]]; then
   COMMANDER=$(cw_commander_pick_random "$TOPIC") || {
