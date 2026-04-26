@@ -1,15 +1,23 @@
 ---
-description: Write to a trooper's inbox and nudge it (RUNTIME PENDING — see roadmap)
+description: Write a task to a trooper's inbox and nudge the pane to read it
 argument-hint: <commander> <topic> <message-or-@file>
 allowed-tools: Bash
 ---
 
 # /clone-wars:send
 
-Write a message to a trooper's inbox and nudge the pane to read it.
+Write a task to a trooper's inbox and nudge the pane to read it.
 
-**Note:** in v0.0.1-pre1 this command is a stub. The runtime ships in v0.0.1 after the
-tracer-bullet validates tmux + IPC mechanics. Spec: `docs/DESIGN.md` §`/clone-wars-send`.
+- `commander` — must already be deployed on `topic` (via `/clone-wars:spawn`).
+- `topic` — the operation slug.
+- `message-or-@file` — literal text (multi-word OK; the rest of the line is one task) OR
+  `@<path>` to inline a file as the task body. The script appends the
+  `END_OF_INSTRUCTION` sentinel automatically.
+
+The trooper's pane is identified by `pane.json` (written at spawn time). If the recorded
+pane has died, send fails with an [ORPHAN] message and a hint to teardown.
+
+This is fire-and-forget — pair with `/clone-wars:collect` to wait for `{done}`.
 
 ## Steps
 
