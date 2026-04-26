@@ -30,30 +30,28 @@ documented as a deliberate departure with a why-line).
 
 ## Commands
 
-This is a pre-alpha shell + tmux plugin — no build/lint/test toolchain yet. Until the
-tracer-bullet lands, the only "commands" are environment checks and (eventually) the
-tracer script.
+v0.0.1-pre1 has shipped: marketplace shell + `/clone-wars:medic` + lib helpers + tests. The runtime
+commands (`spawn`/`send`/`collect`/`list`/`teardown`) are stubs pending the tracer-bullet (Plan B).
 
 ```bash
-# Verify host has tmux and at least one provider CLI before running anything
-command -v tmux codex gemini claude
+# Verify the host can run Clone Wars (works today)
+bash bin/medic.sh
+# or from a Claude Code session: /clone-wars:medic
 
-# Must be inside a tmux session — the plugin uses split-window
-tmux ls || tmux new -d -s clone-wars-dev
+# Run the test suite (4 test files, 22 tests)
+bash tests/run.sh
 
-# Step 1 — once it exists, end-to-end validation for one Codex pane.
-# Run 3x clean to consider step 1 done (see "Build order" below).
-bash tracer/tracer-bullet.sh
+# Inspect/clean per-trooper state while iterating (Plan B will populate state/)
+ls ~/.clone-wars/state/      # active troopers (empty until v0.0.1)
+ls ~/.clone-wars/archive/    # archived after teardown (empty until v0.0.1)
+rm -rf ~/.clone-wars/state/* # nuke active state if a tracer run wedges (Plan B)
 
-# Inspect/clean per-trooper state while iterating
-ls ~/.clone-wars/state/      # active troopers
-ls ~/.clone-wars/archive/    # archived after teardown
-rm -rf ~/.clone-wars/state/* # nuke active state if a tracer run wedged
+# Plan B work (not yet built — gated on tracer-bullet validating tmux/IPC mechanics)
+# bash tracer/tracer-bullet.sh
 ```
 
-There is no `package.json`, no test runner, and no linter yet — don't add them
-speculatively. When the tracer-bullet stabilizes and `lib/` is extracted (build order
-step 3), reach for `shellcheck` / `bats` before inventing anything custom.
+No `package.json` and no separate test framework — pure bash + `tests/run.sh`. Use `shellcheck`
+locally if you want extra linting; not required.
 
 ## Repository layout
 
@@ -63,10 +61,10 @@ clone-wars/
 ├── README.md                  ← user-facing intro (write last, when plugin works)
 ├── LICENSE                    ← MIT
 ├── docs/
-│   ├── DESIGN.md              ← frozen design, read first
-│   ├── ARCHITECTURE.md        ← (future) deep dive on tmux + IPC mechanics
-│   ├── PROTOCOL.md            ← (future) formal inbox/outbox/status spec
-│   └── TROUBLESHOOTING.md     ← (future) common failures + recovery
+│   ├── DESIGN.md              ← runtime/IPC design (Plan B is informed by this)
+│   └── superpowers/
+│       ├── specs/             ← per-feature design specs (e.g. marketplace-prep)
+│       └── plans/             ← implementation plans
 ├── bin/                       ← real executable shell scripts (one per command)
 │   ├── medic.sh               ← health check (live in v0.0.1-pre1)
 │   ├── spawn.sh               ← stub in v0.0.1-pre1; real in v0.0.1
@@ -82,11 +80,11 @@ clone-wars/
 │   ├── list.md
 │   └── teardown.md
 ├── lib/                       ← shell helpers
-│   ├── tmux.sh                ← split-window, send-keys, kill-pane wrappers
-│   ├── ipc.sh                 ← inbox / outbox / status read+write
-│   ├── contracts.sh           ← contract resolution, binary validation
-│   ├── commanders.sh          ← random picker, uniqueness check
-│   └── state.sh               ← state-dir layout, repo-hash, archive
+│   ├── log.sh                 ← log_info/warn/error/ok (stderr); TTY-guarded color
+│   ├── state.sh               ← $CLONE_WARS_HOME resolution; cw_repo_hash
+│   ├── deps.sh                ← cw_have_cmd; tmux version + session checks
+│   ├── contracts.sh           ← provider enumeration + binary lookup (awk)
+│   └── (Plan B: tmux.sh, ipc.sh, commanders.sh — not yet written)
 ├── config/                    ← shipped defaults (copied to ~/.clone-wars/ on install)
 │   ├── commanders.yaml        ← curated commander pool
 │   ├── contracts.yaml         ← three default rows: claude, codex, gemini
@@ -96,13 +94,15 @@ clone-wars/
     └── tracer-bullet.sh       ← end-to-end validation script (build this FIRST)
 ```
 
-Most of those directories are empty right now. Don't fill them speculatively — build the
-tracer-bullet first, then scaffold commands one at a time as you prove pieces work.
+v0.0.1-pre1 populates `.claude-plugin/`, `bin/`, `commands/`, `config/`, `lib/`, `tests/`. The
+tracer-bullet under `tracer/` is the next thing to build (Plan B step 1) — don't fill it
+speculatively until you've decided whether the load-bearing tmux/IPC assumptions in
+`docs/DESIGN.md` actually hold on this machine.
 Slash commands are markdown directives that invoke the matching `bin/*.sh` via the Bash tool — they are not themselves bash scripts.
 
 ## Design summary (one-page version)
 
-A **conductor** is a Claude Code session running `/clone-wars-*` commands. Each command
+A **conductor** is a Claude Code session running `/clone-wars:*` commands. Each command
 shells out to `tmux split-window` to spawn a model TUI in a new pane the conductor's user
 can attach to with `tmux select-pane`. The pane runs `codex`, `gemini`, or `claude`
 interactively — not a one-shot `codex exec`. Lead and trooper communicate via files:
@@ -166,7 +166,7 @@ Don't add abstractions until you've extracted the working code three times and s
 
 ### Step 4 — Slash commands
 
-Author the five `commands/*.md` files. Each one is a thin wrapper that sources the lib helpers
+Author the six `commands/*.md` files (medic + the five orchestration verbs). Each one is a thin wrapper that sources the lib helpers
 and orchestrates one user-facing operation. Aim for **<60 lines per command**; if a command is
 longer, the abstraction in `lib/` is wrong.
 
@@ -183,7 +183,7 @@ while Gemini reviews." Don't generalize until you've used it for real once.
 ### Step 7 — README + marketplace publish
 
 When the plugin actually works, write the user-facing `README.md` (motivation, quickstart,
-five commands × example each, troubleshooting). Then publish.
+six commands × example each, troubleshooting). Then publish.
 
 ### Step 8 — (Future) Strike-team integration
 
@@ -282,12 +282,15 @@ This repo follows Conventional Commits loosely: `feat:`, `fix:`, `docs:`, `test:
 - [x] Design doc written
 - [x] Repo created on GitHub (`WingsOfPanda/clone-wars`)
 - [x] Local scaffolding (CLAUDE.md, docs/, commands/, lib/, config/, tracer/)
+- [x] Marketplace shell (.claude-plugin/{plugin,marketplace}.json)
+- [x] `lib/` helpers — log, state, deps, contracts (tmux/ipc/commanders pending Plan B)
+- [x] `/clone-wars:medic` (live; spawn/send/collect/list/teardown stubbed)
+- [x] User-facing README (v0.0.1-pre1 marketplace listing)
+- [x] Marketplace publish (v0.0.1-pre1 tagged + pushed; install path live)
 - [ ] Tracer-bullet for codex
 - [ ] Tracer-bullet for gemini
 - [ ] Tracer-bullet for claudecode
-- [ ] `lib/` helpers
-- [ ] Five slash commands
-- [ ] `plugin.json` + marketplace metadata
+- [ ] Real implementations of spawn/send/collect/list/teardown (replace stubs)
 - [ ] Real-task dogfood
-- [ ] User-facing README
-- [ ] Marketplace publish
+- [ ] Tag v0.0.1 (runtime commands working end-to-end)
+- [ ] Submit to claude-plugins-official (post-dogfood)
