@@ -10,7 +10,7 @@
     {
       "name": "clone-wars",
       "description": "Spawn codex/gemini/claude TUIs as attachable tmux panes; orchestrate them via file-based IPC",
-      "version": "0.0.3",
+      "version": "0.0.4",
       "source": "./",
       "category": "orchestration",
       "homepage": "https://github.com/WingsOfPanda/clone-wars",
@@ -26,5 +26,5 @@
       }
     }
   ],
-  "version": "0.0.3"
+  "version": "0.0.4"
 }
