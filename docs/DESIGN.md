@@ -80,21 +80,21 @@ Examples:
 - `wolffe-claudecode-migration` — Wolffe (claude-code pane) running a migration
 
 The **topic doubles as the implicit crew name**. Listing or teardown can scope by topic:
-`/clone-wars-list auth-review` shows every trooper on that operation; `/clone-wars-teardown auth-review`
+`/clone-wars:list auth-review` shows every trooper on that operation; `/clone-wars:teardown auth-review`
 kills all of them.
 
 ### Commander uniqueness rules
 
 - **Within a topic**: commander name MUST be unique. Two Rexes on `auth-review` is an error at spawn.
 - **Across topics**: commander name MAY repeat (Rex on `auth-review` + Rex on `ui-redesign` simultaneously is allowed) — but the spawn command emits a soft warning and suggests unused alternatives. Discouraged, not forbidden.
-- **`random` keyword**: `/clone-wars-spawn random codex <topic> "..."` picks an unused commander, biased toward globally-unused first, then topic-unused, then any from the pool.
+- **`random` keyword**: `/clone-wars:spawn random codex <topic> "..."` picks an unused commander, biased toward globally-unused first, then topic-unused, then any from the pool.
 
 ## Slash commands
 
 Six commands. Five orchestration verbs (spawn/send/collect/list/teardown) plus medic
 (health check). No more until proven necessary.
 
-### `/clone-wars-spawn <commander> <model> <topic> [--mode <full|read-only>] [initial-prompt]`
+### `/clone-wars:spawn <commander> <model> <topic> [--mode <full|read-only>] [initial-prompt]`
 
 Spawns a new tmux pane running the given model's CLI binary, registers state, injects identity prompt.
 
@@ -108,7 +108,7 @@ Spawns a new tmux pane running the given model's CLI binary, registers state, in
 - `tmux send-keys` builds the launch line: `env <env> <binary> <args>` then Enter.
 - Polls `outbox.jsonl` for `{event: "ready"}` (timeout 30s default; 60s for `claudecode`). On timeout: kill pane, error.
 - Writes `pane.json` with the captured pane ID and PID for the registry.
-- If `initial-prompt` is given, immediately follows up with the equivalent of `/clone-wars-send`.
+- If `initial-prompt` is given, immediately follows up with the equivalent of `/clone-wars:send`.
 - Returns: pane ID + state directory path.
 
 `--mode` selects which arg set the contract row maps to (`full` = yolo / bypass;
@@ -116,21 +116,21 @@ Spawns a new tmux pane running the given model's CLI binary, registers state, in
 See the marketplace-prep design spec (`docs/superpowers/specs/2026-04-25-clone-wars-marketplace-prep-design.md` §4)
 for the contracts.yaml shape and per-provider mappings.
 
-### `/clone-wars-send <commander> <topic> <message-or-@file>`
+### `/clone-wars:send <commander> <topic> <message-or-@file>`
 
 Writes a message to the trooper's inbox and nudges the pane to read it.
 
 - Resolves the trooper from `<commander>-<topic>` (model is implicit by registry lookup).
 - `<message-or-@file>`: literal string OR `@<path>` for a file (read+inline). Supports multi-line via heredoc-like quoting in shell.
-- Writes `inbox.md` (overwrite or append? **overwrite** — single-message-at-a-time semantics, simpler. Each send replaces the previous. If you want a queue, use `/clone-wars-send` repeatedly with `--wait` flag that blocks until previous is done.)
+- Writes `inbox.md` (overwrite or append? **overwrite** — single-message-at-a-time semantics, simpler. Each send replaces the previous. If you want a queue, use `/clone-wars:send` repeatedly with `--wait` flag that blocks until previous is done.)
 - Appends `END_OF_INSTRUCTION\n` sentinel.
 - `tmux send-keys -t <pane_id>` types the path: `Read .clone-wars/...inbox.md and execute.` then Enter.
   - `send-keys -l` (literal) for the path text to avoid keymap interpretation.
   - Followed by `Enter` to commit.
-- Default behavior: **fire-and-forget** (returns immediately). Pair with `/clone-wars-collect` if you want sync.
+- Default behavior: **fire-and-forget** (returns immediately). Pair with `/clone-wars:collect` if you want sync.
 - Updates `status.json` to `{state: "queued"}` after writing.
 
-### `/clone-wars-collect <commander> <topic> [--timeout <sec>]`
+### `/clone-wars:collect <commander> <topic> [--timeout <sec>]`
 
 Blocks until the trooper's outbox has a `{event: "done"}` or `{event: "error"}` event, then prints
 the most recent assistant output (the `summary` field of `done` or `message` field of `error`).
@@ -140,26 +140,26 @@ the most recent assistant output (the `summary` field of `done` or `message` fie
 - On timeout: returns the last `{event: "progress"}` note + warning.
 - Stays clean (no piping ANSI escapes); the trooper is responsible for plain-text outbox writes.
 
-### `/clone-wars-list [<topic>]`
+### `/clone-wars:list [<topic>]`
 
 Shows the active troopers (panes + state).
 
 - No arg: every active trooper across every topic, grouped by topic.
 - With `<topic>` arg: scoped to that topic only.
 - Per row: commander, model, topic, status (from status.json), pane alive (`tmux list-panes` cross-check), pane ID (so user can `tmux select-pane -t <id>` to attach).
-- Detects orphans: state dir exists but pane is dead (`kill -0 <pid>` fails OR `tmux list-panes` doesn't include the pane ID). Emits `[ORPHAN]` flag and recommends `/clone-wars-teardown <commander> <topic>`.
+- Detects orphans: state dir exists but pane is dead (`kill -0 <pid>` fails OR `tmux list-panes` doesn't include the pane ID). Emits `[ORPHAN]` flag and recommends `/clone-wars:teardown <commander> <topic>`.
 
-### `/clone-wars-teardown [<commander>] [<topic>]`
+### `/clone-wars:teardown [<commander>] [<topic>]`
 
 Kills panes and archives state.
 
-- `/clone-wars-teardown` — refuses without scope (safety: don't accidentally nuke everything). Suggests `--all` flag for the explicit version.
-- `/clone-wars-teardown <topic>` — kills all troopers on that topic, archives state to `~/.clone-wars/archive/<repo-hash>/<topic>-<timestamp>/`.
-- `/clone-wars-teardown <commander> <topic>` — kills just that trooper, archives only its state dir.
+- `/clone-wars:teardown` — refuses without scope (safety: don't accidentally nuke everything). Suggests `--all` flag for the explicit version.
+- `/clone-wars:teardown <topic>` — kills all troopers on that topic, archives state to `~/.clone-wars/archive/<repo-hash>/<topic>-<timestamp>/`.
+- `/clone-wars:teardown <commander> <topic>` — kills just that trooper, archives only its state dir.
 - `--all` flag — kills every trooper in every topic. Requires confirmation.
 - Sends `tmux kill-pane -t <pane_id>`, then `mv` state dir to archive. Archive is forensic — if a deploy was driven by clone-wars and a bug surfaces a week later, the state dir tells you exactly what each trooper was told and what it reported.
 
-### `/clone-wars-medic`
+### `/clone-wars:medic`
 
 Health check — verifies the host can run Clone Wars. Checks tmux presence + version
 (>= 3.0), `$CLONE_WARS_HOME` writability, presence of `contracts.yaml` + `commanders.yaml`
@@ -175,7 +175,7 @@ Spec: `docs/superpowers/specs/2026-04-25-clone-wars-marketplace-prep-design.md` 
 
 ### `inbox.md`
 
-Plain markdown. Conductor overwrites this file completely on each `/clone-wars-send`. Last line MUST be `END_OF_INSTRUCTION` so the trooper knows it has the full message and isn't reading mid-write.
+Plain markdown. Conductor overwrites this file completely on each `/clone-wars:send`. Last line MUST be `END_OF_INSTRUCTION` so the trooper knows it has the full message and isn't reading mid-write.
 
 ```markdown
 # Task: review auth flow
@@ -226,7 +226,7 @@ Single JSON object, overwritten atomically (write to `.tmp` + rename):
 
 States: `bootstrapping` → `idle` → `queued` → `working` → `idle|done|error`.
 
-The trooper updates this after every outbox event. The conductor reads it for `/clone-wars-list`.
+The trooper updates this after every outbox event. The conductor reads it for `/clone-wars:list`.
 
 ## Provider contracts
 
@@ -303,7 +303,7 @@ $CLONE_WARS_HOME/   # default ~/.clone-wars; override via env var
 ├── commanders.yaml          ← curated commander pool, user-editable
 ├── contracts.yaml           ← per-provider launch contract, user-editable
 ├── identity-template.md     ← system prompt template
-├── repo-hash-map.json       ← {<sha256-of-cwd>: <readable-cwd>} for /clone-wars-list
+├── repo-hash-map.json       ← {<sha256-of-cwd>: <readable-cwd>} for /clone-wars:list
 ├── state/
 │   └── <repo-hash>/         ← sha256(cwd) — multi-repo isolation
 │       └── <topic>/         ← e.g. auth-review
@@ -341,14 +341,14 @@ collect_timeout_default_s: 600
 
 | Failure | Detection | Recovery |
 |---|---|---|
-| Pane dies silently (model crash, segfault) | `tmux list-panes` doesn't include pane ID; OR `kill -0 <pid>` fails | `/clone-wars-list` flags `[ORPHAN]`; user runs teardown |
-| Conductor (Claude Code) crashes mid-task | Panes keep running; state dirs persist | New conductor session: `/clone-wars-list` shows still-alive panes; resume via `/clone-wars-send` |
+| Pane dies silently (model crash, segfault) | `tmux list-panes` doesn't include pane ID; OR `kill -0 <pid>` fails | `/clone-wars:list` flags `[ORPHAN]`; user runs teardown |
+| Conductor (Claude Code) crashes mid-task | Panes keep running; state dirs persist | New conductor session: `/clone-wars:list` shows still-alive panes; resume via `/clone-wars:send` |
 | ANSI bleed into outbox.jsonl (model writes terminal escape codes) | First broken JSONL line | Identity prompt explicitly forbids terminal-escape output in outbox; verify in tracer |
 | Inbox written mid-read by trooper | Race possible if trooper polls aggressively | `END_OF_INSTRUCTION` sentinel: trooper reads only when sentinel is the last line |
 | `tmux send-keys` interleaves with TUI rendering | Garbled launch | Use `tmux load-buffer` + `paste-buffer` instead of streaming `send-keys`; followed by single Enter |
 | Two conductors race on same trooper | Both write inbox.md | First conductor wins; sentinel guarantees atomicity. Second conductor's write overwrites — out of scope, single-conductor model |
-| Stale state from previous deploy | State dir exists but no pane | `/clone-wars-list` flags orphan; `/clone-wars-teardown` archives even orphans cleanly |
-| Commander name reused on same topic | Spawn-time check | Hard error: "Rex is already deployed on auth-review. Pick another commander or `/clone-wars-teardown rex auth-review` first." |
+| Stale state from previous deploy | State dir exists but no pane | `/clone-wars:list` flags orphan; `/clone-wars:teardown` archives even orphans cleanly |
+| Commander name reused on same topic | Spawn-time check | Hard error: "Rex is already deployed on auth-review. Pick another commander or `/clone-wars:teardown rex auth-review` first." |
 | Commander reused across topics | Spawn-time check | Soft warning: "Rex is on auth-review (codex). Spawning second Rex on ui-redesign. Consider: Cody, Wolffe, Bly..." |
 | Provider binary not on PATH | Pre-spawn check (`command -v <binary>`) | Hard error with install hint from contract |
 
@@ -356,16 +356,16 @@ collect_timeout_default_s: 600
 
 The plugin is "real" when this end-to-end flow works:
 
-1. `/clone-wars-spawn rex codex tracer "Read README.md and reply with a one-line summary"` succeeds.
+1. `/clone-wars:spawn rex codex tracer "Read README.md and reply with a one-line summary"` succeeds.
 2. New tmux pane appears (right-split of conductor); user can `tmux select-pane -t <id>` to attach and watch Codex think.
 3. `outbox.jsonl` shows `ready` → `ack` → at least one `progress` → `done` events in order.
-4. `/clone-wars-collect rex tracer` returns the one-line summary.
-5. `/clone-wars-list` shows `rex-codex-tracer` as `idle` after collect.
-6. Second `/clone-wars-send rex tracer "@/path/to/another/file"` triggers a fresh `ack` → `done` cycle (trooper persists across tasks).
-7. `/clone-wars-teardown tracer` kills the pane and moves state to archive.
+4. `/clone-wars:collect rex tracer` returns the one-line summary.
+5. `/clone-wars:list` shows `rex-codex-tracer` as `idle` after collect.
+6. Second `/clone-wars:send rex tracer "@/path/to/another/file"` triggers a fresh `ack` → `done` cycle (trooper persists across tasks).
+7. `/clone-wars:teardown tracer` kills the pane and moves state to archive.
 8. Repeat (1)–(7) with `gemini` and `claudecode` provider rows.
-9. `/clone-wars-spawn rex codex auth-review "..."` while Rex still on `tracer` → soft warning, spawn proceeds.
-10. `/clone-wars-spawn rex codex tracer "..."` while a Rex already on tracer → hard error.
+9. `/clone-wars:spawn rex codex auth-review "..."` while Rex still on `tracer` → soft warning, spawn proceeds.
+10. `/clone-wars:spawn rex codex tracer "..."` while a Rex already on tracer → hard error.
 
 ## Out-of-scope (explicitly)
 
@@ -386,61 +386,29 @@ The following are deferred or rejected to keep scope honest:
 ```
 liupan: I want to review the auth flow with multiple models.
 
-claude: /clone-wars-spawn rex codex auth-review "Review src/auth/oauth.py for token-refresh edge cases"
+claude: /clone-wars:spawn rex codex auth-review "Review src/auth/oauth.py for token-refresh edge cases"
 [pane appears, splits right; Codex TUI starts]
 [outbox: ready, ack, progress: 'Reading oauth.py...', progress: 'Found 3 patterns', done]
 
-claude: /clone-wars-spawn cody gemini auth-review "Review src/auth/oauth.py for long-context cross-references with src/session/manager.py"
+claude: /clone-wars:spawn cody gemini auth-review "Review src/auth/oauth.py for long-context cross-references with src/session/manager.py"
 [pane splits down of rex; Gemini TUI starts]
 
-claude: /clone-wars-collect rex auth-review
+claude: /clone-wars:collect rex auth-review
 [returns Codex's summary]
 
-claude: /clone-wars-collect cody auth-review
+claude: /clone-wars:collect cody auth-review
 [returns Gemini's summary]
 
 claude: [synthesizes both findings, shows liupan]
 
 liupan: looks good, teardown
 
-claude: /clone-wars-teardown auth-review
+claude: /clone-wars:teardown auth-review
 [both panes killed, state archived]
 ```
 
 The conductor is doing what conductors do: orchestrate. The plugin is doing what it does:
 spawn panes, route messages, collect results.
-
-## Repo layout (when scaffolded)
-
-```
-clone-wars/
-├── README.md
-├── plugin.json                          ← marketplace metadata
-├── package.json                         ← npm metadata if published
-├── commands/
-│   ├── clone-wars-spawn.md
-│   ├── clone-wars-send.md
-│   ├── clone-wars-collect.md
-│   ├── clone-wars-list.md
-│   └── clone-wars-teardown.md
-├── lib/
-│   ├── tmux.sh                          ← split-window, send-keys, kill-pane wrappers
-│   ├── ipc.sh                           ← inbox/outbox/status read+write helpers
-│   ├── contracts.sh                     ← contract resolution + binary validation
-│   ├── commanders.sh                    ← random picker + uniqueness check
-│   └── state.sh                         ← state-dir layout + repo-hash + archive
-├── config/
-│   ├── commanders.yaml                  ← default pool (~30 names)
-│   ├── contracts.yaml                   ← three default rows
-│   ├── config.yaml                      ← default split/layout/timeouts
-│   └── identity-template.md             ← prompt template
-├── tracer/
-│   └── tracer-bullet.sh                 ← validation script for acceptance criteria
-└── docs/
-    ├── ARCHITECTURE.md
-    ├── PROTOCOL.md                      ← inbox/outbox/status spec, formal
-    └── TROUBLESHOOTING.md
-```
 
 ## Order of operations to build
 
