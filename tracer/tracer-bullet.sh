@@ -105,14 +105,15 @@ EOF
 log_info "spawning codex pane via tmux split-window -h"
 PANE_ID=$(tmux split-window -P -F '#{pane_id}' -h -c "$PLUGIN_ROOT" "codex --dangerously-bypass-approvals-and-sandbox")
 TROOPER_LABEL="$COMMANDER-$MODEL-$TOPIC"
-# Pane title makes the trooper identifiable. Visible in tmux's pane border if the
-# user has `set -g pane-border-status top` in ~/.tmux.conf; always queryable via
-# `tmux list-panes -F '#{pane_id} #{pane_title}'`.
-tmux select-pane -t "$PANE_ID" -T "$TROOPER_LABEL"
-# Flash a notice in the status line so the user sees the spawn live regardless
-# of their pane-border-status setting (default duration ~750ms; tmux's display-time).
+
+# Identification via @cw_label — a custom tmux pane user-option that's
+# OSC-immune (codex's OSC title sequences write `pane_title`, which is a
+# different variable). Set immediately at spawn; survives codex bootstrap and
+# any subsequent title emissions for the lifetime of the pane. Visible in
+# tmux's pane border via `pane-border-format ' #{?@cw_label,#{@cw_label},#{pane_title}} '`.
+tmux set-option -p -t "$PANE_ID" @cw_label "$TROOPER_LABEL"
 tmux display-message "spawned $TROOPER_LABEL in pane $PANE_ID"
-log_ok "pane created: $PANE_ID (title=$TROOPER_LABEL)"
+log_ok "pane created: $PANE_ID  (@cw_label=$TROOPER_LABEL)"
 
 # Give codex enough time to bootstrap (banner, working-dir line, composer ready).
 # Manual experiment (tracer iteration 1) showed ~8s is the safe floor on this box.
