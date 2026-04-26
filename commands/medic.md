@@ -1,5 +1,5 @@
 ---
-description: Health check for Clone Wars — verifies tmux, $CLONE_WARS_HOME, config files, and provider binaries
+description: Health check for Clone Wars — verifies tmux, `$CLONE_WARS_HOME`, config files, and provider binaries
 argument-hint: (no args)
 allowed-tools: Bash
 ---
