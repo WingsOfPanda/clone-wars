@@ -1,16 +1,24 @@
 ---
-description: Show active troopers (RUNTIME PENDING — see roadmap)
+description: Show active troopers (panes + state); optionally scoped to a topic
 argument-hint: [<topic>]
 allowed-tools: Bash
 ---
 
 # /clone-wars:list
 
-Show the active troopers (panes + state). With no argument, lists every active trooper
-across every topic; with `<topic>` arg, scopes to that topic.
+Show every active trooper across topics, or scope to a single topic.
 
-**Note:** in v0.0.1-pre1 this command is a stub. The runtime ships in v0.0.1 after the
-tracer-bullet validates tmux + IPC mechanics. Spec: `docs/DESIGN.md` §`/clone-wars-list`.
+For each trooper the table shows: commander, model, topic, pane id, and state derived
+from the last outbox event:
+
+| State | Means |
+|---|---|
+| `spawning` | pane created but trooper hasn't emitted any event yet |
+| `ready` | trooper read identity, idle waiting for inbox |
+| `working` | trooper acked an inbox; task in progress |
+| `idle (done)` | last task completed cleanly |
+| `idle (error)` | last task failed; trooper still alive |
+| `[ORPHAN]` | state dir exists but the recorded pane is dead — run teardown |
 
 ## Steps
 

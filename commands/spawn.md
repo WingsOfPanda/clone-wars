@@ -1,16 +1,26 @@
 ---
-description: Spawn a clone trooper as a tmux pane (RUNTIME PENDING — see roadmap)
-argument-hint: <commander> <model> <topic> [--mode full|read-only] [initial-prompt]
+description: Spawn a clone trooper as a tmux pane running codex/gemini/claude
+argument-hint: <commander|random> <model> <topic> [--mode full|read-only] [initial-prompt]
 allowed-tools: Bash
 ---
 
 # /clone-wars:spawn
 
-Spawn a clone trooper as a tmux pane.
+Spawn a clone trooper as a new tmux pane running the chosen model TUI.
 
-**Note:** in v0.0.1-pre1 this command is a stub. The runtime ships in v0.0.1 after the
-tracer-bullet validates tmux + IPC mechanics. The spec is in `docs/DESIGN.md` §Slash
-commands → `/clone-wars-spawn`.
+- `commander` — name from `$CLONE_WARS_HOME/commanders.yaml` (case-insensitive), or
+  `random` to pick an unused one (biased toward globally-unused names first).
+- `model` — provider key from `$CLONE_WARS_HOME/contracts.yaml` (`codex` / `gemini` /
+  `claude` by default).
+- `topic` — operation slug, `[a-z0-9-]+` up to 32 chars.
+- `--mode` — `full` (default; the provider's yolo/bypass arg set) or `read-only`
+  (sandboxed). Pulled from the provider's `modes:` map in `contracts.yaml`.
+- `initial-prompt` — optional first task to dispatch via inbox after spawn returns.
+
+The first trooper on a topic right-splits the conductor; subsequent troopers down-split
+the most-recently-spawned trooper on the same topic (per `docs/DESIGN.md` §Pane layout).
+The pane is labeled with the trooper's Morandi color and rank
+(`captain-rex:codex:auth-review`); the active pane's border outlines in that color.
 
 ## Steps
 
@@ -20,9 +30,11 @@ commands → `/clone-wars-spawn`.
    "${CLAUDE_PLUGIN_ROOT}/bin/spawn.sh" $ARGUMENTS
    ```
 
-2. Show the script's output to the user verbatim. It explains that the runtime is pending
-   and points to `/clone-wars:medic` and `docs/DESIGN.md`.
+2. Show the script's output to the user verbatim — it reports the spawned pane id, state
+   directory, and ready status.
 
-3. If the user asks why this isn't working yet, summarize: "Clone Wars v0.0.1-pre1 ships the
-   marketplace shell + medic. The runtime commands (spawn/send/collect/list/teardown) become
-   real in v0.0.1 once the tracer-bullet validates tmux/IPC mechanics — see CLAUDE.md status."
+3. If spawn FAILs, the script also dumps the trooper pane's last 25 lines and its outbox
+   contents to stderr — surface those to the user so they can diagnose. Common causes:
+   commander already deployed on this topic (run `/clone-wars:teardown <commander> <topic>`
+   first), provider binary not on PATH, or the trooper TUI took longer than the
+   `ready_timeout_s` from `contracts.yaml` (raise it for that provider).

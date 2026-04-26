@@ -1,15 +1,18 @@
 ---
-description: Block until a trooper reports done/error in outbox.jsonl (RUNTIME PENDING)
-argument-hint: <commander> <topic> [--timeout <sec>]
+description: Block until a trooper reports done or error in outbox.jsonl
+argument-hint: <commander> <topic> [--timeout <seconds>]
 allowed-tools: Bash
 ---
 
 # /clone-wars:collect
 
-Block until a trooper reports `done` or `error`, then print the summary.
+Block until the named trooper reports `{done}` (success) or `{error}` (failure) in its
+outbox.jsonl, then print the matching JSON line.
 
-**Note:** in v0.0.1-pre1 this command is a stub. The runtime ships in v0.0.1 after the
-tracer-bullet validates tmux + IPC mechanics. Spec: `docs/DESIGN.md` §`/clone-wars-collect`.
+- `commander` `topic` — same identifiers used at spawn.
+- `--timeout` — seconds to wait, default 600.
+
+Exits 0 on `{done}` and 1 on `{error}` or timeout, so the conductor can chain commands.
 
 ## Steps
 
