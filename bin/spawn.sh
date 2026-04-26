@@ -152,6 +152,8 @@ if ! cw_outbox_wait "$COMMANDER" "$MODEL" "$TOPIC" ready "$READY_TIMEOUT" >/dev/
   log_error "pane content (last 25 lines, captured BEFORE kill):"
   tmux capture-pane -p -t "$PANE" 2>/dev/null | tail -n 25 >&2 || true
   cw_pane_kill_now "$PANE"
+  failed_archive=$(cw_state_archive "$COMMANDER" "$MODEL" "$TOPIC" FAILED)
+  log_error "state archived to: $failed_archive"
   exit 1
 fi
 log_ok "$COMMANDER is ready"
