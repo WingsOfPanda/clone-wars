@@ -3,14 +3,14 @@
   "name": "clone-wars",
   "description": "Multi-model tmux pane orchestration for Claude Code",
   "owner": {
-    "name": "liupan",
-    "email": "dragonrider.liupan@gmail.com"
+    "name": "WingsOfPanda",
+    "email": "WingsOfPanda@users.noreply.github.com"
   },
   "plugins": [
     {
       "name": "clone-wars",
       "description": "Spawn codex/gemini/claude TUIs as attachable tmux panes; orchestrate them via file-based IPC",
-      "version": "0.0.1-pre1",
+      "version": "0.0.1",
       "source": "./",
       "category": "orchestration",
       "homepage": "https://github.com/WingsOfPanda/clone-wars",
@@ -21,10 +21,10 @@
         "delegation"
       ],
       "author": {
-        "name": "liupan",
-        "email": "dragonrider.liupan@gmail.com"
+        "name": "WingsOfPanda",
+        "email": "WingsOfPanda@users.noreply.github.com"
       }
     }
   ],
-  "version": "0.0.1-pre1"
+  "version": "0.0.1"
 }
