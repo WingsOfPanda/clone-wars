@@ -166,10 +166,20 @@ cw_pane_send "$PANE" "Read $IDENTITY and follow its instructions exactly."
 
 # ------------------------------------------------------------ Wait for {ready}
 
-log_info "waiting for {ready} in outbox (timeout ${READY_TIMEOUT}s)"
-if ! cw_outbox_wait "$COMMANDER" "$MODEL" "$TOPIC" ready "$READY_TIMEOUT" >/dev/null; then
-  log_error "$COMMANDER timed out on {ready}"
+log_info "waiting for {ready,error} in outbox (timeout ${READY_TIMEOUT}s)"
+event_line=$(cw_outbox_wait "$COMMANDER" "$MODEL" "$TOPIC" ready error "$READY_TIMEOUT") || event_line=""
+if [[ -z "$event_line" ]]; then
+  log_error "$COMMANDER timed out on {ready,error}"
   log_error "outbox:"; cw_outbox_dump "$COMMANDER" "$MODEL" "$TOPIC" >&2
+  log_error "pane content (last 25 lines, captured BEFORE kill):"
+  tmux capture-pane -p -t "$PANE" 2>/dev/null | tail -n 25 >&2 || true
+  cw_pane_kill_now "$PANE"
+  failed_archive=$(cw_state_archive "$COMMANDER" "$MODEL" "$TOPIC" FAILED)
+  log_error "state archived to: $failed_archive"
+  exit 1
+fi
+if [[ "$event_line" == *'"event":"error"'* ]]; then
+  log_error "$COMMANDER reported {error} during bootstrap: $event_line"
   log_error "pane content (last 25 lines, captured BEFORE kill):"
   tmux capture-pane -p -t "$PANE" 2>/dev/null | tail -n 25 >&2 || true
   cw_pane_kill_now "$PANE"

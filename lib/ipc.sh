@@ -120,18 +120,39 @@ cw_event_match_pattern() {
   printf '^\\{"event":"%s"[,}]' "$event"
 }
 
-# cw_outbox_wait <commander> <model> <topic> <event> <timeout-seconds>
-# Poll the outbox for the named event. Print the matching JSON line to stdout
-# if found within timeout (return 0). Print nothing and return 1 on timeout.
+# cw_outbox_wait <commander> <model> <topic> <event1> [<event2> ...] <timeout>
+# Poll the outbox for ANY of the named events. Events are positional args
+# between <topic> and the FINAL <timeout> arg. Print the matching JSON line
+# on stdout and return 0 as soon as any listed event appears. Return 1 with
+# no output if the timeout expires.
+#
+# Single-event call (backward compat with Phase 1):
+#   cw_outbox_wait c m t ready 30
+# Multi-event call (Phase 2's short-circuit on error during bootstrap):
+#   cw_outbox_wait c m t ready error 30
+#
+# Uses cw_event_match_pattern for strict (anchored, ^\{"event":"X"[,}])
+# matching so a progress note containing a quoted event name doesn't
+# false-positive.
 cw_outbox_wait() {
-  local commander="$1" model="$2" topic="$3" event="$4" timeout="$5"
+  local commander="$1" model="$2" topic="$3"
+  shift 3
+  # Last positional is timeout; everything between <topic> and it is events.
+  (( $# >= 2 )) || { echo "cw_outbox_wait: need at least one event and a timeout" >&2; return 2; }
+  local timeout="${!#}"   # ${!#} = last positional
+  set -- "${@:1:$#-1}"    # drop the last positional → only events remain
+  local events=("$@")
+  [[ "$timeout" =~ ^[0-9]+$ ]] || { echo "cw_outbox_wait: timeout must be a non-negative integer; got '$timeout'" >&2; return 2; }
   local outbox; outbox=$(cw_outbox_path "$commander" "$model" "$topic")
-  local i
-  for i in $(seq 1 "$timeout"); do
-    if grep -q "\"event\":\"$event\"" "$outbox" 2>/dev/null; then
-      grep "\"event\":\"$event\"" "$outbox" | tail -n1
-      return 0
-    fi
+  local i event pat
+  for ((i = 0; i < timeout; i++)); do
+    for event in "${events[@]}"; do
+      pat=$(cw_event_match_pattern "$event")
+      if grep -qE "$pat" "$outbox" 2>/dev/null; then
+        grep -E "$pat" "$outbox" | tail -n1
+        return 0
+      fi
+    done
     sleep 1
   done
   return 1
