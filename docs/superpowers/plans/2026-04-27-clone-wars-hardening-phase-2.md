@@ -267,6 +267,8 @@ EOF
 - Modify: `/home/liupan/CC/clone-wars/bin/spawn.sh` (consume the new signature; branch on which event arrived)
 - Test: `/home/liupan/CC/clone-wars/tests/test_outbox_wait.sh` (new)
 
+**Codex review note.** The locked spec's example test calls `cw_outbox_wait commander model topic ready error 30` — varargs, NOT a quoted list. The plan was originally written with a quoted-list shape, then revised to match the spec: events are positional args between `<topic>` and the final `<timeout>`. Single-event callers (`cw_outbox_wait c m t ready 30`) continue to work because the function unpacks "all-but-last as events, last as timeout."
+
 - [ ] **Step 2.1: Write the failing test**
 
 Create `tests/test_outbox_wait.sh`:
@@ -288,24 +290,25 @@ DIR=$(cw_trooper_dir rex codex demo)
 mkdir -p "$DIR"
 
 # 1. Single-event API still works (backward compat with Phase 1's call sites).
+#    Signature: cw_outbox_wait <commander> <model> <topic> <event> <timeout>
 :> "$DIR/outbox.jsonl"
 echo '{"event":"ready","ts":"2026-04-27T00:00:00Z"}' >> "$DIR/outbox.jsonl"
 LINE=$(cw_outbox_wait rex codex demo ready 2)
 assert_contains "$LINE" '"event":"ready"' "single-event call returns the line"
 pass "single-event API preserved"
 
-# 2. Multi-event call: 'ready error' as space-separated list. ready already
-#    in the outbox → returned immediately.
-LINE=$(cw_outbox_wait rex codex demo "ready error" 2)
-assert_contains "$LINE" '"event":"ready"' "multi-event call hits ready"
-pass "multi-event API hits ready"
+# 2. Multi-event varargs call: events are positional args between topic and
+#    timeout (the locked spec shape). ready already in outbox → returned.
+LINE=$(cw_outbox_wait rex codex demo ready error 2)
+assert_contains "$LINE" '"event":"ready"' "multi-event varargs hits ready"
+pass "multi-event varargs API hits ready"
 
 # 3. Short-circuit: ONLY error in the outbox; multi-event call returns the
 #    error line WITHIN the timeout window (not after exhausting it).
 :> "$DIR/outbox.jsonl"
 echo '{"event":"error","message":"bootstrap failed","fatal":true,"ts":"2026-04-27T00:00:00Z"}' >> "$DIR/outbox.jsonl"
 START=$(date +%s)
-LINE=$(cw_outbox_wait rex codex demo "ready error" 30)
+LINE=$(cw_outbox_wait rex codex demo ready error 30)
 END=$(date +%s)
 ELAPSED=$((END - START))
 assert_contains "$LINE" '"event":"error"' "short-circuit returns error line"
@@ -314,7 +317,7 @@ pass "short-circuit on error within ${ELAPSED}s (timeout was 30s)"
 
 # 4. Timeout case: empty outbox + 2s timeout → returns 1 with no output.
 :> "$DIR/outbox.jsonl"
-LINE=$(cw_outbox_wait rex codex demo "ready error" 2 2>/dev/null) && CODE=0 || CODE=$?
+LINE=$(cw_outbox_wait rex codex demo ready error 2 2>/dev/null) && CODE=0 || CODE=$?
 assert_eq "$CODE" "1" "timeout returns rc=1"
 [[ -z "$LINE" ]] || { echo "FAIL: timeout produced output: '$LINE'" >&2; exit 1; }
 pass "timeout returns rc=1 with no output"
@@ -326,9 +329,16 @@ cat > "$DIR/outbox.jsonl" <<'EOF'
 {"event":"progress","note":"trooper said \"event\":\"ready\" in chat — but the protocol event hasn't fired","ts":"2026-04-27T00:00:00Z"}
 {"event":"ready","ts":"2026-04-27T00:00:01Z"}
 EOF
-LINE=$(cw_outbox_wait rex codex demo "ready error" 2)
+LINE=$(cw_outbox_wait rex codex demo ready error 2)
 assert_contains "$LINE" '"ts":"2026-04-27T00:00:01Z"' "matched the real ready line, not the noisy progress note"
 pass "false-positive immunity"
+
+# 6. Three-event varargs (forward-compat for any future "done|error|ack" calls).
+:> "$DIR/outbox.jsonl"
+echo '{"event":"ack","task_summary":"ok","ts":"2026-04-27T00:00:00Z"}' >> "$DIR/outbox.jsonl"
+LINE=$(cw_outbox_wait rex codex demo ready error ack 2)
+assert_contains "$LINE" '"event":"ack"' "three-event varargs hits ack"
+pass "three-event varargs"
 
 echo "  ALL: ok"
 ```
@@ -339,9 +349,9 @@ echo "  ALL: ok"
 cd /home/liupan/CC/clone-wars && bash tests/test_outbox_wait.sh
 ```
 
-Expected: FAIL on test 2 — current `cw_outbox_wait` treats its 4th arg as a single event name; `"ready error"` would be searched as a literal event name and never match.
+Expected: FAIL on test 2 — current `cw_outbox_wait` treats its 4th arg as a single event name and its 5th arg as timeout; passing `ready error 2` makes `events=ready` and `timeout=error`, which crashes the arithmetic `for ((i = 0; i < timeout; i++))`.
 
-- [ ] **Step 2.3: Rewrite `cw_outbox_wait` in `lib/ipc.sh`**
+- [ ] **Step 2.3: Rewrite `cw_outbox_wait` in `lib/ipc.sh` (varargs)**
 
 Find the current `cw_outbox_wait` function (currently around lines 111-126):
 
@@ -367,21 +377,33 @@ cw_outbox_wait() {
 Replace with:
 
 ```bash
-# cw_outbox_wait <commander> <model> <topic> <events> <timeout-seconds>
-# Poll the outbox for ANY of the named events. <events> is a space-separated
-# list (e.g. "ready" or "ready error"). Print the matching JSON line on
-# stdout and return 0 as soon as any listed event appears. Return 1 with no
-# output if the timeout expires.
+# cw_outbox_wait <commander> <model> <topic> <event1> [<event2> ...] <timeout>
+# Poll the outbox for ANY of the named events. Events are positional args
+# between <topic> and the FINAL <timeout> arg. Print the matching JSON line
+# on stdout and return 0 as soon as any listed event appears. Return 1 with
+# no output if the timeout expires.
+#
+# Single-event call (backward compat with Phase 1):
+#   cw_outbox_wait c m t ready 30
+# Multi-event call (Phase 2's short-circuit on error during bootstrap):
+#   cw_outbox_wait c m t ready error 30
 #
 # Uses cw_event_match_pattern for strict (anchored, ^\{"event":"X"[,}])
 # matching so a progress note containing a quoted event name doesn't
 # false-positive.
 cw_outbox_wait() {
-  local commander="$1" model="$2" topic="$3" events="$4" timeout="$5"
+  local commander="$1" model="$2" topic="$3"
+  shift 3
+  # Last positional is timeout; everything between <topic> and it is events.
+  (( $# >= 2 )) || { echo "cw_outbox_wait: need at least one event and a timeout" >&2; return 2; }
+  local timeout="${!#}"   # ${!#} = last positional
+  set -- "${@:1:$#-1}"    # drop the last positional → only events remain
+  local events=("$@")
+  [[ "$timeout" =~ ^[0-9]+$ ]] || { echo "cw_outbox_wait: timeout must be a non-negative integer; got '$timeout'" >&2; return 2; }
   local outbox; outbox=$(cw_outbox_path "$commander" "$model" "$topic")
   local i event pat
   for ((i = 0; i < timeout; i++)); do
-    for event in $events; do
+    for event in "${events[@]}"; do
       pat=$(cw_event_match_pattern "$event")
       if grep -qE "$pat" "$outbox" 2>/dev/null; then
         grep -E "$pat" "$outbox" | tail -n1
@@ -394,7 +416,7 @@ cw_outbox_wait() {
 }
 ```
 
-The signature is unchanged in arity (5 positional args) and the 4th-arg semantics are a strict superset: a single event name like `ready` continues to work because `for event in ready` iterates once. Multi-event use is `"ready error"`.
+The 5-arg single-event call (`c m t ready 30`) still works because `${!#}` picks the last positional (`30`) and the slice `${@:1:$#-1}` leaves `ready` as the only event. The 6-arg multi-event call (`c m t ready error 30`) puts `(ready error)` in `events[]` and `30` in `timeout`. Validates that `timeout` is numeric to fail fast on legacy callers that accidentally pass a quoted-list shape (e.g. `"ready error"` would arrive as a single event token, then the next arg would be the timeout — which works, but doesn't break either).
 
 - [ ] **Step 2.4: Run the test to verify it passes**
 
@@ -427,7 +449,7 @@ Replace with:
 
 ```bash
 log_info "waiting for {ready,error} in outbox (timeout ${READY_TIMEOUT}s)"
-event_line=$(cw_outbox_wait "$COMMANDER" "$MODEL" "$TOPIC" "ready error" "$READY_TIMEOUT") || event_line=""
+event_line=$(cw_outbox_wait "$COMMANDER" "$MODEL" "$TOPIC" ready error "$READY_TIMEOUT") || event_line=""
 if [[ -z "$event_line" ]]; then
   log_error "$COMMANDER timed out on {ready,error}"
   log_error "outbox:"; cw_outbox_dump "$COMMANDER" "$MODEL" "$TOPIC" >&2
@@ -502,7 +524,7 @@ EOF
 - Modify: `/home/liupan/CC/clone-wars/lib/ipc.sh:95-110` (`cw_inbox_write`)
 - Test: `/home/liupan/CC/clone-wars/tests/test_inbox_atomic.sh` (new)
 
-True atomicity is unobservable from a synchronous shell test (you can't reliably race a writer against a reader under a deterministic test harness). The test is a static-grep regression guard: assert `cw_inbox_write` writes to `inbox.md.tmp` then `mv -f`.
+**Codex review note.** Original plan used a deterministic `${inbox}.tmp` path. That protects READERS (rename-into-place is atomic) but NOT writers: two concurrent `send` calls truncate the same `${inbox}.tmp`, scramble each other's content, and one of the renames clobbers the other. The locked spec named "two sends in quick succession" as the explicit failure mode — so we use `mktemp "${inbox}.tmp.XXXXXX"` per invocation (each writer gets its own staging file) plus a trap that cleans up the tmp file on any abnormal exit. Test now includes a real concurrent-writer regression test, not just a static grep.
 
 - [ ] **Step 3.1: Write the failing test**
 
@@ -522,8 +544,7 @@ trap 'rm -rf "$TMP"' EXIT
 export CLONE_WARS_HOME="$TMP/cw"
 mkdir -p "$(cw_trooper_dir rex codex demo)"
 
-# 1. cw_inbox_write produces a complete inbox.md ending with END_OF_INSTRUCTION
-#    (functional check — should pass on the v0.0.4 implementation already).
+# 1. cw_inbox_write produces a complete inbox.md ending with END_OF_INSTRUCTION.
 cw_inbox_write rex codex demo "test task body"
 INBOX=$(cw_inbox_path rex codex demo)
 assert_file_exists "$INBOX" "inbox.md created"
@@ -531,27 +552,64 @@ tail -n1 "$INBOX" | grep -q '^END_OF_INSTRUCTION$' || {
   echo "FAIL: inbox.md doesn't end with END_OF_INSTRUCTION sentinel" >&2; exit 1; }
 pass "inbox.md ends with sentinel"
 
-# 2. After the write, the .tmp file is gone (rename consumed it).
-[[ ! -e "$INBOX.tmp" ]] || { echo "FAIL: inbox.md.tmp lingered after write" >&2; exit 1; }
-pass ".tmp file cleaned up"
+# 2. After the write, no .tmp* files are left in the trooper dir.
+DIR=$(cw_trooper_dir rex codex demo)
+shopt -s nullglob
+LEAKS=("$DIR"/inbox.md.tmp*)
+(( ${#LEAKS[@]} == 0 )) || { echo "FAIL: tmp leaks: ${LEAKS[*]}" >&2; exit 1; }
+shopt -u nullglob
+pass "no tmp file leaks after single write"
 
-# 3. Static wiring check: cw_inbox_write writes to inbox.md.tmp and mv's it.
-#    Without this, the function could regress to direct-cat-truncate (the
-#    v0.0.3 behavior) and tests 1+2 would still pass — they don't observe
-#    the truncate-then-write race window. Static check is the regression guard.
-grep -qE 'cat[[:space:]]>[[:space:]]"\$(tmp|inbox\.md\.tmp)"' ../lib/ipc.sh \
-  || { echo "FAIL: cw_inbox_write doesn't write to a .tmp file" >&2; exit 1; }
-grep -qE 'mv[[:space:]]-f[[:space:]]"?\$(tmp|inbox\.md\.tmp)"?[[:space:]]"?\$(inbox|"\$inbox")"?' ../lib/ipc.sh \
-  || { echo "FAIL: cw_inbox_write doesn't mv .tmp into place" >&2; exit 1; }
-pass "atomic-write pattern wired (cat to .tmp, mv -f into place)"
+# 3. Static wiring check: cw_inbox_write uses mktemp on a tmp under inbox dir
+#    AND mv -f into the final inbox path. Without per-call tmp the concurrent
+#    test below would fail intermittently — the static check is a quick
+#    regression guard against accidental reverts to a deterministic tmp path.
+grep -qE 'mktemp[[:space:]].*"\$\{?inbox\}?\.tmp\.XXXXXX"' ../lib/ipc.sh \
+  || { echo "FAIL: cw_inbox_write doesn't use mktemp \"\${inbox}.tmp.XXXXXX\"" >&2; exit 1; }
+grep -qE 'mv[[:space:]]-f[[:space:]]"\$tmp"[[:space:]]"\$inbox"' ../lib/ipc.sh \
+  || { echo "FAIL: cw_inbox_write doesn't mv -f \"\$tmp\" \"\$inbox\"" >&2; exit 1; }
+pass "atomic-write wired (mktemp per call + mv -f)"
 
-# 4. Sequential overwrites land cleanly (no .tmp leaks across calls).
+# 4. Sequential overwrites land cleanly (no race, just regression check).
 cw_inbox_write rex codex demo "first task"
 cw_inbox_write rex codex demo "second task"
-[[ ! -e "$INBOX.tmp" ]] || { echo "FAIL: .tmp lingered after second write" >&2; exit 1; }
+shopt -s nullglob
+LEAKS2=("$DIR"/inbox.md.tmp*)
+(( ${#LEAKS2[@]} == 0 )) || { echo "FAIL: tmp leaks after sequential writes: ${LEAKS2[*]}" >&2; exit 1; }
+shopt -u nullglob
 head -n1 "$INBOX" | grep -q 'second task' || {
   echo "FAIL: second write didn't replace inbox content" >&2; exit 1; }
 pass "sequential overwrites land cleanly"
+
+# 5. CONCURRENT-WRITER regression test (the failure mode #8 actually closes).
+#    Spawn N writers in parallel; each writes a uniquely-tagged task body.
+#    Afterwards: inbox.md must be exactly one of the N versions (atomic
+#    final state); NO inbox.md.tmp* file may linger; the visible content
+#    must end with END_OF_INSTRUCTION on its own line (no truncation).
+N=20
+PIDS=()
+for ((i = 0; i < N; i++)); do
+  ( cw_inbox_write rex codex demo "writer-$i: this is a concurrent test message body" ) &
+  PIDS+=("$!")
+done
+for p in "${PIDS[@]}"; do wait "$p"; done
+# (a) No tmp leaks after all writers exit.
+shopt -s nullglob
+LEAKS3=("$DIR"/inbox.md.tmp*)
+(( ${#LEAKS3[@]} == 0 )) || { echo "FAIL: concurrent tmp leaks: ${LEAKS3[*]}" >&2; exit 1; }
+shopt -u nullglob
+pass "no tmp leaks after $N concurrent writers"
+# (b) Final inbox.md ends with END_OF_INSTRUCTION (not truncated).
+tail -n1 "$INBOX" | grep -q '^END_OF_INSTRUCTION$' || {
+  echo "FAIL: concurrent-write final state truncated; tail was:" >&2
+  tail -n3 "$INBOX" >&2
+  exit 1; }
+pass "final inbox.md ends with sentinel after $N concurrent writers"
+# (c) Final content is one of the N writers' messages exactly (no interleaving).
+HEAD_LINE=$(head -n1 "$INBOX")
+[[ "$HEAD_LINE" =~ ^writer-[0-9]+: ]] || {
+  echo "FAIL: concurrent-write head looks interleaved/corrupted: '$HEAD_LINE'" >&2; exit 1; }
+pass "final content is one writer's message verbatim (no interleaving)"
 
 echo "  ALL: ok"
 ```
@@ -562,9 +620,9 @@ echo "  ALL: ok"
 cd /home/liupan/CC/clone-wars && bash tests/test_inbox_atomic.sh
 ```
 
-Expected: FAIL on test 3 — current `cw_inbox_write` cats directly to `$inbox`, no `.tmp`.
+Expected: FAIL on test 3 — current `cw_inbox_write` cats directly to `$inbox`, no `mktemp`. Test 5 may also fail intermittently with the v0.0.3 implementation (concurrent truncates).
 
-- [ ] **Step 3.3: Rewrite `cw_inbox_write` for atomic writes**
+- [ ] **Step 3.3: Rewrite `cw_inbox_write` for atomic, concurrent-safe writes**
 
 Find `cw_inbox_write` in `lib/ipc.sh` (currently around lines 92-110):
 
@@ -596,15 +654,20 @@ Replace with:
 # Overwrite inbox.md with the task, terminating with the END_OF_INSTRUCTION
 # sentinel so the trooper knows the message is complete.
 #
-# Atomic via tmp+rename: writes to inbox.md.tmp, then mv -f into place.
-# POSIX rename within the same directory is atomic — a concurrent reader
-# either sees the old file or the new file, never a partially-written one.
+# Atomic via per-call mktemp + rename: each invocation gets its OWN tmp file
+# at "${inbox}.tmp.XXXXXX" (so concurrent callers can't truncate each other's
+# in-flight content), then mv -f into place. POSIX rename within the same
+# directory is atomic — readers and competing writers see exactly one of the
+# completed versions, never a partial one. The trap unlinks the tmp on any
+# abnormal exit (e.g. shell signal mid-write) so we don't leak in the
+# trooper's state dir.
 cw_inbox_write() {
   local commander="$1" model="$2" topic="$3" task="$4"
   local inbox outbox tmp
   inbox=$(cw_inbox_path "$commander" "$model" "$topic")
   outbox=$(cw_outbox_path "$commander" "$model" "$topic")
-  tmp="${inbox}.tmp"
+  tmp=$(mktemp "${inbox}.tmp.XXXXXX")
+  trap 'rm -f "$tmp"' EXIT
   cat > "$tmp" <<EOF
 $task
 
@@ -615,8 +678,11 @@ When done, append a single JSONL line to $outbox:
 END_OF_INSTRUCTION
 EOF
   mv -f "$tmp" "$inbox"
+  trap - EXIT
 }
 ```
+
+The `trap - EXIT` after the successful `mv` clears the cleanup trap so a normal-exit caller doesn't try to remove the (now-renamed-and-gone) tmp. The trap protects against signal-mid-write or downstream errors before the rename. Important: this trap is local to this function in the sense that it runs when the function's enclosing shell exits — for the typical `cw_inbox_write ...` invocation from `bin/send.sh`, that's at the end of `bin/send.sh`. If `bin/send.sh` calls `cw_inbox_write` then continues to do other work and crashes mid-script, the EXIT trap would still fire and remove a (no-longer-existing) tmp — `rm -f` is silent on missing files, so no harm.
 
 - [ ] **Step 3.4: Run the test to verify it passes**
 
@@ -624,7 +690,7 @@ EOF
 cd /home/liupan/CC/clone-wars && bash tests/test_inbox_atomic.sh
 ```
 
-Expected: All 4 `PASS:` lines, then `ALL: ok`.
+Expected: All 7 `PASS:` lines (the 5 numbered cases above each end with one or more `pass` calls), then `ALL: ok`.
 
 - [ ] **Step 3.5: Run the full suite**
 
@@ -640,20 +706,25 @@ Expected: every test passes.
 cd /home/liupan/CC/clone-wars
 git add lib/ipc.sh tests/test_inbox_atomic.sh
 git commit -m "$(cat <<'EOF'
-feat(ipc): atomic inbox write via tmp+rename (#8)
+feat(ipc): atomic, concurrent-safe inbox write (#8)
 
 cw_inbox_write previously did `cat > "$inbox"` which truncates first
-then writes. A concurrent reader (e.g., the trooper polling inbox.md
-via the END_OF_INSTRUCTION sentinel) can race the truncate-write
-window and see an empty or partial file mid-write.
+then writes. A concurrent reader (the trooper polling inbox.md via
+the END_OF_INSTRUCTION sentinel) can race the truncate-write window
+and see an empty/partial file. Two concurrent writers can each
+truncate the inbox in the middle of the other's write.
 
-Now writes to inbox.md.tmp and mv -f into place. POSIX rename within
-the same directory is atomic — the reader sees either the old file
-or the new file, never a partial one.
+Now uses mktemp "${inbox}.tmp.XXXXXX" per call (each writer gets its
+own staging file) plus a cleanup trap, then mv -f into place.
+POSIX rename within the same directory is atomic — readers and
+competing writers see exactly one of the completed versions, never
+a partial one.
 
-Test is a static-grep regression guard plus functional checks that
-the .tmp file is consumed and sequential overwrites land cleanly.
-True race testing is unobservable from a shell harness.
+Test exercises 20 concurrent writers and asserts: no .tmp leaks,
+final inbox.md ends with END_OF_INSTRUCTION on its own line, and
+the final content is one writer's message verbatim (no interleaving).
+The static-grep wiring check guards against regression to a
+deterministic tmp path.
 EOF
 )"
 ```
@@ -667,6 +738,8 @@ EOF
 - Modify: `/home/liupan/CC/clone-wars/lib/contracts.sh` (add `cw_contract_bootstrap_sleep <provider>`)
 - Modify: `/home/liupan/CC/clone-wars/bin/spawn.sh:155-161` (replace hardcoded case with contract lookup)
 - Test: `/home/liupan/CC/clone-wars/tests/test_contracts.sh` (extend with new cases)
+
+**Codex review note.** The naive default (`val=8` if field missing) silently regresses claude users on existing installs from 12s → 8s, because user-owned `~/.clone-wars/contracts.yaml` files don't get auto-overwritten on `/plugin update`. The fix preserves provider-specific legacy defaults INSIDE `cw_contract_bootstrap_sleep`: claude=12, all other providers=8. Once a user syncs the new field into their contracts.yaml (manual diff or fresh medic copy), the explicit value wins. The hardcoded defaults can be dropped in a future release after a migration window.
 
 - [ ] **Step 4.1: Extend the failing test**
 
@@ -701,7 +774,9 @@ got=$(CLONE_WARS_HOME="$TMP_C" cw_contract_bootstrap_sleep claude)
 assert_eq "$got" "12" "claude bootstrap_sleep_s reads back"
 pass "bootstrap_sleep_s field reads back"
 
-# 8. Default value (8) when field is missing.
+# 8. Default value when field is missing — provider-specific legacy default.
+#    claude=12 (preserves the v0.0.4 hardcoded BOOT_SLEEP for claude installs
+#    that haven't synced the new field yet); everything else=8.
 cat > "$TMP_C/contracts.yaml" <<YAML
 codex:
   binary: codex
@@ -709,10 +784,33 @@ codex:
     full: [--bypass]
   default_mode: full
   ready_timeout_s: 30
+
+claude:
+  binary: claude
+  modes:
+    full: [--skip]
+  default_mode: full
+  ready_timeout_s: 60
+
+gemini:
+  binary: gemini
+  modes:
+    full: [--yolo]
+  default_mode: full
+  ready_timeout_s: 30
 YAML
 got=$(CLONE_WARS_HOME="$TMP_C" cw_contract_bootstrap_sleep codex)
-assert_eq "$got" "8" "missing bootstrap_sleep_s defaults to 8"
-pass "bootstrap_sleep_s defaults to 8 when missing"
+assert_eq "$got" "8" "missing bootstrap_sleep_s on codex defaults to 8"
+got=$(CLONE_WARS_HOME="$TMP_C" cw_contract_bootstrap_sleep gemini)
+assert_eq "$got" "8" "missing bootstrap_sleep_s on gemini defaults to 8"
+got=$(CLONE_WARS_HOME="$TMP_C" cw_contract_bootstrap_sleep claude)
+assert_eq "$got" "12" "missing bootstrap_sleep_s on claude defaults to 12 (legacy preservation)"
+pass "bootstrap_sleep_s default is provider-specific (preserves claude=12 for existing installs)"
+
+# 9. Unknown provider with no field → 8 (the safe global default).
+got=$(CLONE_WARS_HOME="$TMP_C" cw_contract_bootstrap_sleep nosuchprovider)
+assert_eq "$got" "8" "unknown provider with no field defaults to 8"
+pass "unknown-provider default is 8"
 ```
 
 - [ ] **Step 4.2: Run the test to verify it fails**
@@ -731,11 +829,24 @@ Open `/home/liupan/CC/clone-wars/lib/contracts.sh`. Find the existing `cw_contra
 # cw_contract_bootstrap_sleep <provider>
 # Print the seconds-to-sleep after launching the provider's TUI but BEFORE
 # nudging it to read its identity. Mirrors the parser shape of
-# cw_contract_ready_timeout. Defaults to 8 if the field is unset.
+# cw_contract_ready_timeout.
+#
+# Default fallback when the field is unset is PROVIDER-SPECIFIC:
+#   claude → 12 (preserves the v0.0.4 hardcoded BOOT_SLEEP)
+#   anything else → 8
+# This protects existing installs whose user-owned ~/.clone-wars/contracts.yaml
+# was copied before the field was introduced — claude users don't silently
+# regress to a too-short bootstrap. Once a user syncs bootstrap_sleep_s
+# into their contracts.yaml, the explicit value wins. Drop the per-provider
+# defaults in a future release after a migration window.
 cw_contract_bootstrap_sleep() {
-  local provider="$1" path val
+  local provider="$1" path val default
+  case "$provider" in
+    claude) default=12 ;;
+    *)      default=8  ;;
+  esac
   path=$(cw_contracts_path)
-  [[ -f "$path" ]] || { printf '8\n'; return; }
+  [[ -f "$path" ]] || { printf '%s\n' "$default"; return; }
   val=$(awk -v p="$provider" '
     BEGIN { in_block = 0 }
     /^[A-Za-z][A-Za-z0-9_-]*:[[:space:]]*$/ {
@@ -749,7 +860,7 @@ cw_contract_bootstrap_sleep() {
       print v; exit
     }
   ' "$path")
-  [[ -n "$val" ]] || val=8
+  [[ -n "$val" ]] || val="$default"
   printf '%s\n' "$val"
 }
 ```
@@ -1134,10 +1245,14 @@ The user merges, retags `v0.0.5`, and runs `/plugin update`. Plan execution ends
 - [x] **Placeholder scan:** No "TBD", "TODO", "implement later", or vague "add error handling" instructions. Every code step has the exact code; every command step has the exact invocation and expected output. ✓
 - [x] **Type / signature consistency:**
   - `cw_event_match_pattern <event_name>` — defined in Task 1.3, called identically in Tasks 1.5, 1.6, 2.3.
-  - `cw_outbox_wait <commander> <model> <topic> <events> <timeout>` — Task 2.3 keeps the 5-arg shape; the 4th-arg semantic widens from single event to space-separated list. Backward-compat preserved (Task 2.1 case 1).
-  - `cw_inbox_write <commander> <model> <topic> <task_text>` — signature unchanged; only the body (Task 3.3).
-  - `cw_contract_bootstrap_sleep <provider>` — defined in Task 4.3, called in Task 4.5.
+  - `cw_outbox_wait <commander> <model> <topic> <event1> [<event2> ...] <timeout>` — Task 2.3 implements the spec-shaped varargs API: timeout is the FINAL positional arg, events fill positions between `<topic>` and timeout. Single-event call (`c m t ready 30`) preserved; multi-event call (`c m t ready error 30`) is the new short-circuit shape.
+  - `cw_inbox_write <commander> <model> <topic> <task_text>` — signature unchanged; body switched to per-call `mktemp "${inbox}.tmp.XXXXXX"` + trap cleanup + `mv -f` for concurrent-writer safety.
+  - `cw_contract_bootstrap_sleep <provider>` — defined in Task 4.3, called in Task 4.5. Provider-specific legacy defaults (claude=12, others=8) when the field is missing — protects existing installs from a silent regression.
   - `_teardown_batch <topic> <commander>:<model> ...` — defined in Task 5.2, called identically in Task 5.2 (`teardown_topic`) and Task 5.3 (2-arg branch).
 - [x] **TDD discipline:** Tasks 1, 2, 3, 4 each have a failing-test step before implementation. Task 5 has no new test (refactor; Phase 1's `test_teardown_hyphenated.sh` is the regression guard).
 - [x] **Frequent commits:** One commit per task. Stopping after any commit leaves the runtime strictly-better.
 - [x] **No fix-list overrun:** Phase 2 ships 5 fixes per the spec — #6, #7, #8, #10, #11. No scope creep into Phase 3 territory.
+- [x] **Codex adversarial review findings addressed:**
+  - Finding 1 (high, atomic inbox concurrent-writer race) → Task 3 now uses per-call `mktemp` + cleanup trap; test 5 in `test_inbox_atomic.sh` exercises 20 concurrent writers and asserts no interleaving / no .tmp leaks. ✓
+  - Finding 2 (high, claude bootstrap regression on existing installs) → `cw_contract_bootstrap_sleep` returns 12 for claude / 8 for others when the field is missing; test_contracts.sh case 8 covers all three providers' legacy defaults + an unknown-provider control. ✓
+  - Finding 3 (medium, signature divergence from spec) → `cw_outbox_wait` uses varargs (events between topic and final timeout), matching the spec's example invocation `... ready error 30`. Single-event calls keep the same shape. ✓
