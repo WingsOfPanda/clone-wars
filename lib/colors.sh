@@ -31,11 +31,11 @@ cw_palette_for() {
     # 501st Legion — dusty blue/teal/violet primary + warm-cream/rose accents
     rex)        printf 'colour110 colour187\n' ;;  # dusty blue + warm cream (cool/warm)
     echo)       printf 'colour109 colour187\n' ;;  # dusty teal + cream
-    fives)      printf 'colour103 colour187\n' ;;  # steel-blue + cream
+    fives)      printf 'colour67 colour187\n'  ;;  # mid slate + cream (swapped from 103 in v0.0.6: was adjacent to wolffe colour104)
     jesse)      printf 'colour60 colour250\n'  ;;  # slate-purple + soft white
     kix)        printf 'colour131 colour110\n' ;;  # dusty rose + dusty blue (medic reverse-armor)
     tup)        printf 'colour146 colour250\n' ;;  # dust-violet + soft white
-    dogma)      printf 'colour67 colour187\n'  ;;  # mid slate + cream
+    dogma)      printf 'colour103 colour187\n' ;;  # steel-blue + cream (swapped from 67 in v0.0.6: traded with fives for visual deduplication)
     hardcase)   printf 'colour152 colour187\n' ;;  # soft cyan + cream
     vill)       printf 'colour66 colour187\n'  ;;  # deep slate + cream
     deviss)     printf 'colour97 colour187\n'  ;;  # dusty plum + cream

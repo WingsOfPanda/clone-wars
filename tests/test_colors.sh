@@ -54,4 +54,19 @@ FMT=$(cw_label_fmt rex codex auth-review)
 [[ "$FMT" == *auth-review* ]] || { echo "FAIL: label_fmt missing topic: '$FMT'" >&2; exit 1; }
 pass "label_fmt contains fg color + rank-commander + wrapped model + topic"
 
+# 8. Palette stability — assert specific colors so a future palette edit
+#    can't accidentally change canon-color identity. Reflects the v0.0.6
+#    fives+dogma swap (was: fives=103, dogma=67; now: fives=67, dogma=103).
+assert_eq "$(cw_palette_for rex | awk '{print $1}')"    "colour110" "rex primary stable"
+assert_eq "$(cw_palette_for cody | awk '{print $1}')"   "colour137" "cody primary stable"
+assert_eq "$(cw_palette_for wolffe | awk '{print $1}')" "colour104" "wolffe primary stable"
+assert_eq "$(cw_palette_for fives | awk '{print $1}')"  "colour67"  "fives primary stable (post-v0.0.6 swap; was 103)"
+assert_eq "$(cw_palette_for dogma | awk '{print $1}')"  "colour103" "dogma primary stable (post-v0.0.6 swap; was 67)"
+# Visual deduplication: fives must NOT be one-shade-away from wolffe.
+[[ "$(cw_color_for fives)" != "colour103" ]] || {
+  echo "FAIL: fives reverted to colour103 — visually adjacent to wolffe colour104" >&2; exit 1; }
+[[ "$(cw_color_for fives)" != "colour105" ]] || {
+  echo "FAIL: fives is now colour105 — visually adjacent to wolffe colour104" >&2; exit 1; }
+pass "palette stability + fives/wolffe deduplication"
+
 echo "  ALL: ok"
