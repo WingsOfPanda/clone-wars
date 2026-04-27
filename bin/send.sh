@@ -17,6 +17,17 @@ source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/deps.sh"
 source "$PLUGIN_ROOT/lib/ipc.sh"
 source "$PLUGIN_ROOT/lib/tmux.sh"
+source "$PLUGIN_ROOT/lib/argsfile.sh"
+
+# --args-file <path> — read tokens from <path> and replace positional args.
+# Used by commands/*.md to fence off shell injection from $ARGUMENTS.
+if [[ "${1:-}" == "--args-file" ]]; then
+  [[ -n "${2:-}" ]] || { echo "--args-file requires a path" >&2; exit 2; }
+  args_file="$2"
+  shift 2
+  mapfile -t _TOKENS < <(cw_args_file_load "$args_file")
+  set -- "${_TOKENS[@]}" "$@"
+fi
 
 usage() {
   echo "Usage: $0 <commander> <topic> <message-or-@file>" >&2
@@ -28,21 +39,25 @@ COMMANDER="$1"; TOPIC="$2"; shift 2
 MSG_OR_FILE="$*"
 
 # ------------------------------------------------------------ Resolve model
+# Locate the state dir (its name's last segment is the model hint), then
+# read the canonical model from pane.json (v0.0.4+); fallback to hint for
+# legacy state dirs.
 
 TOPIC_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC"
-MODEL=""
+MODEL_HINT=""
 if [[ -d "$TOPIC_DIR" ]]; then
   for d in "$TOPIC_DIR"/${COMMANDER}-*; do
     [[ -d "$d" ]] || continue
-    MODEL="${d##*/${COMMANDER}-}"
+    MODEL_HINT="${d##*/${COMMANDER}-}"
     break
   done
 fi
-if [[ -z "$MODEL" ]]; then
+if [[ -z "$MODEL_HINT" ]]; then
   log_error "no trooper '$COMMANDER' on topic '$TOPIC' (state dir absent)"
   log_error "  spawn first: /clone-wars:spawn $COMMANDER <model> $TOPIC"
   exit 1
 fi
+MODEL=$(cw_pane_meta_model "$COMMANDER" "$MODEL_HINT" "$TOPIC")
 
 # ------------------------------------------------------------ Resolve pane
 

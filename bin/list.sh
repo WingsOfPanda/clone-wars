@@ -17,6 +17,17 @@ source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/ipc.sh"
 source "$PLUGIN_ROOT/lib/tmux.sh"
+source "$PLUGIN_ROOT/lib/argsfile.sh"
+
+# --args-file <path> — read tokens from <path> and replace positional args.
+# Used by commands/*.md to fence off shell injection from $ARGUMENTS.
+if [[ "${1:-}" == "--args-file" ]]; then
+  [[ -n "${2:-}" ]] || { echo "--args-file requires a path" >&2; exit 2; }
+  args_file="$2"
+  shift 2
+  mapfile -t _TOKENS < <(cw_args_file_load "$args_file")
+  set -- "${_TOKENS[@]}" "$@"
+fi
 
 TOPIC_FILTER="${1:-}"
 
@@ -37,10 +48,11 @@ for topic_dir in "$REPO_DIR"/*/; do
   [[ -z "$TOPIC_FILTER" || "$topic" == "$TOPIC_FILTER" ]] || continue
   for trooper_dir in "$topic_dir"*/; do
     [[ -d "$trooper_dir" ]] || continue
-    name="${trooper_dir%/}"; name="${name##*/}"
-    commander="${name%-*}"
-    model="${name##*-}"
-    pane=$(cw_pane_meta_read "$commander" "$model" "$topic" 2>/dev/null || echo '?')
+    mapfile -t META < <(cw_pane_meta_read_for_dir "$trooper_dir")
+    commander="${META[0]}"
+    model="${META[1]}"
+    pane="${META[2]:-?}"
+    [[ -z "$pane" ]] && pane='?'
     state='[ORPHAN]'
     if [[ "$pane" != '?' ]] && cw_pane_alive "$pane"; then
       outbox=$(cw_outbox_path "$commander" "$model" "$topic")

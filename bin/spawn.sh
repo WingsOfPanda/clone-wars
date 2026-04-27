@@ -27,6 +27,17 @@ source "$PLUGIN_ROOT/lib/contracts.sh"
 source "$PLUGIN_ROOT/lib/commanders.sh"
 source "$PLUGIN_ROOT/lib/ipc.sh"
 source "$PLUGIN_ROOT/lib/tmux.sh"
+source "$PLUGIN_ROOT/lib/argsfile.sh"
+
+# --args-file <path> — read tokens from <path> and replace positional args.
+# Used by commands/*.md to fence off shell injection from $ARGUMENTS.
+if [[ "${1:-}" == "--args-file" ]]; then
+  [[ -n "${2:-}" ]] || { echo "--args-file requires a path" >&2; exit 2; }
+  args_file="$2"
+  shift 2
+  mapfile -t _TOKENS < <(cw_args_file_load "$args_file")
+  set -- "${_TOKENS[@]}" "$@"
+fi
 
 # ------------------------------------------------------------ Arg parsing
 
@@ -56,16 +67,26 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# ------------------------------------------------------------ Validation
-
-cw_in_tmux_session  || { log_error "must run inside a tmux session"; exit 1; }
-cw_have_cmd tmux    || { log_error "tmux not on PATH"; exit 1; }
-cw_tmux_version_ok  || { log_error "tmux >= 3.0 required"; exit 1; }
-
+# ------------------------------------------------------------ Input validation
+# Run this FIRST so malformed args fail fast without depending on tmux/state.
+# Both regexes match: lowercase, digits, hyphens; 1-32 chars.
 if ! [[ "$TOPIC" =~ ^[a-z0-9-]+$ ]] || (( ${#TOPIC} > 32 )); then
   log_error "topic must match [a-z0-9-]+ and be <= 32 chars; got: '$TOPIC'"
   exit 2
 fi
+# 'random' is a sentinel — let it through; it's resolved against the pool below.
+if [[ "$COMMANDER" != "random" ]]; then
+  if ! [[ "$COMMANDER" =~ ^[a-z0-9-]+$ ]] || (( ${#COMMANDER} > 32 )) || [[ -z "$COMMANDER" ]]; then
+    log_error "commander must match [a-z0-9-]+ and be <= 32 chars (or 'random'); got: '$COMMANDER'"
+    exit 2
+  fi
+fi
+
+# ------------------------------------------------------------ Environment validation
+
+cw_in_tmux_session  || { log_error "must run inside a tmux session"; exit 1; }
+cw_have_cmd tmux    || { log_error "tmux not on PATH"; exit 1; }
+cw_tmux_version_ok  || { log_error "tmux >= 3.0 required"; exit 1; }
 
 if [[ "$COMMANDER" == "random" ]]; then
   COMMANDER=$(cw_commander_pick_random "$TOPIC") || {
@@ -152,6 +173,8 @@ if ! cw_outbox_wait "$COMMANDER" "$MODEL" "$TOPIC" ready "$READY_TIMEOUT" >/dev/
   log_error "pane content (last 25 lines, captured BEFORE kill):"
   tmux capture-pane -p -t "$PANE" 2>/dev/null | tail -n 25 >&2 || true
   cw_pane_kill_now "$PANE"
+  failed_archive=$(cw_state_archive "$COMMANDER" "$MODEL" "$TOPIC" FAILED)
+  log_error "state archived to: $failed_archive"
   exit 1
 fi
 log_ok "$COMMANDER is ready"

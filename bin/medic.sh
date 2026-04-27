@@ -13,6 +13,17 @@ source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/deps.sh"
 source "$PLUGIN_ROOT/lib/contracts.sh"
+source "$PLUGIN_ROOT/lib/argsfile.sh"
+
+# --args-file <path> — read tokens from <path> and replace positional args.
+# Used by commands/*.md to fence off shell injection from $ARGUMENTS.
+if [[ "${1:-}" == "--args-file" ]]; then
+  [[ -n "${2:-}" ]] || { echo "--args-file requires a path" >&2; exit 2; }
+  args_file="$2"
+  shift 2
+  mapfile -t _TOKENS < <(cw_args_file_load "$args_file")
+  set -- "${_TOKENS[@]}" "$@"
+fi
 
 state_root=$(cw_state_root)
 fail=0
@@ -52,16 +63,24 @@ fi
 # always WARN — never FAIL.
 if cw_in_tmux_session && tmux info >/dev/null 2>&1; then
   pbf=$(tmux show-options -g pane-border-format 2>/dev/null)
-  if [[ "$pbf" == *@cw_label* ]]; then
-    log_ok "pane-border-format: @cw_label-aware (trooper names visible on pane borders)"
-  else
-    log_warn "pane-border-format doesn't read @cw_label; trooper names won't show on pane borders"
+  pbs=$(tmux show-options -gv pane-border-status 2>/dev/null || true)
+  fix_msg() {
     log_warn "  fix: add to ~/.tmux.conf:"
     log_warn "    set -g pane-border-status top"
     log_warn "    set -g pane-border-format ' #{?@cw_label_fmt,#{@cw_label_fmt},#[fg=#{?@cw_color,#{@cw_color},default}#,bold]#{?@cw_label,#{@cw_label},#{pane_title}}#[default]} '"
     log_warn "  optional: focused trooper pane gets its commander's color outline"
     log_warn "    set-hook -g after-select-pane 'set-option -g pane-active-border-style \"fg=#{?@cw_color,#{@cw_color},green}\"'"
+  }
+  if [[ "$pbs" != "top" && "$pbs" != "bottom" ]]; then
+    log_warn "pane-border-status is '${pbs:-off}'; trooper labels won't render on pane borders"
+    fix_msg
     warn=1
+  elif [[ "$pbf" != *@cw_label* ]]; then
+    log_warn "pane-border-format doesn't read @cw_label; trooper names won't show on pane borders"
+    fix_msg
+    warn=1
+  else
+    log_ok "pane-border: status=$pbs, format @cw_label-aware (trooper names visible)"
   fi
 fi
 
