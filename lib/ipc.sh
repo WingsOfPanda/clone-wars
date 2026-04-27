@@ -79,11 +79,15 @@ cw_identity_write() {
 
 **First action (do this immediately, then wait):**
 
-Append exactly this single line to $outbox:
+Append exactly ONE JSONL line to $outbox. The line MUST be:
 
-\`{"event":"ready","ts":"$(date -u +"%Y-%m-%dT%H:%M:%SZ")","commander":"$commander","model":"$model"}\`
+\`{"event":"ready","ts":"<ISO-8601 UTC>","commander":"$commander","model":"$model"}\`
 
-Use a shell command: \`echo '{"event":"ready","ts":"...","commander":"$commander","model":"$model"}' >> $outbox\`
+Generate the timestamp at the moment you emit (NOT a remembered value). Use this shell command verbatim:
+
+\`echo "{\\"event\\":\\"ready\\",\\"ts\\":\\"\$(date -u +'%Y-%m-%dT%H:%M:%SZ')\\",\\"commander\\":\\"$commander\\",\\"model\\":\\"$model\\"}" >> $outbox\`
+
+The \\\$(date -u ...) command runs in YOUR shell when you execute the command — it produces a fresh timestamp at the moment you emit, not a stale one from when you read this prompt.
 
 Then stop and wait. I will send another instruction asking you to read your inbox.
 EOF
