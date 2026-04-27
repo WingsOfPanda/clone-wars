@@ -92,12 +92,22 @@ EOF
 # cw_inbox_write <commander> <model> <topic> <task_text>
 # Overwrite inbox.md with the task, terminating with the END_OF_INSTRUCTION
 # sentinel so the trooper knows the message is complete.
+#
+# Atomic via per-call mktemp + rename: each invocation gets its OWN tmp file
+# at "${inbox}.tmp.XXXXXX" (so concurrent callers can't truncate each other's
+# in-flight content), then mv -f into place. POSIX rename within the same
+# directory is atomic — readers and competing writers see exactly one of the
+# completed versions, never a partial one. The trap unlinks the tmp on any
+# abnormal exit (e.g. shell signal mid-write) so we don't leak in the
+# trooper's state dir.
 cw_inbox_write() {
   local commander="$1" model="$2" topic="$3" task="$4"
-  local inbox outbox
+  local inbox outbox tmp
   inbox=$(cw_inbox_path "$commander" "$model" "$topic")
   outbox=$(cw_outbox_path "$commander" "$model" "$topic")
-  cat > "$inbox" <<EOF
+  tmp=$(mktemp "${inbox}.tmp.XXXXXX")
+  trap 'rm -f "$tmp"' EXIT
+  cat > "$tmp" <<EOF
 $task
 
 When done, append a single JSONL line to $outbox:
@@ -106,6 +116,8 @@ When done, append a single JSONL line to $outbox:
 
 END_OF_INSTRUCTION
 EOF
+  mv -f "$tmp" "$inbox"
+  trap - EXIT
 }
 
 # cw_event_match_pattern <event_name>
