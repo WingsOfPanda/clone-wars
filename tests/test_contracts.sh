@@ -75,3 +75,71 @@ YAML
 assert_eq "$(cw_contract_binary alpha)" "alpha-bin" "alpha lookup ignores nested binary"
 assert_eq "$(cw_contract_binary beta)"  "beta-bin"  "beta lookup unaffected"
 pass "nested binary field doesn't shadow canonical"
+
+# === Phase 2: bootstrap_sleep_s contract field ===
+
+# 7. cw_contract_bootstrap_sleep returns the field when set.
+TMP_C=$(mktemp -d)
+# Merge into the existing $TMP trap (set on line 10) instead of overwriting it,
+# otherwise $TMP leaks across runs.
+trap 'rm -rf "$TMP" "$TMP_C"' EXIT
+cat > "$TMP_C/contracts.yaml" <<YAML
+codex:
+  binary: codex
+  modes:
+    full: [--bypass]
+  default_mode: full
+  ready_timeout_s: 30
+  bootstrap_sleep_s: 5
+
+claude:
+  binary: claude
+  modes:
+    full: [--skip]
+  default_mode: full
+  ready_timeout_s: 60
+  bootstrap_sleep_s: 12
+YAML
+got=$(CLONE_WARS_HOME="$TMP_C" cw_contract_bootstrap_sleep codex)
+assert_eq "$got" "5" "codex bootstrap_sleep_s reads back"
+got=$(CLONE_WARS_HOME="$TMP_C" cw_contract_bootstrap_sleep claude)
+assert_eq "$got" "12" "claude bootstrap_sleep_s reads back"
+pass "bootstrap_sleep_s field reads back"
+
+# 8. Default value when field is missing — provider-specific legacy default.
+#    claude=12 (preserves the v0.0.4 hardcoded BOOT_SLEEP for claude installs
+#    that haven't synced the new field yet); everything else=8.
+cat > "$TMP_C/contracts.yaml" <<YAML
+codex:
+  binary: codex
+  modes:
+    full: [--bypass]
+  default_mode: full
+  ready_timeout_s: 30
+
+claude:
+  binary: claude
+  modes:
+    full: [--skip]
+  default_mode: full
+  ready_timeout_s: 60
+
+gemini:
+  binary: gemini
+  modes:
+    full: [--yolo]
+  default_mode: full
+  ready_timeout_s: 30
+YAML
+got=$(CLONE_WARS_HOME="$TMP_C" cw_contract_bootstrap_sleep codex)
+assert_eq "$got" "8" "missing bootstrap_sleep_s on codex defaults to 8"
+got=$(CLONE_WARS_HOME="$TMP_C" cw_contract_bootstrap_sleep gemini)
+assert_eq "$got" "8" "missing bootstrap_sleep_s on gemini defaults to 8"
+got=$(CLONE_WARS_HOME="$TMP_C" cw_contract_bootstrap_sleep claude)
+assert_eq "$got" "12" "missing bootstrap_sleep_s on claude defaults to 12 (legacy preservation)"
+pass "bootstrap_sleep_s default is provider-specific (preserves claude=12 for existing installs)"
+
+# 9. Unknown provider with no field → 8 (the safe global default).
+got=$(CLONE_WARS_HOME="$TMP_C" cw_contract_bootstrap_sleep nosuchprovider)
+assert_eq "$got" "8" "unknown provider with no field defaults to 8"
+pass "unknown-provider default is 8"

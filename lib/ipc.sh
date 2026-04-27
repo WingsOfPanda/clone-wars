@@ -92,12 +92,22 @@ EOF
 # cw_inbox_write <commander> <model> <topic> <task_text>
 # Overwrite inbox.md with the task, terminating with the END_OF_INSTRUCTION
 # sentinel so the trooper knows the message is complete.
+#
+# Atomic via per-call mktemp + rename: each invocation gets its OWN tmp file
+# at "${inbox}.tmp.XXXXXX" (so concurrent callers can't truncate each other's
+# in-flight content), then mv -f into place. POSIX rename within the same
+# directory is atomic — readers and competing writers see exactly one of the
+# completed versions, never a partial one. The trap unlinks the tmp on any
+# abnormal exit (e.g. shell signal mid-write) so we don't leak in the
+# trooper's state dir.
 cw_inbox_write() {
   local commander="$1" model="$2" topic="$3" task="$4"
-  local inbox outbox
+  local inbox outbox tmp
   inbox=$(cw_inbox_path "$commander" "$model" "$topic")
   outbox=$(cw_outbox_path "$commander" "$model" "$topic")
-  cat > "$inbox" <<EOF
+  tmp=$(mktemp "${inbox}.tmp.XXXXXX")
+  trap 'rm -f "$tmp"' EXIT
+  cat > "$tmp" <<EOF
 $task
 
 When done, append a single JSONL line to $outbox:
@@ -106,20 +116,64 @@ When done, append a single JSONL line to $outbox:
 
 END_OF_INSTRUCTION
 EOF
+  # Check rc on mv: under `set -uo pipefail` (no -e) a silent mv failure
+  # would otherwise leave the inbox stale and `cw_inbox_write` returning 0,
+  # making bin/send.sh log "wrote inbox" and nudge the pane to read content
+  # that never landed. Surface the failure loudly and propagate non-zero rc.
+  if ! mv -f "$tmp" "$inbox"; then
+    log_error "cw_inbox_write: mv tmp -> inbox failed (tmp=$tmp inbox=$inbox)"
+    rm -f "$tmp"
+    trap - EXIT
+    return 1
+  fi
+  trap - EXIT
 }
 
-# cw_outbox_wait <commander> <model> <topic> <event> <timeout-seconds>
-# Poll the outbox for the named event. Print the matching JSON line to stdout
-# if found within timeout (return 0). Print nothing and return 1 on timeout.
+# cw_event_match_pattern <event_name>
+# Print a `grep -E` pattern that matches a single JSONL line whose `event`
+# field is EXACTLY <event_name>. Anchors at the start (^) and requires the
+# next character after the event name to be `,` (more fields follow) or `}`
+# (event has no payload). Closes the false-positive class where a substring
+# grep would match `"event":"done"` literal text inside another event's note.
+cw_event_match_pattern() {
+  local event="$1"
+  [[ -n "$event" ]] || { echo "cw_event_match_pattern: empty event" >&2; return 1; }
+  printf '^\\{"event":"%s"[,}]' "$event"
+}
+
+# cw_outbox_wait <commander> <model> <topic> <event1> [<event2> ...] <timeout>
+# Poll the outbox for ANY of the named events. Events are positional args
+# between <topic> and the FINAL <timeout> arg. Print the matching JSON line
+# on stdout and return 0 as soon as any listed event appears. Return 1 with
+# no output if the timeout expires.
+#
+# Single-event call (backward compat with Phase 1):
+#   cw_outbox_wait c m t ready 30
+# Multi-event call (Phase 2's short-circuit on error during bootstrap):
+#   cw_outbox_wait c m t ready error 30
+#
+# Uses cw_event_match_pattern for strict (anchored, ^\{"event":"X"[,}])
+# matching so a progress note containing a quoted event name doesn't
+# false-positive.
 cw_outbox_wait() {
-  local commander="$1" model="$2" topic="$3" event="$4" timeout="$5"
+  local commander="$1" model="$2" topic="$3"
+  shift 3
+  # Last positional is timeout; everything between <topic> and it is events.
+  (( $# >= 2 )) || { echo "cw_outbox_wait: need at least one event and a timeout" >&2; return 2; }
+  local timeout="${!#}"   # ${!#} = last positional
+  set -- "${@:1:$#-1}"    # drop the last positional → only events remain
+  local events=("$@")
+  [[ "$timeout" =~ ^[0-9]+$ ]] || { echo "cw_outbox_wait: timeout must be a non-negative integer; got '$timeout'" >&2; return 2; }
   local outbox; outbox=$(cw_outbox_path "$commander" "$model" "$topic")
-  local i
-  for i in $(seq 1 "$timeout"); do
-    if grep -q "\"event\":\"$event\"" "$outbox" 2>/dev/null; then
-      grep "\"event\":\"$event\"" "$outbox" | tail -n1
-      return 0
-    fi
+  local i event pat
+  for ((i = 0; i < timeout; i++)); do
+    for event in "${events[@]}"; do
+      pat=$(cw_event_match_pattern "$event")
+      if grep -qE "$pat" "$outbox" 2>/dev/null; then
+        grep -E "$pat" "$outbox" | tail -n1
+        return 0
+      fi
+    done
     sleep 1
   done
   return 1
