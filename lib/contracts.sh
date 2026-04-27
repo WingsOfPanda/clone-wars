@@ -97,6 +97,44 @@ cw_contract_ready_timeout() {
   printf '%s\n' "$val"
 }
 
+# cw_contract_bootstrap_sleep <provider>
+# Print the seconds-to-sleep after launching the provider's TUI but BEFORE
+# nudging it to read its identity. Mirrors the parser shape of
+# cw_contract_ready_timeout.
+#
+# Default fallback when the field is unset is PROVIDER-SPECIFIC:
+#   claude → 12 (preserves the v0.0.4 hardcoded BOOT_SLEEP)
+#   anything else → 8
+# This protects existing installs whose user-owned ~/.clone-wars/contracts.yaml
+# was copied before the field was introduced — claude users don't silently
+# regress to a too-short bootstrap. Once a user syncs bootstrap_sleep_s
+# into their contracts.yaml, the explicit value wins. Drop the per-provider
+# defaults in a future release after a migration window.
+cw_contract_bootstrap_sleep() {
+  local provider="$1" path val default
+  case "$provider" in
+    claude) default=12 ;;
+    *)      default=8  ;;
+  esac
+  path=$(cw_contracts_path)
+  [[ -f "$path" ]] || { printf '%s\n' "$default"; return; }
+  val=$(awk -v p="$provider" '
+    BEGIN { in_block = 0 }
+    /^[A-Za-z][A-Za-z0-9_-]*:[[:space:]]*$/ {
+      key = $0; sub(/:[[:space:]]*$/, "", key)
+      in_block = (key == p); next
+    }
+    in_block && /^  bootstrap_sleep_s:[[:space:]]*/ {
+      v = $0
+      sub(/^  bootstrap_sleep_s:[[:space:]]*/, "", v)
+      gsub(/^[ \t]+|[ \t\r]+$/, "", v)
+      print v; exit
+    }
+  ' "$path")
+  [[ -n "$val" ]] || val="$default"
+  printf '%s\n' "$val"
+}
+
 # cw_contract_mode_args <provider> <mode>
 # Print the args list for <provider>'s <mode>, one arg per line. Modes are
 # stored as YAML flow sequences like:

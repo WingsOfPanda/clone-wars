@@ -20,6 +20,7 @@ codex:
     read-only: [--sandbox, read-only]
   default_mode: full
   ready_timeout_s: 30
+  bootstrap_sleep_s: 8
   identity_injection: send-keys-paste
 
 gemini:
@@ -29,6 +30,7 @@ gemini:
     read-only: [--approval-mode, default]   # best-effort; gemini has no true read-only
   default_mode: full
   ready_timeout_s: 30
+  bootstrap_sleep_s: 8
   identity_injection: send-keys-paste
 
 claude:
@@ -38,4 +40,5 @@ claude:
     read-only: [--permission-mode, plan]     # best-effort; plan mode is read-only-ish
   default_mode: full
   ready_timeout_s: 60
+  bootstrap_sleep_s: 12
   identity_injection: send-keys-paste

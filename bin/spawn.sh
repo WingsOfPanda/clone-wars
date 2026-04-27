@@ -153,10 +153,7 @@ log_ok "spawned $LABEL in pane $PANE (mode=$MODE)"
 
 # ------------------------------------------------------------ Bootstrap + identity
 
-case "$MODEL" in
-  claude) BOOT_SLEEP=12 ;;
-  *)      BOOT_SLEEP=8  ;;
-esac
+BOOT_SLEEP=$(cw_contract_bootstrap_sleep "$MODEL")
 log_info "sleeping ${BOOT_SLEEP}s for $MODEL bootstrap"
 sleep "$BOOT_SLEEP"
 
