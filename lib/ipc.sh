@@ -116,7 +116,16 @@ When done, append a single JSONL line to $outbox:
 
 END_OF_INSTRUCTION
 EOF
-  mv -f "$tmp" "$inbox"
+  # Check rc on mv: under `set -uo pipefail` (no -e) a silent mv failure
+  # would otherwise leave the inbox stale and `cw_inbox_write` returning 0,
+  # making bin/send.sh log "wrote inbox" and nudge the pane to read content
+  # that never landed. Surface the failure loudly and propagate non-zero rc.
+  if ! mv -f "$tmp" "$inbox"; then
+    log_error "cw_inbox_write: mv tmp -> inbox failed (tmp=$tmp inbox=$inbox)"
+    rm -f "$tmp"
+    trap - EXIT
+    return 1
+  fi
   trap - EXIT
 }
 
