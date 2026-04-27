@@ -39,21 +39,60 @@ Usage: $0 <topic>
 EOF
 }
 
-teardown_trooper() {
-  local commander="$1" model="$2" topic="$3"
-  local pane; pane=$(cw_pane_meta_read "$commander" "$model" "$topic" 2>/dev/null || echo '')
-  if [[ -n "$pane" ]] && cw_pane_alive "$pane"; then
-    log_info "graceful shutdown for $commander-$model on $topic (pane $pane)"
-    cw_pane_kill_graceful "$pane"
-    # The graceful banner runs ~8s; collect them in parallel by NOT sleeping
-    # here — the caller sleeps once after dispatching all teardowns.
+# _teardown_batch <topic> <commander1>:<model1> <commander2>:<model2> ...
+# Run the full graceful-shutdown + archive flow for each (commander, model)
+# pair on <topic>. One graceful-banner phase fires in parallel across all
+# live panes; one 9s sleep covers all banners; then hard-kill + archive.
+#
+# Pair encoding: "<commander>:<model>". Pane IDs start with '%' and never
+# contain ':', and commander/model are validated to ^[a-z0-9-]+$, so the
+# colon delimiter is unambiguous.
+_teardown_batch() {
+  local topic="$1"; shift
+  local pairs=("$@")
+  local pair commander model pane
+  local pending_panes=()
+  local last_file last_pane=""
+
+  # Phase 1: graceful-kick each live pane (non-blocking — banner runs in pane).
+  for pair in "${pairs[@]}"; do
+    commander="${pair%:*}"
+    model="${pair##*:}"
+    pane=$(cw_pane_meta_read "$commander" "$model" "$topic" 2>/dev/null || echo '')
+    if [[ -n "$pane" ]] && cw_pane_alive "$pane"; then
+      log_info "graceful shutdown for $commander-$model on $topic (pane $pane)"
+      cw_pane_kill_graceful "$pane"
+      pending_panes+=("$pane")
+    fi
+  done
+
+  # Phase 2: one sleep + hard-kill batch.
+  if (( ${#pending_panes[@]} > 0 )); then
+    log_info "waiting 9s for graceful banners to finish"
+    sleep 9
+    for pane in "${pending_panes[@]}"; do
+      cw_pane_kill_now "$pane"
+    done
   fi
-  local archived; archived=$(cw_state_archive "$commander" "$model" "$topic")
-  log_ok "archived $commander-$model: $archived"
-  # Clean up the topic's .last_pane pointer if it referenced this trooper.
-  local last_file="$(cw_state_root)/state/$(cw_repo_hash)/$topic/.last_pane"
-  if [[ -f "$last_file" ]] && [[ "$(cat "$last_file")" == "$pane" ]]; then
-    rm -f "$last_file"
+
+  # Phase 3: archive each (state dirs are now safe to move).
+  for pair in "${pairs[@]}"; do
+    commander="${pair%:*}"
+    model="${pair##*:}"
+    local archived; archived=$(cw_state_archive "$commander" "$model" "$topic")
+    log_ok "archived $commander-$model: $archived"
+  done
+
+  # Phase 4: clean topic .last_pane if it pointed at a killed pane.
+  last_file="$(cw_state_root)/state/$(cw_repo_hash)/$topic/.last_pane"
+  if [[ -f "$last_file" ]]; then
+    last_pane=$(cat "$last_file")
+    for pane in "${pending_panes[@]}"; do
+      if [[ "$last_pane" == "$pane" ]]; then
+        rm -f "$last_file"
+        break
+      fi
+    done
   fi
 }
 
@@ -63,30 +102,18 @@ teardown_topic() {
   [[ -d "$topic_dir" ]] || { log_warn "topic '$topic' has no state dir"; return; }
 
   shopt -s nullglob
-  local any_kicked=0
-  local pending_panes=()
+  local pairs=()
+  local trooper_dir
   for trooper_dir in "$topic_dir"/*/; do
     [[ -d "$trooper_dir" ]] || continue
     local _META; mapfile -t _META < <(cw_pane_meta_read_for_dir "$trooper_dir")
-    local commander="${_META[0]}"
-    local model="${_META[1]}"
-    local pane="${_META[2]}"
-    if [[ -n "$pane" ]] && cw_pane_alive "$pane"; then
-      pending_panes+=("$pane")
-      any_kicked=1
-    fi
-    teardown_trooper "$commander" "$model" "$topic"
+    pairs+=("${_META[0]}:${_META[1]}")
   done
 
-  if (( any_kicked )); then
-    log_info "waiting 9s for graceful banners to finish"
-    sleep 9
-    for p in "${pending_panes[@]}"; do
-      cw_pane_kill_now "$p"
-    done
+  if (( ${#pairs[@]} > 0 )); then
+    _teardown_batch "$topic" "${pairs[@]}"
   fi
 
-  # Remove now-empty topic dir if it was just .last_pane (or empty).
   rm -f "$topic_dir/.last_pane" 2>/dev/null
   rmdir "$topic_dir" 2>/dev/null || true
 }
@@ -120,30 +147,18 @@ case "${1:-}" in
       commander="$1" topic="$2"
       topic_dir="$(cw_state_root)/state/$(cw_repo_hash)/$topic"
       shopt -s nullglob
-      hit=0
-      pending_pane=""
+      pairs=()
       for d in "$topic_dir"/${commander}-*/; do
         [[ -d "$d" ]] || continue
         name="${d%/}"; name="${name##*/}"
         # Strip the known-commander prefix to recover the FULL model
-        # (handles hyphenated models like claude-haiku correctly; the
-        # last-dash strip ${name##*-} would have returned just 'haiku').
+        # (handles hyphenated models like claude-haiku correctly).
         model_hint="${name#${commander}-}"
         model=$(cw_pane_meta_model "$commander" "$model_hint" "$topic")
-        pane=$(cw_pane_meta_read "$commander" "$model" "$topic" 2>/dev/null || echo '')
-        if [[ -n "$pane" ]] && cw_pane_alive "$pane"; then
-          pending_pane="$pane"
-        fi
-        teardown_trooper "$commander" "$model" "$topic"
-        hit=1
+        pairs+=("$commander:$model")
       done
-      (( hit )) || { log_error "no trooper '$commander' on topic '$topic'"; exit 1; }
-      if [[ -n "$pending_pane" ]]; then
-        log_info "waiting 9s for graceful banner"
-        sleep 9
-        cw_pane_kill_now "$pending_pane"
-      fi
-      # Remove topic dir if now empty
+      (( ${#pairs[@]} > 0 )) || { log_error "no trooper '$commander' on topic '$topic'"; exit 1; }
+      _teardown_batch "$topic" "${pairs[@]}"
       rm -f "$topic_dir/.last_pane" 2>/dev/null
       rmdir "$topic_dir" 2>/dev/null || true
     else
