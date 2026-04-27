@@ -80,7 +80,9 @@ pass "nested binary field doesn't shadow canonical"
 
 # 7. cw_contract_bootstrap_sleep returns the field when set.
 TMP_C=$(mktemp -d)
-trap 'rm -rf "$TMP_C"' EXIT
+# Merge into the existing $TMP trap (set on line 10) instead of overwriting it,
+# otherwise $TMP leaks across runs.
+trap 'rm -rf "$TMP" "$TMP_C"' EXIT
 cat > "$TMP_C/contracts.yaml" <<YAML
 codex:
   binary: codex
