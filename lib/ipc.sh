@@ -108,6 +108,18 @@ END_OF_INSTRUCTION
 EOF
 }
 
+# cw_event_match_pattern <event_name>
+# Print a `grep -E` pattern that matches a single JSONL line whose `event`
+# field is EXACTLY <event_name>. Anchors at the start (^) and requires the
+# next character after the event name to be `,` (more fields follow) or `}`
+# (event has no payload). Closes the false-positive class where a substring
+# grep would match `"event":"done"` literal text inside another event's note.
+cw_event_match_pattern() {
+  local event="$1"
+  [[ -n "$event" ]] || { echo "cw_event_match_pattern: empty event" >&2; return 1; }
+  printf '^\\{"event":"%s"[,}]' "$event"
+}
+
 # cw_outbox_wait <commander> <model> <topic> <event> <timeout-seconds>
 # Poll the outbox for the named event. Print the matching JSON line to stdout
 # if found within timeout (return 0). Print nothing and return 1 on timeout.

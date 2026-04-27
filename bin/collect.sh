@@ -59,15 +59,17 @@ MODEL=$(cw_pane_meta_model "$COMMANDER" "$MODEL_HINT" "$TOPIC")
 OUTBOX=$(cw_outbox_path "$COMMANDER" "$MODEL" "$TOPIC")
 log_info "tailing $OUTBOX (timeout ${TIMEOUT}s)"
 
+DONE_PAT=$(cw_event_match_pattern done)
+ERROR_PAT=$(cw_event_match_pattern error)
 for ((i = 0; i < TIMEOUT; i++)); do
-  if grep -q '"event":"done"' "$OUTBOX" 2>/dev/null; then
-    EVENT=$(grep '"event":"done"' "$OUTBOX" | tail -n1)
+  if grep -qE "$DONE_PAT" "$OUTBOX" 2>/dev/null; then
+    EVENT=$(grep -E "$DONE_PAT" "$OUTBOX" | tail -n1)
     log_ok "{done} received"
     echo "$EVENT"
     exit 0
   fi
-  if grep -q '"event":"error"' "$OUTBOX" 2>/dev/null; then
-    EVENT=$(grep '"event":"error"' "$OUTBOX" | tail -n1)
+  if grep -qE "$ERROR_PAT" "$OUTBOX" 2>/dev/null; then
+    EVENT=$(grep -E "$ERROR_PAT" "$OUTBOX" | tail -n1)
     log_error "{error} received from $COMMANDER"
     echo "$EVENT"
     exit 1

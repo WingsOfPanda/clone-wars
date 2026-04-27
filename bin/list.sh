@@ -57,7 +57,9 @@ for topic_dir in "$REPO_DIR"/*/; do
     if [[ "$pane" != '?' ]] && cw_pane_alive "$pane"; then
       outbox=$(cw_outbox_path "$commander" "$model" "$topic")
       if [[ -f "$outbox" && -s "$outbox" ]]; then
-        last_event=$(tail -n1 "$outbox" | grep -oE '"event":"[^"]+"' | head -n1 | cut -d'"' -f4)
+        # Use strict event-name extraction: anchor at start of line so a
+        # progress note with embedded "event":"X" text can't shadow the real one.
+        last_event=$(tail -n1 "$outbox" | grep -oE '^\{"event":"[^"]+"' | head -n1 | sed -e 's/^{"event":"//' -e 's/"$//')
       else
         last_event='?'
       fi
