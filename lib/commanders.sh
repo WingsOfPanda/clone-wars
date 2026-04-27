@@ -1,5 +1,9 @@
 # lib/commanders.sh — clone-trooper name-pool management.
-# Sourced. Depends on lib/state.sh.
+# Sourced. Depends on lib/state.sh AND lib/ipc.sh (for cw_pane_meta_read_for_dir;
+# used by cw_commanders_in_use_in_topic / cw_commanders_in_use_globally to
+# read the canonical commander field from each trooper's pane.json instead of
+# parsing the dir name — same hyphenated-model fix Phase 1 made for bin/list.sh
+# and bin/teardown.sh). Callers must source both libs before sourcing this one.
 #
 # Pool source: $CLONE_WARS_HOME/commanders.yaml (per-machine, user-editable),
 # falls back to the shipped default at $PLUGIN_ROOT/config/commanders.yaml.
