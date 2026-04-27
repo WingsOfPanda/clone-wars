@@ -27,17 +27,25 @@ cw_commanders_pool() {
 }
 
 # cw_commanders_in_use_in_topic <topic>
-# Print the set of commanders currently deployed in <topic> by listing the
-# state dir's <commander>-<model>/ children.
+# Print the set of commanders currently deployed in <topic> by reading each
+# trooper dir's pane.json (Phase 1's commander+model schema). Falls back to
+# dir-name parse for legacy v0.0.3 troopers — the same fallback path as
+# bin/list.sh and bin/teardown.sh use elsewhere via cw_pane_meta_read_for_dir.
 cw_commanders_in_use_in_topic() {
   local topic="$1"
   local dir="$(cw_state_root)/state/$(cw_repo_hash)/$topic"
   [[ -d "$dir" ]] || return 0
-  ls -1 "$dir" 2>/dev/null | sed 's/-[^-]*$//' | sort -u
+  shopt -s nullglob
+  local trooper_dir _META
+  for trooper_dir in "$dir"/*/; do
+    [[ -d "$trooper_dir" ]] || continue
+    mapfile -t _META < <(cw_pane_meta_read_for_dir "$trooper_dir")
+    [[ -n "${_META[0]:-}" ]] && printf '%s\n' "${_META[0]}"
+  done | sort -u
 }
 
 # cw_commander_in_use <commander> <topic>
-# Return 0 if <commander> already has a state dir under <topic>.
+# Return 0 if <commander> is currently deployed under <topic>.
 cw_commander_in_use() {
   local commander="$1" topic="$2"
   cw_commanders_in_use_in_topic "$topic" | grep -qx "$commander"
@@ -48,9 +56,15 @@ cw_commander_in_use() {
 cw_commanders_in_use_globally() {
   local root="$(cw_state_root)/state/$(cw_repo_hash)"
   [[ -d "$root" ]] || return 0
+  shopt -s nullglob
+  local topic_dir trooper_dir _META
   for topic_dir in "$root"/*/; do
     [[ -d "$topic_dir" ]] || continue
-    ls -1 "$topic_dir" 2>/dev/null | sed 's/-[^-]*$//'
+    for trooper_dir in "$topic_dir"*/; do
+      [[ -d "$trooper_dir" ]] || continue
+      mapfile -t _META < <(cw_pane_meta_read_for_dir "$trooper_dir")
+      [[ -n "${_META[0]:-}" ]] && printf '%s\n' "${_META[0]}"
+    done
   done | sort -u
 }
 
