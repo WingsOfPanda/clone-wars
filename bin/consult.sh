@@ -73,5 +73,85 @@ if [[ "${CW_CONSULT_DRY_RUN:-0}" == "1" ]]; then
   exit 0
 fi
 
-# (Phase 1 spawn + Phases 2-5 in subsequent commits.)
+# ---------------------------------------------------------- Phase 1 spawn
+
+REX=rex; CODY=cody
+log_info "[Phase 1] spawning $REX-codex"
+"$PLUGIN_ROOT/bin/spawn.sh" "$REX" codex "$CONSULT_TOPIC" >/dev/null \
+  || { log_error "rex spawn failed"; exit 1; }
+
+log_info "[Phase 1] spawning $CODY-claude"
+if ! "$PLUGIN_ROOT/bin/spawn.sh" "$CODY" claude "$CONSULT_TOPIC" >/dev/null; then
+  log_error "cody spawn failed; tearing down rex"
+  "$PLUGIN_ROOT/bin/teardown.sh" "$REX" "$CONSULT_TOPIC" >/dev/null 2>&1 || true
+  exit 1
+fi
+log_ok "both troopers ready"
+
+REX_DIR=$(cw_trooper_dir  "$REX"  codex  "$CONSULT_TOPIC")
+CODY_DIR=$(cw_trooper_dir "$CODY" claude "$CONSULT_TOPIC")
+
+# ---------------------------------------------------------- Phase 2 research
+
+log_info "[Phase 2] dispatching research to both troopers"
+
+REX_PROMPT="$ART_DIR/rex_research_prompt.md"
+CODY_PROMPT="$ART_DIR/cody_research_prompt.md"
+cw_consult_build_research_prompt "$TOPIC_TEXT" "$REX_DIR/findings.md"  > "$REX_PROMPT"
+cw_consult_build_research_prompt "$TOPIC_TEXT" "$CODY_DIR/findings.md" > "$CODY_PROMPT"
+
+REX_OUTBOX=$(cw_outbox_path  "$REX"  codex  "$CONSULT_TOPIC")
+CODY_OUTBOX=$(cw_outbox_path "$CODY" claude "$CONSULT_TOPIC")
+REX_OFFSET=$(stat -c '%s' "$REX_OUTBOX")
+CODY_OFFSET=$(stat -c '%s' "$CODY_OUTBOX")
+
+REX_SEND_OK=1; CODY_SEND_OK=1
+if ! "$PLUGIN_ROOT/bin/send.sh" "$REX"  "$CONSULT_TOPIC" "@$REX_PROMPT"  >/dev/null; then
+  log_error "[Phase 2] rex send failed"
+  REX_SEND_OK=0
+fi
+if ! "$PLUGIN_ROOT/bin/send.sh" "$CODY" "$CONSULT_TOPIC" "@$CODY_PROMPT" >/dev/null; then
+  log_error "[Phase 2] cody send failed"
+  CODY_SEND_OK=0
+fi
+
+if (( REX_SEND_OK == 0 && CODY_SEND_OK == 0 )); then
+  log_error "[Phase 2] both research sends failed; tearing down"
+  "$PLUGIN_ROOT/bin/teardown.sh" "$CONSULT_TOPIC" >/dev/null 2>&1 || true
+  exit 1
+fi
+
+# Wait for both done events past their pre-send offsets.
+RESEARCH_TIMEOUT=$(cw_consult_timeout research)
+log_info "[Phase 2] waiting up to ${RESEARCH_TIMEOUT}s for both done events"
+
+cat > "$ART_DIR/wait_research.txt" <<EOF
+$REX:codex:$CONSULT_TOPIC:$REX_OFFSET
+$CODY:claude:$CONSULT_TOPIC:$CODY_OFFSET
+EOF
+
+if ! cw_outbox_wait_all "$ART_DIR/wait_research.txt" done error "$RESEARCH_TIMEOUT"; then
+  log_error "[Phase 2] timeout or error before both troopers reported done"
+  "$PLUGIN_ROOT/bin/teardown.sh" "$CONSULT_TOPIC" >/dev/null 2>&1 || true
+  exit 1
+fi
+
+REX_FS=$(cw_consult_findings_status  "$REX_DIR/findings.md")
+CODY_FS=$(cw_consult_findings_status "$CODY_DIR/findings.md")
+
+if [[ "$REX_FS" == "missing" && "$CODY_FS" == "missing" ]]; then
+  log_error "[Phase 2] neither trooper produced findings.md; tearing down"
+  "$PLUGIN_ROOT/bin/teardown.sh" "$CONSULT_TOPIC" >/dev/null 2>&1 || true
+  exit 1
+fi
+
+# Persist statuses for finalize.
+cat > "$ART_DIR/research_status.txt" <<EOF
+REX_FS=$REX_FS
+CODY_FS=$CODY_FS
+EOF
+
+log_ok "[Phase 2] research complete (rex=$REX_FS, cody=$CODY_FS)"
+
+# (Phase 3 + 4 + 5 in subsequent commits.)
 exit 0
