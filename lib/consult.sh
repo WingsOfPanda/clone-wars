@@ -232,3 +232,48 @@ Then emit {"event":"done", "summary":"researched $topic", "ts":"<iso>"} to your 
 END_OF_INSTRUCTION
 EOF
 }
+
+# cw_consult_synthesize <topic> <diff.md> <adjudicated.md> \
+#                       <rex-state-dir> <cody-state-dir> \
+#                       <rex-findings-status> <cody-findings-status> \
+#                       <rex-verify-status>   <cody-verify-status>   <out>
+#
+# *_findings_status ∈ {ok, empty, malformed, missing}
+# *_verify_status   ∈ {ok, empty, missing, timeout, error, send-failed, skipped}
+#   skipped = no work was needed (other side had no _ONLY items)
+#
+# Emits the 6-section synthesis with banners when any status is not ok/skipped.
+cw_consult_synthesize() {
+  local topic="$1" diff="$2" adj="$3" rex_dir="$4" cody_dir="$5"
+  local rex_fs="$6" cody_fs="$7" rex_vs="$8" cody_vs="$9" out="${10}"
+
+  {
+    printf '# Consultation: %s\n\n' "$topic"
+
+    # Banners
+    case "$rex_fs"  in malformed|missing|empty) printf '> NOTE: REX findings.md %s — diff/synthesis ran on best-effort parse.\n\n' "$rex_fs" ;; esac
+    case "$cody_fs" in malformed|missing|empty) printf '> NOTE: CODY findings.md %s — diff/synthesis ran on best-effort parse.\n\n' "$cody_fs" ;; esac
+    case "$rex_vs"  in timeout|error|send-failed|missing) printf '> NOTE: REX verify dispatch %s — partial cross-verification; some Cody-only items not graded.\n\n' "$rex_vs" ;; esac
+    case "$cody_vs" in timeout|error|send-failed|missing) printf '> NOTE: CODY verify dispatch %s — partial cross-verification; some Rex-only items not graded.\n\n' "$cody_vs" ;; esac
+
+    printf '## Agreed findings (both raised independently)\n'
+    awk '/^## Agreed/{f=1;next} /^## /{f=0} f' "$diff"
+    printf '\n'
+
+    awk '
+      /^## Cross-verified/{f=1; print; next}
+      /^## Adjudicated/   {f=1; print; next}
+      /^## Contested/     {f=1; print; next}
+      /^## Not-verified/  {f=1; print; next}
+      /^## /              {f=0}
+      f
+    ' "$adj"
+    printf '\n'
+
+    printf '## Trooper artifacts\n'
+    printf -- '- REX research:  %s/findings.md\n' "$rex_dir"
+    printf -- '- REX verify:    %s/verify.md\n'   "$rex_dir"
+    printf -- '- CODY research: %s/findings.md\n' "$cody_dir"
+    printf -- '- CODY verify:   %s/verify.md\n'   "$cody_dir"
+  } > "$out"
+}
