@@ -49,3 +49,10 @@ MD
 mapfile -t V < <(cw_consult_parse_verdicts "$VERIFY")
 [[ "${#V[@]}" -eq 1 ]] || { echo "FAIL: unknown tag should be filtered"; exit 1; }
 pass "unknown tags filtered"
+
+PROMPT=$(cw_consult_build_research_prompt "review src/auth for token edge cases" "/state/findings.md")
+echo "$PROMPT" | grep -q 'review src/auth for token edge cases' || { echo "FAIL: topic"; exit 1; }
+echo "$PROMPT" | grep -q '/state/findings.md'  || { echo "FAIL: path"; exit 1; }
+echo "$PROMPT" | grep -q '## Claims'            || { echo "FAIL: format anchor"; exit 1; }
+echo "$PROMPT" | grep -q 'END_OF_INSTRUCTION$' || { echo "FAIL: sentinel"; exit 1; }
+pass "research prompt complete"

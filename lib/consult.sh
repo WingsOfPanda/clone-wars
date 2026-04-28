@@ -190,3 +190,45 @@ cw_consult_parse_verdicts() {
     }
   ' "$file"
 }
+
+# cw_consult_build_research_prompt <topic> <write_to>
+# Build the research-round prompt body. Emits a self-contained instruction
+# with the required Findings structure and citation rules, terminated by
+# END_OF_INSTRUCTION.
+cw_consult_build_research_prompt() {
+  local topic="$1" write_to="$2"
+  cat <<EOF
+Investigate the following topic and produce structured findings.
+
+Topic: $topic
+
+Output requirements — write to $write_to with this EXACT structure:
+
+  # Findings: $topic
+
+  ## Summary
+  <2-3 sentence overview, free-form prose>
+
+  ## Claims
+  1. [<source citation>] <one-sentence claim>
+  2. [<source citation>] <one-sentence claim>
+  ...
+
+  ## Notes
+  <any free-form additions; not parsed by conductor>
+
+Citation format options:
+  - <file path>:<line>          e.g. src/auth/store.py:42
+  - <file path>:<line-range>    e.g. src/auth/refresh.py:15-30
+  - <URL>                       e.g. https://datatracker.ietf.org/doc/html/rfc6749
+  - runtime: <command>          e.g. runtime: pytest tests/test_auth.py
+
+Each claim must have a citation in [brackets]. Claims without citations
+will be silently dropped by the conductor — and if NO claim has a
+citation, your findings will be flagged as malformed in the report.
+
+Then emit {"event":"done", "summary":"researched $topic", "ts":"<iso>"} to your outbox.
+
+END_OF_INSTRUCTION
+EOF
+}
