@@ -217,6 +217,36 @@ cw_outbox_wait_since() {
   return 1
 }
 
+# cw_outbox_wait_all <troopers-file> <event...> <timeout>
+# Block until every trooper listed all match. <troopers-file> format:
+# one line per trooper, colon-delimited "<commander>:<model>:<topic>:<offset>".
+# Returns 0 if all matched within <timeout>; 1 if any trooper timed out;
+# 2 on bad args / empty file.
+cw_outbox_wait_all() {
+  local file="$1"; shift
+  (( $# >= 2 )) || { echo "cw_outbox_wait_all: need event(s) and timeout" >&2; return 2; }
+  local timeout="${!#}"
+  set -- "${@:1:$#-1}"
+  local events=("$@")
+  [[ -f "$file" ]]             || { echo "cw_outbox_wait_all: file not found: $file" >&2; return 2; }
+  [[ "$timeout" =~ ^[0-9]+$ ]] || { echo "cw_outbox_wait_all: bad timeout '$timeout'" >&2; return 2; }
+
+  mapfile -t lines < <(grep -v '^[[:space:]]*$' "$file")
+  (( ${#lines[@]} > 0 )) || { echo "cw_outbox_wait_all: empty troopers file" >&2; return 2; }
+
+  local deadline=$(( $(date +%s) + timeout ))
+  local line commander model topic offset remaining
+  for line in "${lines[@]}"; do
+    IFS=':' read -r commander model topic offset <<< "$line"
+    [[ -n "$commander" && -n "$model" && -n "$topic" && -n "$offset" ]] \
+      || { echo "cw_outbox_wait_all: malformed line: $line" >&2; return 2; }
+    remaining=$(( deadline - $(date +%s) ))
+    (( remaining > 0 )) || return 1
+    cw_outbox_wait_since "$commander" "$model" "$topic" "$offset" "${events[@]}" "$remaining" >/dev/null || return 1
+  done
+  return 0
+}
+
 # cw_outbox_dump <commander> <model> <topic>
 # Print the whole outbox.jsonl. Used by collect/list for diagnostics.
 cw_outbox_dump() {
