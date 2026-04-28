@@ -94,10 +94,10 @@ cw_consult_citation_overlaps() {
 #   - [<cody-cite>] <cody-text>
 cw_consult_diff() {
   local rex="$1" cody="$2" out="$3"
-  local -a rex_cites=() rex_texts=() cody_cites=() cody_texts=() rex_matched=() cody_matched=()
+  local -a rex_cites=() rex_texts=() cody_cites=() cody_texts=() rex_pair=() cody_matched=()
   local cite text
   while IFS=$'\t' read -r cite text; do
-    rex_cites+=("$cite");   rex_texts+=("$text");   rex_matched+=(0)
+    rex_cites+=("$cite");   rex_texts+=("$text");   rex_pair+=(-1)
   done < <(cw_consult_parse_claims "$rex")
   while IFS=$'\t' read -r cite text; do
     cody_cites+=("$cite");  cody_texts+=("$text");  cody_matched+=(0)
@@ -109,7 +109,7 @@ cw_consult_diff() {
     for ((j = 0; j < n_cody; j++)); do
       [[ "${cody_matched[$j]}" -eq 1 ]] && continue
       if cw_consult_citation_overlaps "${rex_cites[$i]}" "${cody_cites[$j]}"; then
-        rex_matched[$i]=1
+        rex_pair[$i]=$j
         cody_matched[$j]=1
         break
       fi
@@ -119,17 +119,13 @@ cw_consult_diff() {
   {
     printf '## Agreed\n'
     for ((i = 0; i < n_rex; i++)); do
-      [[ "${rex_matched[$i]}" -eq 1 ]] || continue
-      for ((j = 0; j < n_cody; j++)); do
-        if cw_consult_citation_overlaps "${rex_cites[$i]}" "${cody_cites[$j]}"; then
-          printf -- '- [%s] %s | %s\n' "${rex_cites[$i]}" "${rex_texts[$i]}" "${cody_texts[$j]}"
-          break
-        fi
-      done
+      j="${rex_pair[$i]}"
+      [[ "$j" -ge 0 ]] || continue
+      printf -- '- [%s] %s | %s\n' "${rex_cites[$i]}" "${rex_texts[$i]}" "${cody_texts[$j]}"
     done
     printf '\n## Rex-only\n'
     for ((i = 0; i < n_rex; i++)); do
-      [[ "${rex_matched[$i]}" -eq 0 ]] || continue
+      [[ "${rex_pair[$i]}" -lt 0 ]] || continue
       printf -- '- [%s] %s\n' "${rex_cites[$i]}" "${rex_texts[$i]}"
     done
     printf '\n## Cody-only\n'

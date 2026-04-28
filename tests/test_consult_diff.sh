@@ -71,6 +71,38 @@ cody_n=$(awk '/^## Cody-only/{f=1;next} /^## /{f=0} f && /^- /{n++} END{print n+
 [[ "$cody_n" -eq 1 ]] || { echo "FAIL: expected 1 cody-only, got $cody_n" >&2; cat "$OUT" >&2; exit 1; }
 pass "Cody-only correctly identifies disjoint claim"
 
+# === regression: path-only cody must not steal pairing from specific-line cody ===
+cat > "$REX" <<'MD'
+# Findings
+## Claims
+1. [src/x.py:5] R-five.
+2. [src/x.py:50] R-fifty.
+## Notes
+MD
+cat > "$CODY" <<'MD'
+# Findings
+## Claims
+1. [src/x.py] C-pathonly.
+2. [src/x.py:50] C-fifty.
+## Notes
+MD
+
+cw_consult_diff "$REX" "$CODY" "$OUT"
+# Both rex claims paired (path-only catches the rex[0] specific-line; rex[1]
+# pairs with cody[1] specific-line — pairing is order-of-bucketing).
+agreed_lines=$(awk '/^## Agreed/{f=1;next} /^## /{f=0} f && /^- /{print}' "$OUT")
+n=$(echo "$agreed_lines" | grep -c '^- ')
+[[ "$n" -eq 2 ]] || { echo "FAIL: expected 2 agreed pairs, got $n" >&2; cat "$OUT" >&2; exit 1; }
+# C-fifty MUST appear in the Agreed section — the bug dropped it before.
+echo "$agreed_lines" | grep -q 'C-fifty' || { echo "FAIL: C-fifty missing from Agreed" >&2; cat "$OUT" >&2; exit 1; }
+# C-pathonly should appear EXACTLY ONCE (was duplicated by the bug).
+pathonly_count=$(echo "$agreed_lines" | grep -c 'C-pathonly')
+[[ "$pathonly_count" -eq 1 ]] || { echo "FAIL: C-pathonly appears $pathonly_count times, expected 1" >&2; cat "$OUT" >&2; exit 1; }
+# Cody-only should be empty (both cody claims used).
+cody_only_n=$(awk '/^## Cody-only/{f=1;next} /^## /{f=0} f && /^- /{n++} END{print n+0}' "$OUT")
+[[ "$cody_only_n" -eq 0 ]] || { echo "FAIL: expected 0 cody-only, got $cody_only_n" >&2; exit 1; }
+pass "path-only cody does not steal pairing from specific-line cody"
+
 # Empty inputs still emit all three sections.
 echo '# x' > "$TMP/e1.md"; echo '# x' > "$TMP/e2.md"
 cw_consult_diff "$TMP/e1.md" "$TMP/e2.md" "$TMP/d2.md"
