@@ -220,5 +220,67 @@ EOF
 
 log_ok "[Phase 4] verify status: rex=$REX_VS, cody=$CODY_VS"
 
-# (Phase 5 in next commit.)
-exit 0
+# ---------------------------------------------------------- Phase 5 adjudicate
+
+log_info "[Phase 5] writing adjudicated.md (PENDING resolution is the conductor's job)"
+
+ADJ="$ART_DIR/adjudicated.md"
+{
+  printf '## Cross-verified\n'
+  if [[ -f "$CODY_DIR/verify.md" ]]; then
+    cw_consult_parse_verdicts "$CODY_DIR/verify.md" \
+      | awk -F'\t' '$1 == "AGREE" { printf "- [%s] %s — CODY confirmed: %s\n", $2, $3, $3 }'
+  fi
+  if [[ -f "$REX_DIR/verify.md" ]]; then
+    cw_consult_parse_verdicts "$REX_DIR/verify.md" \
+      | awk -F'\t' '$1 == "AGREE" { printf "- [%s] %s — REX confirmed: %s\n", $2, $3, $3 }'
+  fi
+
+  printf '\n## Adjudicated\n'
+  printf '<!-- conductor: read each cited source for every "PENDING" line below; rewrite the prefix to CONFIRMED, REFUTED, or move to ## Contested. The synthesis tool refuses to finalize while any PENDING remains. -->\n'
+  if [[ -f "$CODY_DIR/verify.md" ]]; then
+    cw_consult_parse_verdicts "$CODY_DIR/verify.md" \
+      | awk -F'\t' '$1 != "AGREE" { printf "- PENDING: [%s] %s — CODY %s: %s\n", $2, $3, $1, $3 }'
+  fi
+  if [[ -f "$REX_DIR/verify.md" ]]; then
+    cw_consult_parse_verdicts "$REX_DIR/verify.md" \
+      | awk -F'\t' '$1 != "AGREE" { printf "- PENDING: [%s] %s — REX %s: %s\n", $2, $3, $1, $3 }'
+  fi
+
+  printf '\n## Contested\n'
+  printf '<!-- conductor: move CONTESTED items here from Adjudicated. Items in this section ship in synthesis as unresolved. -->\n'
+
+  printf '\n## Not-verified\n'
+  # If REX_VS != ok and CODY_ONLY had items, list them here (rex was supposed to verify them).
+  if [[ "$REX_VS" != "ok" && "$REX_VS" != "skipped" && -s "$CODY_ONLY" ]]; then
+    awk -v vs="$REX_VS" '{ printf "- %s — REX verify dispatch %s\n", $0, vs }' "$CODY_ONLY"
+  fi
+  if [[ "$CODY_VS" != "ok" && "$CODY_VS" != "skipped" && -s "$REX_ONLY" ]]; then
+    awk -v vs="$CODY_VS" '{ printf "- %s — CODY verify dispatch %s\n", $0, vs }' "$REX_ONLY"
+  fi
+} > "$ADJ"
+
+cat <<EOF
+
+============================================================
+  CONSULTATION DRAFT (Phases 1-5 complete)
+============================================================
+  topic:         $CONSULT_TOPIC ($TOPIC_TEXT)
+  rex findings:  $REX_DIR/findings.md           ($REX_FS)
+  cody findings: $CODY_DIR/findings.md          ($CODY_FS)
+  diff:          $DIFF
+  adjudicated:   $ADJ                            (has PENDING items)
+  rex verify:    $REX_DIR/verify.md             ($REX_VS)
+  cody verify:   $CODY_DIR/verify.md             ($CODY_VS)
+
+  NEXT — conductor responsibility:
+    1. Open $ADJ.
+    2. For each "- PENDING:" line, read the cited source and rewrite the
+       PENDING prefix to CONFIRMED or REFUTED with one-line evidence,
+       OR move the line into ## Contested if you can't decide.
+    3. Run: $PLUGIN_ROOT/bin/consult-finalize.sh "$CONSULT_TOPIC"
+       (this synthesizes the final report, tears down the panes, and
+       archives _consult/ alongside the trooper state).
+============================================================
+
+EOF
