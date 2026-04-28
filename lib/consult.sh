@@ -241,6 +241,7 @@ EOF
 # *_findings_status ∈ {ok, empty, malformed, missing}
 # *_verify_status   ∈ {ok, empty, missing, timeout, error, send-failed, skipped}
 #   skipped = no work was needed (other side had no _ONLY items)
+#   Banners fire on any status except ok and skipped.
 #
 # Emits the 6-section synthesis with banners when any status is not ok/skipped.
 cw_consult_synthesize() {
@@ -253,8 +254,8 @@ cw_consult_synthesize() {
     # Banners
     case "$rex_fs"  in malformed|missing|empty) printf '> NOTE: REX findings.md %s — diff/synthesis ran on best-effort parse.\n\n' "$rex_fs" ;; esac
     case "$cody_fs" in malformed|missing|empty) printf '> NOTE: CODY findings.md %s — diff/synthesis ran on best-effort parse.\n\n' "$cody_fs" ;; esac
-    case "$rex_vs"  in timeout|error|send-failed|missing) printf '> NOTE: REX verify dispatch %s — partial cross-verification; some Cody-only items not graded.\n\n' "$rex_vs" ;; esac
-    case "$cody_vs" in timeout|error|send-failed|missing) printf '> NOTE: CODY verify dispatch %s — partial cross-verification; some Rex-only items not graded.\n\n' "$cody_vs" ;; esac
+    case "$rex_vs"  in timeout|error|send-failed|missing|empty) printf '> NOTE: REX verify dispatch %s — partial cross-verification; some Cody-only items not graded.\n\n' "$rex_vs" ;; esac
+    case "$cody_vs" in timeout|error|send-failed|missing|empty) printf '> NOTE: CODY verify dispatch %s — partial cross-verification; some Rex-only items not graded.\n\n' "$cody_vs" ;; esac
 
     printf '## Agreed findings (both raised independently)\n'
     awk '/^## Agreed/{f=1;next} /^## /{f=0} f' "$diff"

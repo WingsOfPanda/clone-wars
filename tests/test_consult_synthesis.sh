@@ -67,3 +67,10 @@ cw_consult_synthesize "review auth" "$DIFF" "$ADJ" \
   "/state/rex" "/state/cody" "malformed" "ok" "ok" "ok" "$TMP/syn3.md"
 grep -q '^> .*REX.*malformed' "$TMP/syn3.md" || { echo "FAIL: missing degraded findings banner" >&2; exit 1; }
 pass "degraded findings banner emitted"
+
+# vs=empty must trigger a partial-verify banner.
+cw_consult_synthesize "review auth" "$DIFF" "$ADJ" \
+  "/state/rex" "/state/cody" "ok" "ok" "empty" "ok" "$TMP/syn4.md"
+grep -q '^> .*REX.*verify.*partial' "$TMP/syn4.md" \
+  || { echo "FAIL: empty verify did not produce banner" >&2; cat "$TMP/syn4.md" >&2; exit 1; }
+pass "empty verify status triggers partial-verify banner"
