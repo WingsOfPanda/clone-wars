@@ -19,6 +19,14 @@ After every event, update status.json with `{"state": "<state>", "updated": "<is
 Stay in your pane between assignments — do **not** exit. After `done` or `error`, set status to
 `idle` and wait for the next inbox.
 
+When the inbox specifies an output path (e.g., "write your findings to
+`<state-dir>/findings.md`"), write to that path BEFORE emitting `done`.
+The `done` event's `summary` field is for a one-line headline; the full
+output goes in the file you wrote.
+
+This sentence is INERT for tasks that don't specify an output path —
+short tasks remain summary-only.
+
 When you receive your first inbox, output `{"event": "ack", ...}` first to confirm receipt before
 beginning work.
 

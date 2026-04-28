@@ -99,4 +99,8 @@ EMITTED_TS=$(printf '%s\n' "$LINE" | grep -oE '"ts":"[0-9TZ:-]+"' | head -n1 | s
   echo "FAIL: emitted ts $EMITTED_TS is newer than AFTER $AFTER" >&2; exit 1; }
 pass "executable rendering produces well-formed JSON with runtime ts"
 
+grep -q 'inbox specifies' "$IDENTITY" \
+  || { echo "FAIL: identity missing inbox-specified output-path discipline" >&2; exit 1; }
+pass "identity: inbox-specified output path discipline"
+
 echo "  ALL: ok"
