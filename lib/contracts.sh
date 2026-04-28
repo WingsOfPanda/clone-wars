@@ -12,15 +12,23 @@ cw_contracts_exists() {
 
 # List provider top-level keys in file order. A provider key is a non-indented
 # line whose first non-whitespace token ends in a colon and isn't a comment.
+# Reserved non-provider top-level blocks (e.g. `consult:` for /clone-wars:consult
+# timeouts) are skipped so medic and runtime callers don't treat them as providers.
 cw_contracts_providers() {
   local path; path=$(cw_contracts_path)
   [[ -f "$path" ]] || return 1
   awk '
+    BEGIN {
+      # Reserved top-level keys that are NOT provider rows.
+      reserved["consult"] = 1
+    }
     /^[[:space:]]*#/ { next }
     /^[[:space:]]*$/  { next }
     /^[A-Za-z][A-Za-z0-9_-]*:[[:space:]]*$/ {
-      sub(/:[[:space:]]*$/, "", $0)
-      print
+      name = $0
+      sub(/:[[:space:]]*$/, "", name)
+      if (name in reserved) next
+      print name
     }
   ' "$path"
 }
@@ -133,6 +141,31 @@ cw_contract_bootstrap_sleep() {
   ' "$path")
   [[ -n "$val" ]] || val="$default"
   printf '%s\n' "$val"
+}
+
+# cw_consult_timeout <kind>
+# Print the configured timeout for <kind> ∈ {research, verify}. Reads the
+# consult: block in contracts.yaml; falls back to research=600, verify=300
+# on missing block, missing field, or non-positive-integer value.
+cw_consult_timeout() {
+  local kind="$1" key default
+  case "$kind" in
+    research) key=research_timeout_s; default=600 ;;
+    verify)   key=verify_timeout_s;   default=300 ;;
+    *) echo "cw_consult_timeout: kind must be 'research' or 'verify'; got '$kind'" >&2; return 2 ;;
+  esac
+  local path; path=$(cw_contracts_path)
+  [[ -f "$path" ]] || { printf '%s\n' "$default"; return 0; }
+  local v
+  v=$(awk -v key="$key" '
+    /^consult:/         { in_consult = 1; next }
+    /^[a-z]/            { in_consult = 0 }
+    in_consult && $1 == key":" { print $2; exit }
+  ' "$path")
+  if [[ -z "$v" ]] || ! [[ "$v" =~ ^[1-9][0-9]*$ ]]; then
+    v="$default"
+  fi
+  printf '%s\n' "$v"
 }
 
 # cw_contract_mode_args <provider> <mode>

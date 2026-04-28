@@ -183,6 +183,70 @@ cw_outbox_wait() {
   return 1
 }
 
+# cw_outbox_wait_since <commander> <model> <topic> <byte-offset> <event...> <timeout>
+# Like cw_outbox_wait, but only considers content AFTER <byte-offset>. Capture
+# `wc -c < "$outbox" | tr -d ' '` BEFORE the inbox nudge; this wait then
+# matches only events the dispatched task produced.
+cw_outbox_wait_since() {
+  local commander="$1" model="$2" topic="$3" offset="$4"
+  shift 4
+  (( $# >= 2 )) || { echo "cw_outbox_wait_since: need event(s) and timeout" >&2; return 2; }
+  local timeout="${!#}"
+  set -- "${@:1:$#-1}"
+  local events=("$@")
+  [[ "$offset"  =~ ^[0-9]+$ ]] || { echo "cw_outbox_wait_since: bad offset '$offset'" >&2; return 2; }
+  [[ "$timeout" =~ ^[0-9]+$ ]] || { echo "cw_outbox_wait_since: bad timeout '$timeout'" >&2; return 2; }
+  local outbox; outbox=$(cw_outbox_path "$commander" "$model" "$topic")
+  local i event pat tail_size tail_content
+  for ((i = 0; i < timeout; i++)); do
+    if [[ -f "$outbox" ]]; then
+      tail_size=$(wc -c < "$outbox" | tr -d ' ')
+      if (( tail_size > offset )); then
+        tail_content=$(tail -c "+$((offset + 1))" "$outbox")
+        for event in "${events[@]}"; do
+          pat=$(cw_event_match_pattern "$event")
+          if printf '%s\n' "$tail_content" | grep -qE "$pat"; then
+            printf '%s\n' "$tail_content" | grep -E "$pat" | tail -n1
+            return 0
+          fi
+        done
+      fi
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+# cw_outbox_wait_all <troopers-file> <event...> <timeout>
+# Block until every trooper listed all match. <troopers-file> format:
+# one line per trooper, colon-delimited "<commander>:<model>:<topic>:<offset>".
+# Returns 0 if all matched within <timeout>; 1 if any trooper timed out;
+# 2 on bad args / empty file.
+cw_outbox_wait_all() {
+  local file="$1"; shift
+  (( $# >= 2 )) || { echo "cw_outbox_wait_all: need event(s) and timeout" >&2; return 2; }
+  local timeout="${!#}"
+  set -- "${@:1:$#-1}"
+  local events=("$@")
+  [[ -f "$file" ]]             || { echo "cw_outbox_wait_all: file not found: $file" >&2; return 2; }
+  [[ "$timeout" =~ ^[0-9]+$ ]] || { echo "cw_outbox_wait_all: bad timeout '$timeout'" >&2; return 2; }
+
+  mapfile -t lines < <(grep -v '^[[:space:]]*$' "$file")
+  (( ${#lines[@]} > 0 )) || { echo "cw_outbox_wait_all: empty troopers file" >&2; return 2; }
+
+  local deadline=$(( $(date +%s) + timeout ))
+  local line commander model topic offset remaining
+  for line in "${lines[@]}"; do
+    IFS=':' read -r commander model topic offset <<< "$line"
+    [[ -n "$commander" && -n "$model" && -n "$topic" && -n "$offset" ]] \
+      || { echo "cw_outbox_wait_all: malformed line: $line" >&2; return 2; }
+    remaining=$(( deadline - $(date +%s) ))
+    (( remaining > 0 )) || return 1
+    cw_outbox_wait_since "$commander" "$model" "$topic" "$offset" "${events[@]}" "$remaining" >/dev/null || return 1
+  done
+  return 0
+}
+
 # cw_outbox_dump <commander> <model> <topic>
 # Print the whole outbox.jsonl. Used by collect/list for diagnostics.
 cw_outbox_dump() {
