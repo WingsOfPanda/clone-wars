@@ -85,6 +85,30 @@ JSONL outbox event types, status state machine) is in §File-IPC protocol.
 
 ---
 
+## Orchestration: `/clone-wars:consult`
+
+`/clone-wars:consult <topic>` is the first orchestration command on top of the
+spawn/send/collect/teardown primitives. Use it for cross-verified research:
+
+1. The conductor spawns `rex (codex)` and `cody (claude)` on a fresh topic.
+2. Both research independently, writing structured `findings.md`.
+3. The conductor diffs the findings via citation overlap (path normalization,
+   line-range intersection, URL exact match).
+4. Each side's unique claims dispatch back to the OTHER trooper for AGREE /
+   DISPUTE / UNCERTAIN verification — using the SAME pane (codex and claude
+   TUIs preserve in-session memory across the two calls).
+5. The conductor adjudicates disputed items by reading the cited sources
+   directly, then synthesizes a six-section report (Agreed / Cross-verified /
+   Adjudicated / Contested / Not-verified / Trooper artifacts).
+
+```
+/clone-wars:consult "review src/auth/oauth.py for token-refresh edge cases"
+```
+
+The full spec is at `docs/superpowers/specs/2026-04-28-clone-wars-consult-design.md`.
+
+---
+
 ## Visual identity
 
 Each commander gets a Star Wars canon hue rendered in a Morandi (muted, low-saturation)
