@@ -135,3 +135,58 @@ cw_consult_diff() {
     done
   } > "$out"
 }
+
+# cw_consult_build_verify_prompt <items_file> <write_to>
+# Build the verify-round prompt body. Reads <items_file> (one `[cite] text` per
+# line) and emits a self-contained instruction, terminated by END_OF_INSTRUCTION.
+cw_consult_build_verify_prompt() {
+  local items_file="$1" write_to="$2"
+  cat <<EOF
+You researched a topic in your previous turn. Below are claims the OTHER researcher raised that you did not. For EACH item, do ONE of:
+
+  AGREE     — confirm with your own evidence (cite a file/line/source)
+  DISPUTE   — explain why it's wrong, with counter-evidence
+  UNCERTAIN — you cannot tell from available evidence; say so
+
+Items to verify:
+$(cat "$items_file" | nl -ba -w1 -s'. ')
+
+Write your verdicts to $write_to in this exact format:
+
+  # Verify
+  ## Verdicts
+  1. <TAG> <original [citation] and text>
+     <one-line evidence>
+  2. ...
+
+Where <TAG> is one of: AGREE / DISPUTE / UNCERTAIN.
+
+Then emit {"event":"done", "summary":"verified N items", "ts":"<iso>"} to your outbox.
+
+END_OF_INSTRUCTION
+EOF
+}
+
+# cw_consult_parse_verdicts <verify.md>
+# Print one TAB-delimited line per verdict: "<tag>\t<citation>\t<text>".
+# Source format: `N. <TAG> [<citation>] <text>` lines under `## Verdicts`.
+# Only AGREE / DISPUTE / UNCERTAIN tags are accepted; anything else (e.g.
+# hallucinated UNKNOWN, MAYBE) is silently dropped — strict-by-design.
+cw_consult_parse_verdicts() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  awk '
+    /^## Verdicts/                                            { in_v = 1; next }
+    /^## /                                                    { in_v = 0 }
+    in_v && /^[0-9]+\. (AGREE|DISPUTE|UNCERTAIN) \[[^]]+\] / {
+      sub(/^[0-9]+\. /, "")
+      tag = $1
+      sub(/^[A-Z]+ /, "")
+      match($0, /\[[^]]+\]/)
+      cite = substr($0, RSTART + 1, RLENGTH - 2)
+      text = substr($0, RSTART + RLENGTH + 1)
+      sub(/^[ \t]+/, "", text)
+      printf "%s\t%s\t%s\n", tag, cite, text
+    }
+  ' "$file"
+}
