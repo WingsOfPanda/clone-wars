@@ -229,22 +229,22 @@ ADJ="$ART_DIR/adjudicated.md"
   printf '## Cross-verified\n'
   if [[ -f "$CODY_DIR/verify.md" ]]; then
     cw_consult_parse_verdicts "$CODY_DIR/verify.md" \
-      | awk -F'\t' '$1 == "AGREE" { printf "- [%s] %s — CODY confirmed: %s\n", $2, $3, $3 }'
+      | awk -F'\t' '$1 == "AGREE" { ev = ($4 != "" ? $4 : $3); printf "- [%s] %s — CODY confirmed: %s\n", $2, $3, ev }'
   fi
   if [[ -f "$REX_DIR/verify.md" ]]; then
     cw_consult_parse_verdicts "$REX_DIR/verify.md" \
-      | awk -F'\t' '$1 == "AGREE" { printf "- [%s] %s — REX confirmed: %s\n", $2, $3, $3 }'
+      | awk -F'\t' '$1 == "AGREE" { ev = ($4 != "" ? $4 : $3); printf "- [%s] %s — REX confirmed: %s\n", $2, $3, ev }'
   fi
 
   printf '\n## Adjudicated\n'
   printf '<!-- conductor: read each cited source for every "PENDING" line below; rewrite the prefix to CONFIRMED, REFUTED, or move to ## Contested. The synthesis tool refuses to finalize while any PENDING remains. -->\n'
   if [[ -f "$CODY_DIR/verify.md" ]]; then
     cw_consult_parse_verdicts "$CODY_DIR/verify.md" \
-      | awk -F'\t' '$1 != "AGREE" { printf "- PENDING: [%s] %s — CODY %s: %s\n", $2, $3, $1, $3 }'
+      | awk -F'\t' '$1 != "AGREE" { ev = ($4 != "" ? $4 : $3); printf "- PENDING: [%s] %s — CODY %s: %s\n", $2, $3, $1, ev }'
   fi
   if [[ -f "$REX_DIR/verify.md" ]]; then
     cw_consult_parse_verdicts "$REX_DIR/verify.md" \
-      | awk -F'\t' '$1 != "AGREE" { printf "- PENDING: [%s] %s — REX %s: %s\n", $2, $3, $1, $3 }'
+      | awk -F'\t' '$1 != "AGREE" { ev = ($4 != "" ? $4 : $3); printf "- PENDING: [%s] %s — REX %s: %s\n", $2, $3, $1, ev }'
   fi
 
   printf '\n## Contested\n'

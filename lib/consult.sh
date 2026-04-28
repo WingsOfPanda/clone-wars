@@ -168,26 +168,42 @@ EOF
 }
 
 # cw_consult_parse_verdicts <verify.md>
-# Print one TAB-delimited line per verdict: "<tag>\t<citation>\t<text>".
-# Source format: `N. <TAG> [<citation>] <text>` lines under `## Verdicts`.
+# Print one TAB-delimited line per verdict: "<tag>\t<citation>\t<text>\t<evidence>".
+# Source format under `## Verdicts`:
+#   N. <TAG> [<citation>] <text>
+#      <one-line evidence>            (optional indented continuation)
 # Only AGREE / DISPUTE / UNCERTAIN tags are accepted; anything else (e.g.
 # hallucinated UNKNOWN, MAYBE) is silently dropped — strict-by-design.
+# If no continuation line is present, evidence is empty (the 4th column
+# is still emitted so downstream awk -F'\t' sees a stable shape).
 cw_consult_parse_verdicts() {
   local file="$1"
   [[ -f "$file" ]] || return 0
   awk '
-    /^## Verdicts/                                            { in_v = 1; next }
-    /^## /                                                    { in_v = 0 }
-    in_v && /^[0-9]+\. (AGREE|DISPUTE|UNCERTAIN) \[[^]]+\] / {
-      sub(/^[0-9]+\. /, "")
-      tag = $1
-      sub(/^[A-Z]+ /, "")
-      match($0, /\[[^]]+\]/)
-      cite = substr($0, RSTART + 1, RLENGTH - 2)
-      text = substr($0, RSTART + RLENGTH + 1)
-      sub(/^[ \t]+/, "", text)
-      printf "%s\t%s\t%s\n", tag, cite, text
+    function flush() {
+      if (have) { printf "%s\t%s\t%s\t%s\n", tag, cite, text, evidence; have = 0 }
     }
+    /^## Verdicts/ { in_v = 1; next }
+    /^## /         { flush(); in_v = 0 }
+    in_v && /^[0-9]+\. (AGREE|DISPUTE|UNCERTAIN) \[[^]]+\] / {
+      flush()
+      line = $0
+      sub(/^[0-9]+\. /, "", line)
+      tag = line; sub(/ .*$/, "", tag)
+      rest = line; sub(/^[A-Z]+ /, "", rest)
+      match(rest, /\[[^]]+\]/)
+      cite = substr(rest, RSTART + 1, RLENGTH - 2)
+      text = substr(rest, RSTART + RLENGTH + 1); sub(/^[ \t]+/, "", text)
+      evidence = ""
+      have = 1
+      next
+    }
+    in_v && have && /^[ \t]+/ {
+      ev = $0; sub(/^[ \t]+/, "", ev)
+      if (evidence == "") evidence = ev; else evidence = evidence " " ev
+      next
+    }
+    END { flush() }
   ' "$file"
 }
 

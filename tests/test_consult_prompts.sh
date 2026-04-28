@@ -50,6 +50,27 @@ mapfile -t V < <(cw_consult_parse_verdicts "$VERIFY")
 [[ "${#V[@]}" -eq 1 ]] || { echo "FAIL: unknown tag should be filtered"; exit 1; }
 pass "unknown tags filtered"
 
+# Evidence line round-trip — verify.md has indented continuation lines below
+# each verdict; parser must preserve them as a 4th TSV column so synthesis
+# can show the trooper's actual reasoning, not just echo the original claim.
+cat > "$VERIFY" <<'MD'
+# Verify
+## Verdicts
+1. AGREE [src/auth/refresh.py:15-30] No retry logic.
+   src/auth/refresh.py:25 — try block has no except RetryError handler
+2. DISPUTE [src/oauth/callback.py:88] State unvalidated.
+   actually validated against session at line 91 — original claim is wrong
+MD
+mapfile -t V < <(cw_consult_parse_verdicts "$VERIFY")
+[[ "${#V[@]}" -eq 2 ]] || { echo "FAIL: 2 verdicts, got ${#V[@]}" >&2; exit 1; }
+IFS=$'\t' read -r tag cite text evidence <<< "${V[0]}"
+[[ "$evidence" == *"except RetryError"* ]] \
+  || { echo "FAIL: evidence not captured: '$evidence'" >&2; exit 1; }
+IFS=$'\t' read -r tag cite text evidence <<< "${V[1]}"
+[[ "$evidence" == *"validated against session"* ]] \
+  || { echo "FAIL: dispute evidence not captured: '$evidence'" >&2; exit 1; }
+pass "verdict parser captures evidence continuation line as 4th TSV column"
+
 PROMPT=$(cw_consult_build_research_prompt "review src/auth for token edge cases" "/state/findings.md")
 echo "$PROMPT" | grep -q 'review src/auth for token edge cases' || { echo "FAIL: topic"; exit 1; }
 echo "$PROMPT" | grep -q '/state/findings.md'  || { echo "FAIL: path"; exit 1; }
