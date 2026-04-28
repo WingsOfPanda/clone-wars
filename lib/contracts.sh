@@ -135,6 +135,31 @@ cw_contract_bootstrap_sleep() {
   printf '%s\n' "$val"
 }
 
+# cw_consult_timeout <kind>
+# Print the configured timeout for <kind> ∈ {research, verify}. Reads the
+# consult: block in contracts.yaml; falls back to research=600, verify=300
+# on missing block, missing field, or non-positive-integer value.
+cw_consult_timeout() {
+  local kind="$1" key default
+  case "$kind" in
+    research) key=research_timeout_s; default=600 ;;
+    verify)   key=verify_timeout_s;   default=300 ;;
+    *) echo "cw_consult_timeout: kind must be 'research' or 'verify'; got '$kind'" >&2; return 2 ;;
+  esac
+  local path; path=$(cw_contracts_path)
+  [[ -f "$path" ]] || { printf '%s\n' "$default"; return 0; }
+  local v
+  v=$(awk -v key="$key" '
+    /^consult:/         { in_consult = 1; next }
+    /^[a-z]/            { in_consult = 0 }
+    in_consult && $1 == key":" { print $2; exit }
+  ' "$path")
+  if [[ -z "$v" ]] || ! [[ "$v" =~ ^[1-9][0-9]*$ ]]; then
+    v="$default"
+  fi
+  printf '%s\n' "$v"
+}
+
 # cw_contract_mode_args <provider> <mode>
 # Print the args list for <provider>'s <mode>, one arg per line. Modes are
 # stored as YAML flow sequences like:
