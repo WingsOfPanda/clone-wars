@@ -153,5 +153,72 @@ EOF
 
 log_ok "[Phase 2] research complete (rex=$REX_FS, cody=$CODY_FS)"
 
-# (Phase 3 + 4 + 5 in subsequent commits.)
+# ---------------------------------------------------------- Phase 3 diff
+
+log_info "[Phase 3] bucketing claims"
+DIFF="$ART_DIR/diff.md"
+cw_consult_diff "$REX_DIR/findings.md" "$CODY_DIR/findings.md" "$DIFF"
+
+REX_ONLY="$ART_DIR/rex_only_items.txt"
+CODY_ONLY="$ART_DIR/cody_only_items.txt"
+awk '/^## Rex-only/{f=1;next}  /^## /{f=0} f && /^- /{ sub(/^- /,""); print }'  "$DIFF" > "$REX_ONLY"
+awk '/^## Cody-only/{f=1;next} /^## /{f=0} f && /^- /{ sub(/^- /,""); print }'  "$DIFF" > "$CODY_ONLY"
+
+# ---------------------------------------------------------- Phase 4 verify
+
+REX_VS=skipped; CODY_VS=skipped
+
+if [[ -s "$CODY_ONLY" ]]; then
+  REX_VERIFY_PROMPT="$ART_DIR/rex_verify_prompt.md"
+  cw_consult_build_verify_prompt "$CODY_ONLY" "$REX_DIR/verify.md" > "$REX_VERIFY_PROMPT"
+  REX_OFFSET2=$(stat -c '%s' "$REX_OUTBOX")
+  if "$PLUGIN_ROOT/bin/send.sh" "$REX" "$CONSULT_TOPIC" "@$REX_VERIFY_PROMPT" >/dev/null; then
+    REX_VS=pending  # provisional; refined after wait
+  else
+    REX_VS=send-failed
+  fi
+fi
+
+if [[ -s "$REX_ONLY" ]]; then
+  CODY_VERIFY_PROMPT="$ART_DIR/cody_verify_prompt.md"
+  cw_consult_build_verify_prompt "$REX_ONLY" "$CODY_DIR/verify.md" > "$CODY_VERIFY_PROMPT"
+  CODY_OFFSET2=$(stat -c '%s' "$CODY_OUTBOX")
+  if "$PLUGIN_ROOT/bin/send.sh" "$CODY" "$CONSULT_TOPIC" "@$CODY_VERIFY_PROMPT" >/dev/null; then
+    CODY_VS=pending
+  else
+    CODY_VS=send-failed
+  fi
+fi
+
+# Build wait file ONLY for sides that have a pending dispatch.
+> "$ART_DIR/wait_verify.txt"
+[[ "$REX_VS"  == pending ]] && echo "$REX:codex:$CONSULT_TOPIC:$REX_OFFSET2"   >> "$ART_DIR/wait_verify.txt"
+[[ "$CODY_VS" == pending ]] && echo "$CODY:claude:$CONSULT_TOPIC:$CODY_OFFSET2" >> "$ART_DIR/wait_verify.txt"
+
+if [[ -s "$ART_DIR/wait_verify.txt" ]]; then
+  VERIFY_TIMEOUT=$(cw_consult_timeout verify)
+  log_info "[Phase 4] waiting up to ${VERIFY_TIMEOUT}s for verify done events"
+  if ! cw_outbox_wait_all "$ART_DIR/wait_verify.txt" done error "$VERIFY_TIMEOUT"; then
+    log_warn "[Phase 4] one or both verify dispatches timed out — partial cross-verification"
+    [[ "$REX_VS"  == pending ]] && [[ ! -s "$REX_DIR/verify.md"  ]] && REX_VS=timeout
+    [[ "$CODY_VS" == pending ]] && [[ ! -s "$CODY_DIR/verify.md" ]] && CODY_VS=timeout
+  fi
+  # Promote pending → ok for sides that produced verify.md.
+  [[ "$REX_VS"  == pending ]] && [[ -s "$REX_DIR/verify.md"  ]] && REX_VS=ok
+  [[ "$CODY_VS" == pending ]] && [[ -s "$CODY_DIR/verify.md" ]] && CODY_VS=ok
+  # Pending without verify.md and not flagged timeout means error or silent miss.
+  [[ "$REX_VS"  == pending ]] && REX_VS=missing
+  [[ "$CODY_VS" == pending ]] && CODY_VS=missing
+else
+  log_info "[Phase 4] no cross-verify needed (no Rex-only or Cody-only items)"
+fi
+
+cat > "$ART_DIR/verify_status.txt" <<EOF
+REX_VS=$REX_VS
+CODY_VS=$CODY_VS
+EOF
+
+log_ok "[Phase 4] verify status: rex=$REX_VS, cody=$CODY_VS"
+
+# (Phase 5 in next commit.)
 exit 0
