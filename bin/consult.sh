@@ -102,8 +102,8 @@ cw_consult_build_research_prompt "$TOPIC_TEXT" "$CODY_DIR/findings.md" > "$CODY_
 
 REX_OUTBOX=$(cw_outbox_path  "$REX"  codex  "$CONSULT_TOPIC")
 CODY_OUTBOX=$(cw_outbox_path "$CODY" claude "$CONSULT_TOPIC")
-REX_OFFSET=$(stat -c '%s' "$REX_OUTBOX")
-CODY_OFFSET=$(stat -c '%s' "$CODY_OUTBOX")
+REX_OFFSET=$(wc -c < "$REX_OUTBOX" | tr -d ' ')
+CODY_OFFSET=$(wc -c < "$CODY_OUTBOX" | tr -d ' ')
 
 REX_SEND_OK=1; CODY_SEND_OK=1
 if ! "$PLUGIN_ROOT/bin/send.sh" "$REX"  "$CONSULT_TOPIC" "@$REX_PROMPT"  >/dev/null; then
@@ -171,7 +171,7 @@ REX_VS=skipped; CODY_VS=skipped
 if [[ -s "$CODY_ONLY" ]]; then
   REX_VERIFY_PROMPT="$ART_DIR/rex_verify_prompt.md"
   cw_consult_build_verify_prompt "$CODY_ONLY" "$REX_DIR/verify.md" > "$REX_VERIFY_PROMPT"
-  REX_OFFSET2=$(stat -c '%s' "$REX_OUTBOX")
+  REX_OFFSET2=$(wc -c < "$REX_OUTBOX" | tr -d ' ')
   if "$PLUGIN_ROOT/bin/send.sh" "$REX" "$CONSULT_TOPIC" "@$REX_VERIFY_PROMPT" >/dev/null; then
     REX_VS=pending  # provisional; refined after wait
   else
@@ -182,7 +182,7 @@ fi
 if [[ -s "$REX_ONLY" ]]; then
   CODY_VERIFY_PROMPT="$ART_DIR/cody_verify_prompt.md"
   cw_consult_build_verify_prompt "$REX_ONLY" "$CODY_DIR/verify.md" > "$CODY_VERIFY_PROMPT"
-  CODY_OFFSET2=$(stat -c '%s' "$CODY_OUTBOX")
+  CODY_OFFSET2=$(wc -c < "$CODY_OUTBOX" | tr -d ' ')
   if "$PLUGIN_ROOT/bin/send.sh" "$CODY" "$CONSULT_TOPIC" "@$CODY_VERIFY_PROMPT" >/dev/null; then
     CODY_VS=pending
   else

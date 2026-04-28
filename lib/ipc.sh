@@ -185,8 +185,8 @@ cw_outbox_wait() {
 
 # cw_outbox_wait_since <commander> <model> <topic> <byte-offset> <event...> <timeout>
 # Like cw_outbox_wait, but only considers content AFTER <byte-offset>. Capture
-# stat -c '%s' BEFORE the inbox nudge; this wait then matches only events the
-# dispatched task produced.
+# `wc -c < "$outbox" | tr -d ' '` BEFORE the inbox nudge; this wait then
+# matches only events the dispatched task produced.
 cw_outbox_wait_since() {
   local commander="$1" model="$2" topic="$3" offset="$4"
   shift 4
@@ -200,7 +200,7 @@ cw_outbox_wait_since() {
   local i event pat tail_size tail_content
   for ((i = 0; i < timeout; i++)); do
     if [[ -f "$outbox" ]]; then
-      tail_size=$(stat -c '%s' "$outbox")
+      tail_size=$(wc -c < "$outbox" | tr -d ' ')
       if (( tail_size > offset )); then
         tail_content=$(tail -c "+$((offset + 1))" "$outbox")
         for event in "${events[@]}"; do
