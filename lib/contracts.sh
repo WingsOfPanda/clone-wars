@@ -12,15 +12,23 @@ cw_contracts_exists() {
 
 # List provider top-level keys in file order. A provider key is a non-indented
 # line whose first non-whitespace token ends in a colon and isn't a comment.
+# Reserved non-provider top-level blocks (e.g. `consult:` for /clone-wars:consult
+# timeouts) are skipped so medic and runtime callers don't treat them as providers.
 cw_contracts_providers() {
   local path; path=$(cw_contracts_path)
   [[ -f "$path" ]] || return 1
   awk '
+    BEGIN {
+      # Reserved top-level keys that are NOT provider rows.
+      reserved["consult"] = 1
+    }
     /^[[:space:]]*#/ { next }
     /^[[:space:]]*$/  { next }
     /^[A-Za-z][A-Za-z0-9_-]*:[[:space:]]*$/ {
-      sub(/:[[:space:]]*$/, "", $0)
-      print
+      name = $0
+      sub(/:[[:space:]]*$/, "", name)
+      if (name in reserved) next
+      print name
     }
   ' "$path"
 }

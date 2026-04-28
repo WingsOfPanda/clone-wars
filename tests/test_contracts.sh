@@ -162,6 +162,11 @@ got=$(CLONE_WARS_HOME="$TMP_C" cw_consult_timeout verify)
 assert_eq "$got" "300" "verify reads back"
 pass "consult timeouts read back"
 
+# consult: is a reserved non-provider block — cw_contracts_providers must skip it.
+PROVS=$(CLONE_WARS_HOME="$TMP_C" cw_contracts_providers | tr '\n' ' ' | sed 's/ $//')
+assert_eq "$PROVS" "codex" "consult: skipped from provider enumeration"
+pass "consult: not enumerated as a provider"
+
 # Defaults when block missing.
 cat > "$TMP_C/contracts.yaml" <<YAML
 codex:
