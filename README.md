@@ -87,25 +87,35 @@ JSONL outbox event types, status state machine) is in §File-IPC protocol.
 
 ## Orchestration: `/clone-wars:consult`
 
-`/clone-wars:consult <topic>` is the first orchestration command on top of the
-spawn/send/collect/teardown primitives. Use it for cross-verified research:
+`/clone-wars:consult <topic>` is the cross-verified dual-model
+investigation command. The slash directive walks the conductor through
+13 step boundaries via per-phase sub-scripts under `bin/`:
 
-1. The conductor spawns `rex (codex)` and `cody (claude)` on a fresh topic.
-2. Both research independently, writing structured `findings.md`.
-3. The conductor diffs the findings via citation overlap (path normalization,
-   line-range intersection, URL exact match).
-4. Each side's unique claims dispatch back to the OTHER trooper for AGREE /
-   DISPUTE / UNCERTAIN verification — using the SAME pane (codex and claude
-   TUIs preserve in-session memory across the two calls).
-5. The conductor adjudicates disputed items by reading the cited sources
-   directly, then synthesizes a six-section report (Agreed / Cross-verified /
-   Adjudicated / Contested / Not-verified / Trooper artifacts).
+1. `consult-init` derives a slug + creates the consult topic dir.
+2. Parallel `spawn.sh rex codex` + `spawn.sh cody claude`.
+3. Parallel `consult-research-send` to both troopers (writes
+   `_consult/research-<commander>.txt` with offset).
+4. Parallel `consult-research-wait` per trooper (appends FS status).
+5. `consult-diff` — citation overlap, writes `diff.md` and `*_only_items.txt`.
+6. Parallel `consult-verify-send` (rex grades cody-only items, vice
+   versa; either skipped if peer has no items).
+7. Parallel `consult-verify-wait` per trooper.
+8. `consult-adjudicate` writes `adjudicated-draft.md`. Conductor copies
+   to `adjudicated.md` and resolves PENDING items via Edit.
+9. `consult-synthesize` (refuses on any remaining PENDING) writes
+   `synthesis.md`.
+10. `consult-teardown` + `consult-archive`.
+
+Between every step the conductor regains control: if a trooper writes
+malformed findings, the conductor can `cw_send` a clarifying prompt,
+then `consult-offset-reset` + re-run the affected phase. The retry
+contract is fully documented in the slash directive.
 
 ```
 /clone-wars:consult "review src/auth/oauth.py for token-refresh edge cases"
 ```
 
-The full spec is at `docs/superpowers/specs/2026-04-28-clone-wars-consult-design.md`.
+The full spec is at `docs/superpowers/specs/2026-04-29-clone-wars-consult-v2-design.md`.
 
 ---
 
