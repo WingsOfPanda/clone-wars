@@ -61,12 +61,12 @@ echo "stale" > "$TD/_consult/adjudicated-draft.md"
 grep -q '^## Cross-verified' "$TD/_consult/adjudicated-draft.md" || { echo "FAIL: re-run did not regenerate draft" >&2; exit 1; }
 pass "adjudicate re-run overwrites draft"
 
-# 3. Codex #4 fixture: existing adjudicated.md (conductor's resolution) is NEVER touched.
+# 3. Codex #4 fixture: existing adjudicated.md (Master Yoda's resolution) is NEVER touched.
 cat > "$TD/_consult/adjudicated.md" <<'MD'
 ## Cross-verified
 - [src/x.py:5] confirmed by both
 ## Adjudicated
-- CONFIRMED: [src/y.py:10] verified by conductor reading source
+- CONFIRMED: [src/y.py:10] verified by Master Yoda reading source
 ## Contested
 ## Not-verified
 MD
@@ -75,5 +75,5 @@ ORIGINAL=$(cat "$TD/_consult/adjudicated.md")
 ../bin/consult-adjudicate.sh "$TOPIC"
 
 NEW=$(cat "$TD/_consult/adjudicated.md")
-assert_eq "$NEW" "$ORIGINAL" "conductor's adjudicated.md preserved across re-adjudicate"
-pass "adjudicate never overwrites conductor's adjudicated.md (Codex #4 fixture)"
+assert_eq "$NEW" "$ORIGINAL" "Master Yoda's adjudicated.md preserved across re-adjudicate"
+pass "adjudicate never overwrites Master Yoda's adjudicated.md (Codex #4 fixture)"

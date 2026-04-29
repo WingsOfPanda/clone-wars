@@ -7,7 +7,7 @@
 #   @cw_label_fmt  — pre-rendered colored label (read by pane-border-format)
 
 # cw_pane_spawn_right <commander> <model> <topic> <launch_cmd> [<target_pane>]
-# Splits horizontally (right) of <target_pane> if given, else of the conductor's pane.
+# Splits horizontally (right) of <target_pane> if given, else of Master Yoda's pane.
 # Sets the three @cw_* user-options. Returns: pane id on stdout (e.g. "%62").
 cw_pane_spawn_right() {
   local commander="$1" model="$2" topic="$3" launch="$4" target="${5:-}"

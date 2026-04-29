@@ -13,7 +13,7 @@
 #   6. Nudge the trooper to read its identity (single-line send-keys -l).
 #   7. Poll outbox.jsonl for {ready} (timeout from contracts.yaml).
 #   8. If <initial-prompt> given, write inbox.md and nudge — return after ready.
-#      (Conductor uses /clone-wars:collect to wait for {done}.)
+#      (Master Yoda uses /clone-wars:collect to wait for {done}.)
 #   9. Print pane ID + state dir.
 
 set -uo pipefail
@@ -134,7 +134,7 @@ done
 
 log_info "spawning $COMMANDER-$MODEL with: $LAUNCH"
 
-# First trooper in topic = right-split of conductor; subsequent = down-split of
+# First trooper in topic = right-split of Master Yoda; subsequent = down-split of
 # the most-recently-spawned trooper on the same topic (per DESIGN.md §Pane layout).
 PRIOR_FILE="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/.last_pane"
 PRIOR_PANE=""
