@@ -17,8 +17,21 @@ source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/consult.sh"
 
-[[ $# -eq 3 ]] || { echo "Usage: $0 <consult-topic> <commander> <phase>" >&2; exit 2; }
-TOPIC="$1"; COMMANDER="$2"; PHASE="$3"
+# v0.3: optional --keep-findings flag preserves trooper-owned files +
+# cascade artifacts (used by Patterns 1/3 for full re-prompts). The
+# question loop never calls this — wait-script auto-bumps OFFSET inline.
+KEEP_FINDINGS=0
+ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --keep-findings) KEEP_FINDINGS=1 ;;
+    --*) echo "Unknown flag: $a" >&2; exit 2 ;;
+    *) ARGS+=("$a") ;;
+  esac
+done
+[[ ${#ARGS[@]} -eq 3 ]] \
+  || { echo "Usage: $0 <consult-topic> <commander> <phase> [--keep-findings]" >&2; exit 2; }
+TOPIC="${ARGS[0]}"; COMMANDER="${ARGS[1]}"; PHASE="${ARGS[2]}"
 
 cw_consult_topic_validate "$TOPIC" \
   || { log_error "invalid topic: $TOPIC"; exit 2; }
@@ -32,26 +45,31 @@ ART_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/_consult"
 
 rm -f "$ART_DIR/$PHASE-$COMMANDER.txt"
 
-# Trooper-owned output file (Codex Rev1 finding #2): without this, the
-# subsequent wait sees the stale findings.md/verify.md and marks FS/VS=ok
-# even when the re-prompt timed out. Find the trooper dir by listing
-# state/<repo-hash>/<topic>/<commander>-<model>/ — model is unknown to
-# this script, so glob it.
-TROOPER_DIR_GLOB=$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/$COMMANDER-*
-shopt -s nullglob
-for td in $TROOPER_DIR_GLOB; do
+# v0.3: pending question payload always cleared (it's been handled).
+rm -f "$ART_DIR/question-$COMMANDER.txt"
+
+if (( ! KEEP_FINDINGS )); then
+  # Trooper-owned output file (Codex Rev1 finding #2): without this, the
+  # subsequent wait sees the stale findings.md/verify.md and marks FS/VS=ok
+  # even when the re-prompt timed out. Find the trooper dir by listing
+  # state/<repo-hash>/<topic>/<commander>-<model>/ — model is unknown to
+  # this script, so glob it.
+  TROOPER_DIR_GLOB=$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/$COMMANDER-*
+  shopt -s nullglob
+  for td in $TROOPER_DIR_GLOB; do
+    if [[ "$PHASE" == research ]]; then
+      rm -f "$td/findings.md"
+    else
+      rm -f "$td/verify.md"
+    fi
+  done
+
+  # Cascade. Research phase invalidates downstream computation.
   if [[ "$PHASE" == research ]]; then
-    rm -f "$td/findings.md"
-  else
-    rm -f "$td/verify.md"
+    rm -f "$ART_DIR/diff.md" "$ART_DIR/rex_only_items.txt" "$ART_DIR/cody_only_items.txt"
   fi
-done
-
-# Cascade. Research phase invalidates downstream computation.
-if [[ "$PHASE" == research ]]; then
-  rm -f "$ART_DIR/diff.md" "$ART_DIR/rex_only_items.txt" "$ART_DIR/cody_only_items.txt"
+  # Both phases invalidate the adjudication draft (which depends on both).
+  rm -f "$ART_DIR/adjudicated-draft.md"
 fi
-# Both phases invalidate the adjudication draft (which depends on both).
-rm -f "$ART_DIR/adjudicated-draft.md"
 
-log_info "reset $PHASE state for $COMMANDER on $TOPIC"
+log_info "reset $PHASE state for $COMMANDER on $TOPIC$( ((KEEP_FINDINGS)) && printf ' (--keep-findings)')"
