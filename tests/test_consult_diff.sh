@@ -22,6 +22,15 @@ cw_consult_citation_overlaps "https://a/b"    "https://a/c"     && { echo "FAIL:
 cw_consult_citation_overlaps "src/x.py:5"     "https://a/x"     && { echo "FAIL: file vs URL"     >&2; exit 1; }
 cw_consult_citation_overlaps "runtime: pytest" "runtime: pytest" || { echo "FAIL: same runtime"   >&2; exit 1; }
 cw_consult_citation_overlaps "runtime: pytest" "runtime: tox"    && { echo "FAIL: diff runtime"   >&2; exit 1; }
+# v0.2.1 regressions:
+# Boundary-touching ranges share line 10 → overlap (inclusive).
+cw_consult_citation_overlaps "src/x.py:5-10"  "src/x.py:10-20" || { echo "FAIL: boundary-touching ranges should overlap"   >&2; exit 1; }
+# Leading-zero line numerals must compare base-10, not octal (was: arithmetic error on :008).
+cw_consult_citation_overlaps "src/x.py:008"   "src/x.py:8"     || { echo "FAIL: leading-zero must compare as decimal"      >&2; exit 1; }
+cw_consult_citation_overlaps "src/x.py:5-009" "src/x.py:7"     || { echo "FAIL: leading-zero in range endpoint"            >&2; exit 1; }
+# Empty/dash endpoints must NOT overlap — guard rejects each endpoint individually.
+cw_consult_citation_overlaps "src/x.py:-5"    "src/x.py:2"     && { echo "FAIL: leading-dash range should not match"        >&2; exit 1; }
+cw_consult_citation_overlaps "src/x.py:5-"    "src/x.py:3"     && { echo "FAIL: trailing-dash range should not match"       >&2; exit 1; }
 pass "cw_consult_citation_overlaps unit cases"
 
 # === diff bucketing ===
