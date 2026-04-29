@@ -416,3 +416,104 @@ cw_consult_skill_hint_append() {
   printf '%s\n\n---\n\n' "$base"
   cat "$hint_file"
 }
+
+# cw_consult_question_payload_write <file> <text> <options-pipe-or-empty> <phase>
+# Atomic write (tmp + mv). Multi-line TEXT is percent-encoded via %0A.
+cw_consult_question_payload_write() {
+  local file="$1" text="$2" options="$3" phase="$4"
+  local encoded=${text//$'\n'/%0A}
+  local tmp="$file.tmp.$$"
+  {
+    printf 'TEXT=%s\n'     "$encoded"
+    [[ -n "$options" ]] && printf 'OPTIONS=%s\n' "$options"
+    printf 'PHASE=%s\n'    "$phase"
+    printf 'ASKED_AT=%s\n' "$(date +%s)"
+  } > "$tmp"
+  mv "$tmp" "$file"
+}
+
+# cw_consult_question_payload_read <file> <key>
+# Echo the value for KEY. For TEXT/OPTIONS, decodes 6 percent-encodings:
+#   %0A → newline    %09 → tab    %22 → "    %5C → \    %2C → ,    %25 → %
+# %25 LAST so nested encodings (%2522) round-trip correctly.
+cw_consult_question_payload_read() {
+  local file="$1" key="$2"
+  [[ -f "$file" ]] || return 1
+  local raw
+  raw=$(awk -F= -v k="$key" '$1==k { sub(/^[^=]*=/, ""); print; exit }' "$file")
+  case "$key" in
+    TEXT|OPTIONS)
+      raw=${raw//%0A/$'\n'}
+      raw=${raw//%09/$'\t'}
+      raw=${raw//%22/\"}
+      raw=${raw//%5C/\\}
+      raw=${raw//%2C/,}
+      raw=${raw//%25/%}     # literal-percent escape — must be LAST
+      ;;
+  esac
+  printf '%s' "$raw"
+}
+
+# cw_consult_question_validate_line <json-line>
+# rc=0 iff line is a parseable {"event":"question",...} with non-empty text,
+# no JSON escapes (\", \\, \n, \t), and no non-ASCII bytes.
+# Used by wait-script to gate FS=question vs FS=failed.
+# Fail-closed against: missing text, escaped quotes, backslashes, non-ASCII,
+# un-encoded commas in options.
+cw_consult_question_validate_line() {
+  local line="$1"
+  [[ "$line" == *'"event":"question"'* ]] || return 1
+  # Reject anything outside printable ASCII (0x20..0x7E) — NUL-free pattern.
+  if LC_ALL=C printf '%s' "$line" | LC_ALL=C grep -q '[^ -~]'; then
+    return 1
+  fi
+  # Require text field, non-empty, no escaped quote or backslash.
+  printf '%s' "$line" | grep -qE '"text":"[^"\\]+"' || return 1
+  # If options array exists, every option must contain no literal `,`
+  # (counts of `,` must equal counts of `","` separators).
+  if printf '%s' "$line" | grep -q '"options":\['; then
+    local raw_opts sep_count comma_count
+    raw_opts=$(printf '%s' "$line" | sed -n 's/.*"options":\[\([^]]*\)\].*/\1/p')
+    sep_count=$(printf '%s' "$raw_opts" | grep -o '","' | wc -l | tr -d ' ')
+    comma_count=$(printf '%s' "$raw_opts" | tr -cd ',' | wc -c | tr -d ' ')
+    [[ "$sep_count" -eq "$comma_count" ]] || return 1
+  fi
+  return 0
+}
+
+# cw_consult_question_extract_to_payload <json-line> <payload-path> <phase>
+# Validates + extracts the question event into the payload file format
+# expected by cw_consult_question_payload_read. rc=0 on success, rc=1 on
+# validation/parse failure (no payload written).
+cw_consult_question_extract_to_payload() {
+  local line="$1" path="$2" phase="$3"
+  cw_consult_question_validate_line "$line" || return 1
+  local text raw_opts opts
+  text=$(printf '%s' "$line" | sed -n 's/.*"text":"\([^"]*\)".*/\1/p')
+  [[ -n "$text" ]] || return 1
+  raw_opts=$(printf '%s' "$line" | sed -n 's/.*"options":\[\([^]]*\)\].*/\1/p')
+  # Split on `","` boundaries (validator forbade literal `,` and `"`).
+  opts=$(printf '%s' "$raw_opts" | sed 's/^"//; s/"$//; s/","/|/g')
+  cw_consult_question_payload_write "$path" "$text" "$opts" "$phase"
+}
+
+# cw_consult_outbox_match_endbyte <outbox-path> <start-offset> <matched-line>
+# Returns OFFSET + bytes-up-to-and-including the matched line. Used by
+# wait-script to compute the post-question byte cursor without racing
+# against `wc -c` (which would skip events written between match and read).
+# `local LC_ALL=C` scopes byte-mode to entire function so ${#line} is bytes.
+cw_consult_outbox_match_endbyte() {
+  local LC_ALL=C
+  local outbox="$1" start="$2" matched="$3"
+  [[ -f "$outbox" ]] || return 1
+  local pos=$start
+  local line
+  while IFS= read -r line; do
+    pos=$(( pos + ${#line} + 1 ))   # +1 for newline read -r stripped
+    if [[ "$line" == "$matched" ]]; then
+      printf '%s\n' "$pos"
+      return 0
+    fi
+  done < <(tail -c "+$(( start + 1 ))" "$outbox")
+  return 1
+}
