@@ -21,6 +21,11 @@ echo "$PROMPT" | grep -q 'AGREE / DISPUTE / UNCERTAIN' || { echo "FAIL: tags"; e
 echo "$PROMPT" | grep -q '/state/verify.md'         || { echo "FAIL: path"; exit 1; }
 pass "verify prompt has sentinel, tags, output path"
 
+# v0.3.2: verify prompt authorizes WebSearch/WebFetch.
+echo "$PROMPT" | grep -q 'Verification methods' || { echo "FAIL: verify prompt missing v0.3.2 methods clause"; exit 1; }
+echo "$PROMPT" | grep -q 'WebSearch / WebFetch' || { echo "FAIL: verify prompt missing WebSearch/WebFetch authorization"; exit 1; }
+pass "verify prompt authorizes WebSearch/WebFetch (v0.3.2)"
+
 VERIFY="$TMP/v.md"
 cat > "$VERIFY" <<'MD'
 # Verify
@@ -77,3 +82,8 @@ echo "$PROMPT" | grep -q '/state/findings.md'  || { echo "FAIL: path"; exit 1; }
 echo "$PROMPT" | grep -q '## Claims'            || { echo "FAIL: format anchor"; exit 1; }
 echo "$PROMPT" | grep -q 'END_OF_INSTRUCTION$' || { echo "FAIL: sentinel"; exit 1; }
 pass "research prompt complete"
+
+# v0.3.2: research prompt authorizes WebSearch/WebFetch.
+echo "$PROMPT" | grep -q 'Research methods'    || { echo "FAIL: research prompt missing v0.3.2 methods clause"; exit 1; }
+echo "$PROMPT" | grep -q 'WebSearch / WebFetch' || { echo "FAIL: research prompt missing WebSearch/WebFetch authorization"; exit 1; }
+pass "research prompt authorizes WebSearch/WebFetch (v0.3.2)"
