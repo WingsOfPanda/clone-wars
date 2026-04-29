@@ -6,15 +6,6 @@ set -euo pipefail
 cd "$(dirname "$0")"
 source lib/assert.sh
 
-# Re-enabled by Task 14 (rewrite of commands/consult.md). The directive
-# v0.1.2 ships does not contain the v0.2 rollback runbook, so this test
-# would fail against the current directive. Task 14 rewrites the
-# directive AND removes this guard.
-if [[ "${CW_TEST_SKIP_SPAWN_ROLLBACK:-1}" == "1" ]]; then
-  pass "spawn-rollback fixture deferred until Task 14"
-  exit 0
-fi
-
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 export CLONE_WARS_HOME="$TMP/cw"
 export CLAUDE_PLUGIN_ROOT="$(cd .. && pwd)"
