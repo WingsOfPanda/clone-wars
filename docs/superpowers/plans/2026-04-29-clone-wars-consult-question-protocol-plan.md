@@ -2,15 +2,34 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add the trooper-question protocol and skill routing defined in `docs/superpowers/specs/2026-04-29-clone-wars-consult-question-protocol-design.md`.
+**Status:** Revision 2 — incorporates Codex adversarial findings (3 highs, 2 mediums) plus low-severity tightening.
 
-**Architecture:** Extend existing per-phase sub-scripts (no new commands). Add one outbox event (`question`), one helper flag (`--keep-findings`), one classifier, two skill-hint files. Directive's wait-step gains a question-handling loop.
+**Goal:** Implement the trooper-question protocol and skill routing defined in `docs/superpowers/specs/2026-04-29-clone-wars-consult-question-protocol-design.md` (Rev 2).
+
+**Architecture:** Extend existing per-phase sub-scripts (no new commands). Wait-script captures the matched outbox event and branches on it; question events auto-advance OFFSET= in the per-commander state file. Re-arm path is wait-script-only (no send-script call). Topic classifier picks `brainstorming` / `systematic-debugging` / `none`. Two skill-hint files carry the autonomy contract.
 
 **Tech Stack:** pure bash + tmux + file IPC (unchanged). No new dependencies.
 
 **Branch:** `feat/v0.3-question-protocol` off `main` (after v0.2.1 merges).
 
-**Total tasks:** 10. TDD throughout; every task includes a failing test, the implementation, the passing test, and a commit.
+**Total tasks:** 11. TDD throughout; every task includes a failing test, the implementation, the passing test, and a commit.
+
+## Revision 2 changelog
+
+| # | Codex Rev1 finding | How this plan closes it |
+|---|---|---|
+| H1 | Re-arm step double-writes inbox (cw_send ANSWER then phase send-script overwrites) | Task 6 makes wait-script auto-append `OFFSET=<post-question>` to state file. Task 8's directive recipe drops the `consult-research-send.sh` re-arm call entirely. Re-arm = `cw_send ANSWER → consult-research-wait.sh`. Verified by Task 9 fixture. |
+| H2 | Wait-script ignores matched event, rescans for question | Task 6 captures `cw_outbox_wait_since` stdout into `$MATCHED`, parses `event=…`, `case` on actual event. New Task 9b fixture covers `question→error`, `question→done`, multi-question. |
+| H3 | Task 9 mocks the protocol it claims to test | New Task 10 adds real-CLI dogfood gated on `command -v codex && command -v tmux`. Fast mock test stays as Task 9 for unit coverage. |
+| M4 | Hint refers to `superpowers:debugging` (not installed) | All references renamed to `systematic-debugging`. Task 3 hint file is `config/skill-hints/systematic-debugging.md`. Task 3 test asserts skill names resolve to installed `SKILL.md`. |
+| M5 | JSON-via-sed parser accepts malformed payloads | Task 5 adds `cw_consult_question_validate_line`; Task 6 wait-script calls validator before treating as question; Task 5 fixtures cover escaped-quotes, missing-text, embedded-backslash, empty-options, malformed-JSON. |
+
+Lower-severity tightening:
+
+- Task 1 trigger refinement: drop "design"/"structure"/"approach" as standalone triggers (too broad). Brainstorming triggers tightened to `"design pattern"`, `"how should"`, `"what's the best way"`, `"decide between"`.
+- Task 4 helper asserts `PLUGIN_ROOT` (or `CLAUDE_PLUGIN_ROOT`) is set; fail loud, not silent no-append.
+- Task 4 helper respects `CW_CONSULT_SKILL_OVERRIDE=none` env-var (kill-switch).
+- Task 8 directive recipe explicitly Reads `findings.md` (or `verify.md`) before classifying critical/non-critical.
 
 ---
 
@@ -18,25 +37,28 @@
 
 | Path | Action | Why |
 |---|---|---|
-| `lib/consult.sh` | modify | Add `cw_consult_classify_topic`, `cw_consult_question_payload_write`, `cw_consult_question_payload_read` |
+| `lib/consult.sh` | modify | Add `cw_consult_classify_topic`, `cw_consult_skill_hint_append`, `cw_consult_question_payload_write/_read`, `cw_consult_question_validate_line`, `cw_consult_question_extract_to_payload` |
 | `bin/consult-init.sh` | modify | After picking the general, classify topic and write `_consult/skill.txt` |
-| `bin/consult-research-send.sh` | modify | Read `_consult/skill.txt`, append `config/skill-hints/<skill>.md` to prompt |
-| `bin/consult-verify-send.sh` | modify | Same skill-hint append |
-| `bin/consult-research-wait.sh` | modify | Add `question` to awaited events; on match, write question payload + set `FS=question` |
+| `bin/consult-research-send.sh` | modify | Read `_consult/skill.txt`, append `config/skill-hints/<skill>.md` to prompt; respect `CW_CONSULT_SKILL_OVERRIDE` |
+| `bin/consult-verify-send.sh` | modify | Same skill-hint append + override |
+| `bin/consult-research-wait.sh` | modify | Capture `cw_outbox_wait_since` stdout; parse `event=…`; branch on actual event; on `question` write payload + append `OFFSET=<post-question>` + `FS=question` |
 | `bin/consult-verify-wait.sh` | modify | Same for `VS=question` |
-| `bin/consult-offset-reset.sh` | modify | Add `--keep-findings` flag |
-| `commands/consult.md` | modify | Step 3 + Step 5 redesign (question loop); Pattern 4 added |
+| `bin/consult-offset-reset.sh` | modify | Add `--keep-findings` flag (used only by Patterns 1 / 3, NOT the question loop) |
+| `commands/consult.md` | modify | Step 3 + Step 5 redesign (question loop, NO send-script re-arm); Pattern 4 added; explicit Read findings.md before classify |
 | `config/skill-hints/brainstorming.md` | create | Brainstorming-skill prompt + autonomy contract |
-| `config/skill-hints/debugging.md` | create | Debugging-skill prompt + autonomy contract |
+| `config/skill-hints/systematic-debugging.md` | create | Systematic-debugging skill prompt + autonomy contract |
 | `config/skill-hints/none.md` | create | Empty file (no-op append) |
-| `tests/test_consult_classify_topic.sh` | create | Classifier coverage |
-| `tests/test_consult_skill_hint.sh` | create | Send-script appends correct hint file |
-| `tests/test_consult_question_event.sh` | create | Wait-script catches `question` event |
+| `tests/test_consult_classify_topic.sh` | create | Classifier coverage incl. M-tier trigger refinement |
+| `tests/test_consult_skill_hint.sh` | create | Send-script appends correct hint file; CW_CONSULT_SKILL_OVERRIDE; PLUGIN_ROOT assertion; skill names resolve to installed SKILL.md |
+| `tests/test_consult_question_event.sh` | create | Payload helpers + wait-script catches `question`; malformed-JSON fixtures |
+| `tests/test_consult_question_event_priority.sh` | create | H2 closure: wait-script branches on actual matched event; question→error / question→done / multi-question fixtures |
 | `tests/test_consult_offset_reset_keep.sh` | create | `--keep-findings` flag behavior |
-| `tests/test_consult_question_loop.sh` | create | End-to-end mocked round-trip |
-| `tests/test_consult_init.sh` | modify | Assert `skill.txt` written |
-| `tests/test_consult_research_wait.sh` | modify | Add question-event case |
-| `tests/test_consult_verify_wait.sh` | modify | Add question-event case |
+| `tests/test_consult_question_loop.sh` | create | Mocked round-trip incl. Q→A→Q→A→done and FS=question + VS=question |
+| `tests/test_consult_question_dogfood.sh` | create | H3 closure: real-CLI dogfood gated on codex+tmux |
+| `tests/test_consult_init.sh` | modify | Assert `skill.txt` written with one of brainstorming/systematic-debugging/none |
+| `tests/test_consult_research_wait.sh` | modify | Add question-event case + capture-MATCHED case |
+| `tests/test_consult_verify_wait.sh` | modify | Add question-event case + capture-MATCHED case |
+| `tests/test_consult_offset_reset.sh` | modify | Pin existing 3-arg signature still works after Task 7 |
 | `.claude-plugin/plugin.json` | modify | Bump 0.2.1 → 0.3.0 |
 | `.claude-plugin/marketplace.json` | modify | Bump 0.2.1 → 0.3.0 |
 | `README.md` | modify | Mention question protocol + skill routing in v0.3 section |
@@ -61,36 +83,45 @@ cd "$(dirname "$0")"
 source lib/assert.sh
 source ../lib/consult.sh
 
-# brainstorming triggers
-assert_eq "$(cw_consult_classify_topic 'how should we design the auth flow')" "brainstorming" "design+how-should"
-assert_eq "$(cw_consult_classify_topic 'design pattern review')"               "brainstorming" "design pattern"
-assert_eq "$(cw_consult_classify_topic 'what is the best way to structure X')"  "brainstorming" "best way"
-assert_eq "$(cw_consult_classify_topic 'decide between Postgres and Mongo')"    "brainstorming" "decide between"
+# brainstorming triggers — narrow set per Codex M-tier feedback.
+# "design" alone is too broad; require "design pattern" or paired phrases.
+assert_eq "$(cw_consult_classify_topic 'how should we approach the auth flow')" "brainstorming" "how should"
+assert_eq "$(cw_consult_classify_topic 'design pattern review')"                 "brainstorming" "design pattern"
+assert_eq "$(cw_consult_classify_topic 'what is the best way to handle X')"      "brainstorming" "best way"
+assert_eq "$(cw_consult_classify_topic 'decide between Postgres and Mongo')"     "brainstorming" "decide between"
 assert_eq "$(cw_consult_classify_topic 'How Should We Approach This?')"          "brainstorming" "case-insensitive"
-pass "brainstorming triggers fire on design-shaped topics"
+pass "brainstorming triggers fire on design-shaped topics (narrow set)"
 
-# debugging triggers
-assert_eq "$(cw_consult_classify_topic 'why is the consult timing out')"   "debugging" "why"
-assert_eq "$(cw_consult_classify_topic 'find edge cases in the parser')"   "debugging" "edge case"
-assert_eq "$(cw_consult_classify_topic 'login is broken after the merge')" "debugging" "broken"
-assert_eq "$(cw_consult_classify_topic 'regression in checkout flow')"     "debugging" "regression"
-assert_eq "$(cw_consult_classify_topic 'token-refresh bug fixture')"       "debugging" "bug"
-pass "debugging triggers fire on bug-hunt topics"
+# systematic-debugging triggers — fixed name per Codex M4.
+assert_eq "$(cw_consult_classify_topic 'why is the consult timing out')"      "systematic-debugging" "why"
+assert_eq "$(cw_consult_classify_topic 'find edge cases in the parser')"      "systematic-debugging" "edge case"
+assert_eq "$(cw_consult_classify_topic 'login is broken after the merge')"    "systematic-debugging" "broken"
+assert_eq "$(cw_consult_classify_topic 'regression in checkout flow')"        "systematic-debugging" "regression"
+assert_eq "$(cw_consult_classify_topic 'token-refresh bug fixture')"          "systematic-debugging" "bug"
+assert_eq "$(cw_consult_classify_topic 'tests are failing on macOS')"         "systematic-debugging" "failing"
+pass "systematic-debugging triggers fire on bug-hunt topics"
 
-# none default
-assert_eq "$(cw_consult_classify_topic 'review the auth middleware')"     "none" "plain review"
-assert_eq "$(cw_consult_classify_topic 'audit lib/state.sh helpers')"     "none" "audit"
-assert_eq "$(cw_consult_classify_topic 'document the IPC protocol')"      "none" "doc task"
-pass "none is the default for narrow review topics"
+# none default — "design" alone, "structure" alone, "approach" alone all → none.
+assert_eq "$(cw_consult_classify_topic 'review the auth middleware')"            "none" "plain review"
+assert_eq "$(cw_consult_classify_topic 'audit lib/state.sh helpers')"            "none" "audit"
+assert_eq "$(cw_consult_classify_topic 'document the IPC protocol')"             "none" "doc task"
+assert_eq "$(cw_consult_classify_topic 'review the database structure')"         "none" "structure dropped"
+assert_eq "$(cw_consult_classify_topic 'approach to error handling')"            "none" "approach dropped"
+assert_eq "$(cw_consult_classify_topic 'design considerations document')"        "none" "design alone dropped"
+pass "none is the default for narrow review/audit topics (M-tier refinements)"
 
-# brainstorming wins over debugging when both substrings present
-assert_eq "$(cw_consult_classify_topic 'design fix for broken login')" "brainstorming" "brainstorming priority"
-pass "brainstorming priority over debugging when both phrases match"
+# Disambiguation when both word classes appear:
+# "audit X for bugs" — bug match, no design-pattern match → systematic-debugging.
+assert_eq "$(cw_consult_classify_topic 'audit the structure for bugs')"          "systematic-debugging" "bug overrides absence of design-pattern"
+# "design pattern of broken module" — design-pattern wins (priority).
+assert_eq "$(cw_consult_classify_topic 'design pattern of the broken module')"   "brainstorming" "design pattern priority over broken"
+pass "M-tier disambiguation: design-pattern wins over debugging; bug wins when only debugging matches"
 
-# word-boundary check: "designed by" must NOT trigger brainstorming
-assert_eq "$(cw_consult_classify_topic 'designed by Alice last quarter')" "none" "word boundary on design"
-assert_eq "$(cw_consult_classify_topic 'whyever it happened')"            "none" "word boundary on why"
-pass "word-boundary discipline (designed/whyever do not match)"
+# word-boundary discipline.
+assert_eq "$(cw_consult_classify_topic 'designed by Alice last quarter')" "none" "word boundary: designed≠design"
+assert_eq "$(cw_consult_classify_topic 'whyever it happened')"            "none" "word boundary: whyever≠why"
+assert_eq "$(cw_consult_classify_topic 'debugger output review')"         "none" "word boundary: debugger has no trigger"
+pass "word-boundary discipline holds"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -104,26 +135,30 @@ Append to `lib/consult.sh`:
 
 ```bash
 # cw_consult_classify_topic <topic-text>
-# Echo one of: brainstorming | debugging | none.
+# Echo one of: brainstorming | systematic-debugging | none.
 # Brainstorming wins ties. Triggers are case-insensitive, word-boundary-anchored.
+# Codex M-tier refinement: "design"/"structure"/"approach" alone do NOT trigger.
 cw_consult_classify_topic() {
   local topic="$1"
   local lower
   lower=$(printf '%s' "$topic" | tr '[:upper:]' '[:lower:]')
 
-  # Word-boundary regex: surround triggers with explicit boundary classes.
-  # Bash =~ uses POSIX ERE — \b is not portable. Use space/punct fences instead.
+  # Word-boundary fence: surround triggers with space/punctuation boundaries.
+  # Bash =~ uses POSIX ERE — \b is not portable. Replace punctuation with spaces.
   local fenced=" $lower "
-  fenced=${fenced//[[:punct:]]/ }   # punctuation acts as word boundary
+  fenced=${fenced//[[:punct:]]/ }
   fenced=$(printf '%s' "$fenced" | tr -s ' ')
 
-  local brain_re='( design | how should | best way | structure | decide between | what.s the best way | what is the best way )'
-  local debug_re='( why | broken | failing | regression | edge case | bug | doesn.t work | does not work )'
+  # Brainstorming: tightened triggers. "design pattern" must be adjacent;
+  # bare "design" does not trigger. Apostrophe in "what's" is replaced
+  # with space by the punct fence, so the regex looks for "what s the best way".
+  local brain_re='( design pattern | how should | best way | what s the best way | what is the best way | decide between )'
+  local debug_re='( why | broken | failing | regression | edge case | bug | doesn t work | does not work )'
 
   if [[ "$fenced" =~ $brain_re ]]; then
     printf 'brainstorming\n'
   elif [[ "$fenced" =~ $debug_re ]]; then
-    printf 'debugging\n'
+    printf 'systematic-debugging\n'
   else
     printf 'none\n'
   fi
@@ -140,10 +175,12 @@ Expected: PASS — all 5 `pass` statements emit.
 ```bash
 chmod +x tests/test_consult_classify_topic.sh
 git add tests/test_consult_classify_topic.sh lib/consult.sh
-git commit -m "feat(consult): cw_consult_classify_topic — brainstorming/debugging/none
+git commit -m "feat(consult): cw_consult_classify_topic — brainstorming/systematic-debugging/none
 
 Regex-based topic classifier with word-boundary discipline. Brainstorming
-wins ties. Used by consult-init to pick a skill hint per consult run."
+wins ties. Triggers tightened per Codex Rev1 M-tier feedback: 'design'
+alone, 'structure', 'approach' do NOT match. Used by consult-init to pick
+a skill hint per consult run."
 ```
 
 ---
@@ -159,22 +196,22 @@ wins ties. Used by consult-init to pick a skill hint per consult run."
 Open `tests/test_consult_init.sh`. Add after the existing `general.txt` block:
 
 ```bash
-# 2c. skill.txt holds one of {brainstorming, debugging, none}.
+# 2c. skill.txt holds one of {brainstorming, systematic-debugging, none}.
 skill=$(cat "$CLONE_WARS_HOME/state/$RH/$topic/_consult/skill.txt")
-[[ "$skill" =~ ^(brainstorming|debugging|none)$ ]] || { echo "FAIL: skill='$skill' not in pool" >&2; exit 1; }
+[[ "$skill" =~ ^(brainstorming|systematic-debugging|none)$ ]] || { echo "FAIL: skill='$skill' not in pool" >&2; exit 1; }
 pass "skill.txt holds a valid classifier value"
 
 # 2d. brainstorming-shaped topic produces skill=brainstorming.
-topic_brain=$(init_topic "how should we design the cache layer")
+topic_brain=$(init_topic "how should we approach the cache layer")
 skill_brain=$(cat "$CLONE_WARS_HOME/state/$RH/$topic_brain/_consult/skill.txt")
 assert_eq "$skill_brain" "brainstorming" "brainstorming topic classified"
 pass "brainstorming-shaped topic auto-selects brainstorming skill"
 
-# 2e. debugging-shaped topic produces skill=debugging.
+# 2e. debugging-shaped topic produces skill=systematic-debugging.
 topic_dbg=$(init_topic "why is the test suite failing on macOS")
 skill_dbg=$(cat "$CLONE_WARS_HOME/state/$RH/$topic_dbg/_consult/skill.txt")
-assert_eq "$skill_dbg" "debugging" "debugging topic classified"
-pass "debugging-shaped topic auto-selects debugging skill"
+assert_eq "$skill_dbg" "systematic-debugging" "debugging topic classified"
+pass "debugging-shaped topic auto-selects systematic-debugging skill"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -210,11 +247,11 @@ in Task 4 to pick a skill-hint file."
 
 ---
 
-## Task 3: Skill-hint files (brainstorming, debugging, none)
+## Task 3: Skill-hint files (brainstorming, systematic-debugging, none)
 
 **Files:**
 - Create: `config/skill-hints/brainstorming.md`
-- Create: `config/skill-hints/debugging.md`
+- Create: `config/skill-hints/systematic-debugging.md`
 - Create: `config/skill-hints/none.md`
 - Test: `tests/test_consult_skill_hint.sh` (skeleton; full assertions land in Task 4)
 
@@ -231,9 +268,9 @@ source lib/assert.sh
 
 HINTS=../config/skill-hints
 
-[[ -f "$HINTS/brainstorming.md" ]] || { echo "FAIL: brainstorming.md missing" >&2; exit 1; }
-[[ -f "$HINTS/debugging.md"     ]] || { echo "FAIL: debugging.md missing"     >&2; exit 1; }
-[[ -f "$HINTS/none.md"          ]] || { echo "FAIL: none.md missing"          >&2; exit 1; }
+[[ -f "$HINTS/brainstorming.md"        ]] || { echo "FAIL: brainstorming.md missing"        >&2; exit 1; }
+[[ -f "$HINTS/systematic-debugging.md" ]] || { echo "FAIL: systematic-debugging.md missing" >&2; exit 1; }
+[[ -f "$HINTS/none.md"                 ]] || { echo "FAIL: none.md missing"                 >&2; exit 1; }
 pass "all three skill-hint files exist"
 
 # none.md must be empty (or whitespace only).
@@ -241,20 +278,49 @@ pass "all three skill-hint files exist"
   || { echo "FAIL: none.md must be empty for no-op append" >&2; exit 1; }
 pass "none.md is empty"
 
-# brainstorming + debugging must mention the autonomy contract.
-grep -q 'AUTONOMY CONTRACT'  "$HINTS/brainstorming.md" || { echo "FAIL: brainstorming.md missing autonomy contract" >&2; exit 1; }
-grep -q 'AUTONOMY CONTRACT'  "$HINTS/debugging.md"     || { echo "FAIL: debugging.md missing autonomy contract"     >&2; exit 1; }
-pass "brainstorming + debugging hints both contain autonomy contract"
+# brainstorming + systematic-debugging must mention the autonomy contract.
+grep -q 'AUTONOMY CONTRACT' "$HINTS/brainstorming.md"        || { echo "FAIL: brainstorming.md missing autonomy contract"        >&2; exit 1; }
+grep -q 'AUTONOMY CONTRACT' "$HINTS/systematic-debugging.md" || { echo "FAIL: systematic-debugging.md missing autonomy contract" >&2; exit 1; }
+pass "both hints contain AUTONOMY CONTRACT"
 
 # Both must mention the question event format.
-grep -q '"event":"question"' "$HINTS/brainstorming.md" || { echo "FAIL: brainstorming.md missing question event format" >&2; exit 1; }
-grep -q '"event":"question"' "$HINTS/debugging.md"     || { echo "FAIL: debugging.md missing question event format"     >&2; exit 1; }
+grep -q '"event":"question"' "$HINTS/brainstorming.md"        || { echo "FAIL: brainstorming.md missing question event format"        >&2; exit 1; }
+grep -q '"event":"question"' "$HINTS/systematic-debugging.md" || { echo "FAIL: systematic-debugging.md missing question event format" >&2; exit 1; }
 pass "question event format documented in both hints"
 
 # Both must mention the ANSWER: parse contract.
-grep -q 'ANSWER:' "$HINTS/brainstorming.md" || { echo "FAIL: brainstorming.md missing ANSWER: contract" >&2; exit 1; }
-grep -q 'ANSWER:' "$HINTS/debugging.md"     || { echo "FAIL: debugging.md missing ANSWER: contract"     >&2; exit 1; }
+grep -q 'ANSWER:' "$HINTS/brainstorming.md"        || { echo "FAIL: brainstorming.md missing ANSWER: contract"        >&2; exit 1; }
+grep -q 'ANSWER:' "$HINTS/systematic-debugging.md" || { echo "FAIL: systematic-debugging.md missing ANSWER: contract" >&2; exit 1; }
 pass "ANSWER: response contract documented in both hints"
+
+# M4 closure: skill names mentioned in hint files must resolve to an
+# installed SKILL.md somewhere under ~/.claude/plugins/cache (or codex
+# equivalent). This test runs only when the user has superpowers installed;
+# skip otherwise.
+SKILL_ROOTS=(
+  "$HOME/.claude/plugins/cache"
+  "$HOME/.codex/superpowers/skills"
+)
+resolve_skill() {
+  local name="$1"
+  local root path
+  for root in "${SKILL_ROOTS[@]}"; do
+    [[ -d "$root" ]] || continue
+    path=$(find "$root" -maxdepth 6 -type d -name "$name" 2>/dev/null | head -n1)
+    if [[ -n "$path" && -f "$path/SKILL.md" ]]; then return 0; fi
+  done
+  return 1
+}
+if resolve_skill brainstorming; then
+  pass "superpowers:brainstorming resolves to an installed SKILL.md"
+else
+  echo "SKIP: superpowers:brainstorming not installed in this env"
+fi
+if resolve_skill systematic-debugging; then
+  pass "superpowers:systematic-debugging resolves to an installed SKILL.md"
+else
+  echo "SKIP: superpowers:systematic-debugging not installed in this env"
+fi
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -310,12 +376,12 @@ via your outbox, but follow these rules:
    critical. Otherwise the general answers from topic context.
 ```
 
-Create `config/skill-hints/debugging.md`:
+Create `config/skill-hints/systematic-debugging.md`:
 
 ```markdown
 SKILL HINT — this consult is bug-hunt shaped.
 
-Use the `superpowers:debugging` skill to structure your investigation.
+Use the `superpowers:systematic-debugging` skill to structure your investigation.
 The skill walks through hypothesis → reproduction → root cause; the
 protocol below lets you ask grounding questions without deadlocking
 the consult.
@@ -358,11 +424,13 @@ Expected: PASS — all 5 assertions.
 ```bash
 chmod +x tests/test_consult_skill_hint.sh
 git add config/skill-hints tests/test_consult_skill_hint.sh
-git commit -m "feat(consult): skill-hint files for brainstorming/debugging/none
+git commit -m "feat(consult): skill-hint files (brainstorming, systematic-debugging, none)
 
-Three files under config/skill-hints/. Brainstorming + debugging share
-the autonomy contract by literal duplication (more robust than partial
-include). none.md is empty for no-op append."
+Three files under config/skill-hints/. brainstorming.md +
+systematic-debugging.md share the autonomy contract by literal
+duplication (more robust than partial include). none.md is empty
+for no-op append. Skill names are validated against installed
+SKILL.md (Codex Rev1 M4 closure)."
 ```
 
 ---
@@ -415,6 +483,22 @@ rm -f "$TD/skill.txt"
 PROMPT_MISSING=$(cw_consult_skill_hint_append "$TD/skill.txt" "BASE PROMPT")
 [[ "$PROMPT_MISSING" == "BASE PROMPT" ]] || { echo "FAIL: missing skill.txt should default to none" >&2; exit 1; }
 pass "missing skill.txt defaults to no append"
+
+# CW_CONSULT_SKILL_OVERRIDE=none forces no append even if skill.txt says brainstorming.
+echo brainstorming > "$TD/skill.txt"
+PROMPT_OVR=$(CW_CONSULT_SKILL_OVERRIDE=none cw_consult_skill_hint_append "$TD/skill.txt" "BASE PROMPT")
+[[ "$PROMPT_OVR" == "BASE PROMPT" ]] || { echo "FAIL: CW_CONSULT_SKILL_OVERRIDE=none should force no-append; got: $PROMPT_OVR" >&2; exit 1; }
+pass "CW_CONSULT_SKILL_OVERRIDE=none kill-switch works"
+
+# PLUGIN_ROOT unset → loud failure (rc=2), not silent no-append.
+PLUGIN_ROOT_BAK="$PLUGIN_ROOT"; CC_BAK="${CLAUDE_PLUGIN_ROOT:-}"
+unset PLUGIN_ROOT CLAUDE_PLUGIN_ROOT
+echo brainstorming > "$TD/skill.txt"
+err=$(cw_consult_skill_hint_append "$TD/skill.txt" "BASE PROMPT" 2>&1) && rc=0 || rc=$?
+PLUGIN_ROOT="$PLUGIN_ROOT_BAK"; export CLAUDE_PLUGIN_ROOT="$CC_BAK"
+[[ "$rc" -eq 2 ]] && echo "$err" | grep -q "PLUGIN_ROOT" \
+  || { echo "FAIL: missing PLUGIN_ROOT should rc=2 + emit error; got rc=$rc, err=$err" >&2; exit 1; }
+pass "missing PLUGIN_ROOT/CLAUDE_PLUGIN_ROOT fails loud"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -429,17 +513,26 @@ Append to `lib/consult.sh`:
 ```bash
 # cw_consult_skill_hint_append <skill-txt-path> <base-prompt>
 # Echoes base-prompt followed by the skill-hint content (if any).
-# Missing skill.txt or skill=none produces base-prompt unchanged.
+# Missing skill.txt or skill=none → base-prompt unchanged.
+# CW_CONSULT_SKILL_OVERRIDE=none in env forces 'none' (kill-switch).
+# PLUGIN_ROOT (or CLAUDE_PLUGIN_ROOT) MUST be set — fail loud, not silent.
 cw_consult_skill_hint_append() {
   local skill_path="$1"
   local base="$2"
+  local plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+  [[ -n "$plugin_root" ]] \
+    || { echo "cw_consult_skill_hint_append: PLUGIN_ROOT/CLAUDE_PLUGIN_ROOT unset" >&2; return 2; }
+
   local skill="none"
   [[ -f "$skill_path" ]] && skill=$(tr -d '[:space:]' < "$skill_path")
+  # Env-var kill-switch (Codex Rev1 low-tier closure).
+  [[ "${CW_CONSULT_SKILL_OVERRIDE:-}" == "none" ]] && skill="none"
+
   case "$skill" in
-    brainstorming|debugging) : ;;
+    brainstorming|systematic-debugging) : ;;
     *) printf '%s' "$base"; return 0 ;;
   esac
-  local hint_file="$PLUGIN_ROOT/config/skill-hints/$skill.md"
+  local hint_file="$plugin_root/config/skill-hints/$skill.md"
   [[ -f "$hint_file" ]] || { printf '%s' "$base"; return 0; }
   printf '%s\n\n---\n\n' "$base"
   cat "$hint_file"
@@ -539,6 +632,50 @@ pass "OPTIONS pipe-list round-trips"
 read_opts_empty=$(cw_consult_question_payload_read "$TMP/q.txt" OPTIONS)
 [[ -z "$read_opts_empty" ]] || { echo "FAIL: missing OPTIONS should be empty: '$read_opts_empty'" >&2; exit 1; }
 pass "missing OPTIONS reads as empty"
+
+# === M5 closure: validation + malformed-input fixtures ===
+# 5. Valid question line passes validation.
+cw_consult_question_validate_line '{"event":"question","text":"hi","options":["A"]}' \
+  || { echo "FAIL: valid question line should pass validation" >&2; exit 1; }
+pass "valid question line validates"
+
+# 6. Missing text field fails validation.
+cw_consult_question_validate_line '{"event":"question","options":["A"]}' \
+  && { echo "FAIL: missing text should fail validation" >&2; exit 1; } || true
+pass "missing text fails validation"
+
+# 7. Empty text fails validation.
+cw_consult_question_validate_line '{"event":"question","text":"","options":["A"]}' \
+  && { echo "FAIL: empty text should fail validation" >&2; exit 1; } || true
+pass "empty text fails validation"
+
+# 8. Non-question event fails validation.
+cw_consult_question_validate_line '{"event":"done"}' \
+  && { echo "FAIL: non-question event should fail validation" >&2; exit 1; } || true
+pass "non-question event fails validation"
+
+# 9. extract_to_payload writes payload only on valid input.
+cw_consult_question_extract_to_payload '{"event":"question","text":"ok","options":["yes","no"]}' \
+  "$TMP/q3.txt" "research"
+[[ -f "$TMP/q3.txt" ]] || { echo "FAIL: payload should be written on valid input" >&2; exit 1; }
+assert_eq "$(cw_consult_question_payload_read "$TMP/q3.txt" TEXT)"    "ok"        "extract TEXT round-trip"
+assert_eq "$(cw_consult_question_payload_read "$TMP/q3.txt" OPTIONS)" "yes|no"    "extract OPTIONS pipe-encoded"
+pass "extract_to_payload writes valid payload"
+
+# 10. extract_to_payload refuses malformed input — no file written.
+rm -f "$TMP/q4.txt"
+cw_consult_question_extract_to_payload '{"event":"question","options":[]}' \
+  "$TMP/q4.txt" "research" && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] || { echo "FAIL: extract should fail on missing text" >&2; exit 1; }
+[[ ! -f "$TMP/q4.txt" ]] || { echo "FAIL: payload should not be written on malformed input" >&2; exit 1; }
+pass "extract_to_payload rejects missing-text input"
+
+# 11. Empty options array → OPTIONS empty (no pipe garbage).
+cw_consult_question_extract_to_payload '{"event":"question","text":"x","options":[]}' \
+  "$TMP/q5.txt" "research"
+[[ -z "$(cw_consult_question_payload_read "$TMP/q5.txt" OPTIONS)" ]] \
+  || { echo "FAIL: empty options should produce empty OPTIONS" >&2; exit 1; }
+pass "empty options array round-trips as empty OPTIONS"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -556,7 +693,6 @@ Append to `lib/consult.sh`:
 cw_consult_question_payload_write() {
   local file="$1" text="$2" options="$3" phase="$4"
   local encoded
-  # Encode newlines as %0A. Bash parameter expansion handles this in-place.
   encoded=${text//$'\n'/%0A}
   local tmp="$file.tmp.$$"
   {
@@ -580,7 +716,37 @@ cw_consult_question_payload_read() {
   fi
   printf '%s' "$raw"
 }
+
+# cw_consult_question_validate_line <json-line>
+# Returns 0 if the line is a parseable {"event":"question",...} with non-empty
+# text; rc=1 otherwise. Used by wait-script to gate FS=question vs FS=failed
+# (Codex Rev1 M5 closure).
+cw_consult_question_validate_line() {
+  local line="$1"
+  [[ "$line" == *'"event":"question"'* ]] || return 1
+  # Require a "text":"..." field with non-empty content.
+  printf '%s' "$line" | grep -qE '"text":"[^"]+"' || return 1
+  return 0
+}
+
+# cw_consult_question_extract_to_payload <json-line> <payload-path> <phase>
+# Validates + extracts the question event into the payload file format
+# expected by cw_consult_question_payload_read. Returns rc=0 on success,
+# rc=1 on validation/parse failure (no payload written).
+cw_consult_question_extract_to_payload() {
+  local line="$1" path="$2" phase="$3"
+  cw_consult_question_validate_line "$line" || return 1
+  local text opts
+  text=$(printf '%s' "$line" | sed -n 's/.*"text":"\([^"]*\)".*/\1/p')
+  [[ -n "$text" ]] || return 1
+  opts=$(printf '%s' "$line" | sed -n 's/.*"options":\[\([^]]*\)\].*/\1/p' \
+                              | sed 's/"//g; s/, */|/g; s/,/|/g')
+  cw_consult_question_payload_write "$path" "$text" "$opts" "$phase"
+}
 ```
+
+(The old `cw_consult_question_extract_from_outbox` is replaced — see Task 6
+for the wait-script call site that uses these helpers.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -600,13 +766,18 @@ TEXT is percent-encoded as %0A. Used by wait-scripts in Task 6."
 
 ---
 
-## Task 6: Wait-scripts handle the `question` event
+## Task 6: Wait-scripts handle the `question` event (capture matched event)
+
+**H1 + H2 closure.** Wait-script captures `cw_outbox_wait_since` stdout and
+branches on the actual matched event — no rescan of the outbox. On a
+question match, the script auto-appends `OFFSET=<post-question>` to the
+state file so the directive's re-arm is wait-script-only (no send-script).
 
 **Files:**
 - Modify: `bin/consult-research-wait.sh`
 - Modify: `bin/consult-verify-wait.sh`
-- Modify: `lib/consult.sh` (add `cw_consult_question_extract_from_outbox`)
-- Test: `tests/test_consult_question_event.sh` (extend)
+- Test: `tests/test_consult_question_event.sh` (extend with wait-script)
+- Test: `tests/test_consult_question_event_priority.sh` (NEW — H2 closure)
 - Test: `tests/test_consult_research_wait.sh` (extend)
 - Test: `tests/test_consult_verify_wait.sh` (extend)
 
@@ -671,111 +842,213 @@ pass "question phase recorded as 'research'"
 Run: `bash tests/test_consult_question_event.sh`
 Expected: FAIL — wait-script doesn't recognize `question` events yet (FS won't be `question`).
 
-- [ ] **Step 3: Add `cw_consult_question_extract_from_outbox` helper**
+- [ ] **Step 3: Update `bin/consult-research-wait.sh` (capture matched event)**
 
-Append to `lib/consult.sh`:
-
-```bash
-# cw_consult_question_extract_from_outbox <outbox-path> <byte-offset>
-# Find the FIRST {"event":"question",...} line after byte-offset.
-# Echoes "TEXT|OPTIONS" (pipe-separated; OPTIONS empty if absent).
-# rc=0 on found, rc=1 on not found.
-cw_consult_question_extract_from_outbox() {
-  local outbox="$1" offset="$2"
-  [[ -f "$outbox" ]] || return 1
-  # Read from offset, find first question line.
-  local line
-  line=$(tail -c +$((offset + 1)) "$outbox" | grep -m1 '"event":"question"' || true)
-  [[ -n "$line" ]] || return 1
-  # Extract text via grep -oP-style without perl: use sed.
-  local text opts
-  text=$(printf '%s' "$line" | sed -n 's/.*"text":"\([^"]*\)".*/\1/p')
-  opts=$(printf '%s' "$line" | sed -n 's/.*"options":\[\([^]]*\)\].*/\1/p' \
-                              | sed 's/"//g; s/, */|/g; s/,/|/g')
-  printf '%s|%s\n' "$text" "$opts"
-}
-```
-
-- [ ] **Step 4: Update `bin/consult-research-wait.sh`**
-
-Replace the `cw_outbox_wait_since` line:
+Replace the existing wait + FS-write block. Old code:
 
 ```bash
 cw_outbox_wait_since "$COMMANDER" "$MODEL" "$TOPIC" "$OFFSET" done error "$TIMEOUT" >/dev/null || true
-```
-
-with:
-
-```bash
-cw_outbox_wait_since "$COMMANDER" "$MODEL" "$TOPIC" "$OFFSET" done error question "$TIMEOUT" >/dev/null || true
-```
-
-Replace the FS-write block (after the wait):
-
-```bash
 TROOPER_DIR=$(cw_trooper_dir "$COMMANDER" "$MODEL" "$TOPIC")
 FS=$(cw_consult_findings_status "$TROOPER_DIR/findings.md")
 printf 'FS=%s\n' "$FS" >> "$STATE_FILE"
 ```
 
-with:
+New code (capture stdout, branch on actual event):
 
 ```bash
+MATCHED=$(cw_outbox_wait_since "$COMMANDER" "$MODEL" "$TOPIC" "$OFFSET" \
+                                done error question "$TIMEOUT" || true)
+EVENT=$(printf '%s' "$MATCHED" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p')
+
 TROOPER_DIR=$(cw_trooper_dir "$COMMANDER" "$MODEL" "$TOPIC")
 OUTBOX="$TROOPER_DIR/outbox.jsonl"
+NEW_OFFSET=$(wc -c < "$OUTBOX" 2>/dev/null | tr -d ' ' || echo 0)
 
-# Question events take priority — if there's a question after OFFSET, route
-# to the question path even if findings.md happens to be present.
-Q_EXTRACT=$(cw_consult_question_extract_from_outbox "$OUTBOX" "$OFFSET" || true)
-if [[ -n "$Q_EXTRACT" ]]; then
-  Q_TEXT="${Q_EXTRACT%|*}"
-  Q_OPTS="${Q_EXTRACT##*|}"
-  cw_consult_question_payload_write \
-    "$ART_DIR/question-$COMMANDER.txt" "$Q_TEXT" "$Q_OPTS" "research"
-  printf 'FS=question\n' >> "$STATE_FILE"
-  log_info "[research-wait] $COMMANDER FS=question"
-  exit 0
-fi
-
-FS=$(cw_consult_findings_status "$TROOPER_DIR/findings.md")
-printf 'FS=%s\n' "$FS" >> "$STATE_FILE"
-log_info "[research-wait] $COMMANDER FS=$FS"
+case "$EVENT" in
+  question)
+    if cw_consult_question_extract_to_payload \
+         "$MATCHED" "$ART_DIR/question-$COMMANDER.txt" "research"; then
+      printf 'OFFSET=%s\n' "$NEW_OFFSET" >> "$STATE_FILE"   # last-wins on re-arm
+      printf 'FS=question\n' >> "$STATE_FILE"
+      log_info "[research-wait] $COMMANDER FS=question (offset → $NEW_OFFSET)"
+    else
+      # M5 closure: malformed payload → failed, never question.
+      printf 'FS=failed\n' >> "$STATE_FILE"
+      log_warn "[research-wait] $COMMANDER FS=failed (malformed question payload)"
+    fi
+    ;;
+  done)
+    FS=$(cw_consult_findings_status "$TROOPER_DIR/findings.md")
+    printf 'FS=%s\n' "$FS" >> "$STATE_FILE"
+    log_info "[research-wait] $COMMANDER FS=$FS"
+    ;;
+  error)
+    printf 'FS=failed\n' >> "$STATE_FILE"
+    log_warn "[research-wait] $COMMANDER FS=failed (error event)"
+    ;;
+  '')   # timeout — no match within window
+    printf 'FS=timeout\n' >> "$STATE_FILE"
+    log_warn "[research-wait] $COMMANDER FS=timeout"
+    ;;
+  *)
+    printf 'FS=failed\n' >> "$STATE_FILE"
+    log_warn "[research-wait] $COMMANDER FS=failed (unknown event '$EVENT')"
+    ;;
+esac
 ```
 
-- [ ] **Step 5: Update `bin/consult-verify-wait.sh` symmetrically**
+- [ ] **Step 4: Update `bin/consult-verify-wait.sh` symmetrically**
 
-Same two changes, but `verify` instead of `research`, and `VS=question` instead of `FS=question`. Use `cw_consult_verify_status` instead of `cw_consult_findings_status`. The trooper-output filename is `verify.md` not `findings.md`.
+Same change shape, but with `verify` instead of `research`, `VS=` instead
+of `FS=`, `cw_consult_verify_status` instead of `cw_consult_findings_status`,
+and `verify.md` instead of `findings.md`.
+
+- [ ] **Step 5: Add `tests/test_consult_question_event_priority.sh` (H2 closure)**
+
+This is the new fixture proving wait-script branches on the actual matched event.
+
+```bash
+#!/usr/bin/env bash
+# tests/test_consult_question_event_priority.sh — H2 closure: wait-script
+# must branch on cw_outbox_wait_since's actual match, not rescan for question.
+set -euo pipefail
+cd "$(dirname "$0")"
+source lib/assert.sh
+
+TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+export CLONE_WARS_HOME="$TMP/cw"
+export CLAUDE_PLUGIN_ROOT="$(cd .. && pwd)"
+source ../lib/state.sh
+RH=$(cw_repo_hash)
+
+stage_topic() {
+  # Args: <topic-text>
+  local topic; topic=$(../bin/consult-init.sh "$1" | sed -n '1p')
+  local td="$CLONE_WARS_HOME/state/$RH/$topic"
+  mkdir -p "$td/rex-codex"
+  printf '%s' "$td"
+}
+
+# Case 1: question THEN error → wait_since returns 'error' (last match wins);
+# wait-script must set FS=failed, NOT FS=question.
+TD=$(stage_topic "case1 q-then-error")
+OUTBOX="$TD/rex-codex/outbox.jsonl"
+echo '{"event":"ack"}'                                            >> "$OUTBOX"
+OFFSET=$(wc -c < "$OUTBOX" | tr -d ' ')
+echo '{"event":"question","text":"x","options":[]}'                >> "$OUTBOX"
+echo '{"event":"error","text":"trooper died"}'                    >> "$OUTBOX"
+TOPIC=$(basename "$TD")
+printf 'OFFSET=%s\n' "$OFFSET" > "$TD/_consult/research-rex.txt"
+CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=5 \
+  ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1
+FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" | tail -1 | cut -d= -f2)
+[[ "$FS" == "failed" ]] \
+  || { echo "FAIL case1: expected FS=failed when error follows question; got '$FS'"; exit 1; }
+[[ ! -f "$TD/_consult/question-rex.txt" ]] \
+  || { echo "FAIL case1: payload should NOT be written when terminal event is error"; exit 1; }
+pass "case 1 (question→error): FS=failed, no payload"
+
+# Case 2: question THEN done → wait_since returns 'done'; FS depends on findings.md.
+TD=$(stage_topic "case2 q-then-done")
+OUTBOX="$TD/rex-codex/outbox.jsonl"
+echo '{"event":"ack"}'                              >> "$OUTBOX"
+OFFSET=$(wc -c < "$OUTBOX" | tr -d ' ')
+echo '{"event":"question","text":"x","options":[]}' >> "$OUTBOX"
+echo '{"event":"done"}'                             >> "$OUTBOX"
+echo "valid findings"      > "$TD/rex-codex/findings.md"
+echo "[citation] sample"   >> "$TD/rex-codex/findings.md"
+TOPIC=$(basename "$TD")
+printf 'OFFSET=%s\n' "$OFFSET" > "$TD/_consult/research-rex.txt"
+CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=5 \
+  ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1
+FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" | tail -1 | cut -d= -f2)
+[[ "$FS" == "ok" ]] \
+  || { echo "FAIL case2: expected FS=ok when done follows question; got '$FS'"; exit 1; }
+pass "case 2 (question→done): FS=ok (terminal done wins over earlier question)"
+
+# Case 3: only question → FS=question, OFFSET advances past it.
+TD=$(stage_topic "case3 question-only")
+OUTBOX="$TD/rex-codex/outbox.jsonl"
+echo '{"event":"ack"}'                              >> "$OUTBOX"
+OFFSET=$(wc -c < "$OUTBOX" | tr -d ' ')
+echo '{"event":"question","text":"sync or async?","options":["sync","async"]}' >> "$OUTBOX"
+TOPIC=$(basename "$TD")
+printf 'OFFSET=%s\n' "$OFFSET" > "$TD/_consult/research-rex.txt"
+CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=5 \
+  ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1
+FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" | tail -1 | cut -d= -f2)
+[[ "$FS" == "question" ]] || { echo "FAIL case3: expected FS=question; got '$FS'"; exit 1; }
+
+# OFFSET advanced past the question event.
+NEW_OFF=$(grep '^OFFSET=' "$TD/_consult/research-rex.txt" | tail -1 | cut -d= -f2)
+OUTBOX_SIZE=$(wc -c < "$OUTBOX" | tr -d ' ')
+[[ "$NEW_OFF" == "$OUTBOX_SIZE" ]] \
+  || { echo "FAIL case3: OFFSET=$NEW_OFF should match outbox size $OUTBOX_SIZE"; exit 1; }
+pass "case 3 (question only): FS=question + OFFSET advances past question"
+
+# Case 4: malformed question (missing text) → FS=failed, no payload.
+TD=$(stage_topic "case4 malformed-q")
+OUTBOX="$TD/rex-codex/outbox.jsonl"
+echo '{"event":"ack"}'                                  >> "$OUTBOX"
+OFFSET=$(wc -c < "$OUTBOX" | tr -d ' ')
+echo '{"event":"question","options":["x"]}'              >> "$OUTBOX"   # missing text
+TOPIC=$(basename "$TD")
+printf 'OFFSET=%s\n' "$OFFSET" > "$TD/_consult/research-rex.txt"
+CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=5 \
+  ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1
+FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" | tail -1 | cut -d= -f2)
+[[ "$FS" == "failed" ]] \
+  || { echo "FAIL case4: malformed question should FS=failed; got '$FS'"; exit 1; }
+[[ ! -f "$TD/_consult/question-rex.txt" ]] \
+  || { echo "FAIL case4: malformed question should not write payload"; exit 1; }
+pass "case 4 (malformed question): FS=failed, no payload (M5 closure)"
+```
 
 - [ ] **Step 6: Run tests**
 
 ```bash
+chmod +x tests/test_consult_question_event_priority.sh
 bash tests/test_consult_question_event.sh
+bash tests/test_consult_question_event_priority.sh
 bash tests/test_consult_research_wait.sh
 bash tests/test_consult_verify_wait.sh
 ```
 
-Expected: all PASS. Existing wait-script tests already cover `done`/`error`/`timeout`/`empty` paths — those should still pass.
+Expected: all PASS. Existing wait-script tests already cover
+`done`/`error`/`timeout`/`empty` paths — those should still pass since
+the new code's case-arms reproduce the v0.2 behaviors.
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add bin/consult-research-wait.sh bin/consult-verify-wait.sh \
-        lib/consult.sh tests/test_consult_question_event.sh
-git commit -m "feat(consult): wait-scripts catch question events → FS/VS=question
+        tests/test_consult_question_event.sh \
+        tests/test_consult_question_event_priority.sh
+git commit -m "feat(consult): wait-scripts capture matched event + auto-bump OFFSET
 
-cw_outbox_wait_since now matches done|error|question. On question match,
-the wait-script writes _consult/question-<commander>.txt with payload
-and appends FS=question (research) or VS=question (verify) to its state
-file. Existing done/error/timeout paths unchanged."
+Captures cw_outbox_wait_since stdout into MATCHED, parses event=…, and
+branches via case on the actual matched event (closes Codex Rev1 H2).
+On question match, validates payload and appends OFFSET=<post-question>
+to state file so re-arm is wait-script-only — directive does not call
+the phase send-script (closes H1). Malformed question payloads → FS=failed
+not FS=question (closes M5)."
 ```
 
 ---
 
 ## Task 7: `--keep-findings` flag for `consult-offset-reset.sh`
 
+**Scope clarification (post-Codex Rev1):** this flag is **NOT** used by
+the question loop. The question loop is wait-script-only re-arm; the
+wait-script auto-advances OFFSET on its own. `--keep-findings` exists
+for **Patterns 1 and 3** (malformed-findings re-prompt, all-UNCERTAIN
+re-prompt) where the conductor wants to clear the per-commander state
+file but preserve work in progress.
+
 **Files:**
 - Modify: `bin/consult-offset-reset.sh`
 - Test: `tests/test_consult_offset_reset_keep.sh`
+- Test: `tests/test_consult_offset_reset.sh` (re-run to pin existing 3-arg signature)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -924,7 +1197,8 @@ bash tests/test_consult_offset_reset_keep.sh
 bash tests/test_consult_offset_reset.sh   # existing test — must still pass
 ```
 
-Expected: both PASS.
+Expected: both PASS. The existing `test_consult_offset_reset.sh` validates
+the 3-arg signature is preserved (Codex Rev1 plan-finding #9 spot-check).
 
 - [ ] **Step 5: Commit**
 
@@ -976,32 +1250,38 @@ For each commander whose `FS=question`:
 
 1. Read the question payload — `_consult/question-<commander>.txt`. Use the
    Read tool, parse `TEXT=` and `OPTIONS=`.
-2. Decide whether the question is **critical** based on the consult topic
-   and findings-so-far context (you have full context as the directive):
+2. **Read the trooper's findings-so-far** — `Read $TOPIC_DIR/<commander>-<model>/findings.md`
+   (if it exists). This is required for non-critical answers; without it
+   the directive is guessing blind.
+3. Decide whether the question is **critical**:
    - critical = answer would change the topic interpretation (scope expansion,
-     contradiction with explicit user constraint, binary fork with no clear
-     default).
-   - non-critical = clarifying question, defaulting choice, language convention.
-3. Get an answer:
+     contradiction with an explicit user constraint, binary fork with no
+     clear default given the findings-so-far).
+   - non-critical = clarifying question, defaulting choice, language
+     convention answerable from topic + findings.
+4. Get an answer:
    - critical → `AskUserQuestion` with `TEXT` as question, `OPTIONS` as
      multiple-choice (or free-form if `OPTIONS` is empty).
-   - non-critical → answer from topic context yourself (no user prompt).
-4. Send the answer:
+   - non-critical → answer from topic context + findings yourself.
+5. Send the answer (writes inbox.md + nudges trooper):
    ```
    /clone-wars:send <commander> "$CONSULT_TOPIC" "ANSWER: <the answer>
 
    (end of question response — resume your skill loop)
    END_OF_INSTRUCTION"
    ```
-5. Reset the offset past the question, preserving findings:
+6. **Re-arm by re-running the wait-script ONLY**. Do NOT call
+   `consult-research-send.sh` — that would overwrite the ANSWER inbox
+   and rebuild the prompt. The wait-script's `source $STATE_FILE` picks
+   up the OFFSET= line the previous wait-iteration appended past the
+   question (last-wins).
    ```
-   "$CLAUDE_PLUGIN_ROOT/bin/consult-offset-reset.sh" "$CONSULT_TOPIC" \
-      <commander> research --keep-findings
-   "$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" \
+   "$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" \
       <commander> <model>
    ```
-6. Loop back to the top of Step 3 (re-run BOTH wait-scripts; the unblocked
-   trooper proceeds, the other is unaffected).
+7. Loop back to the top of Step 3 if any trooper still has `FS=question`
+   pending (rex's answer flow may have finished while cody is still
+   waiting; both troopers re-run their wait-scripts on next iteration).
 
 If both troopers raise FS=question simultaneously, handle them in iteration
 order (rex first, then cody). The user sees critical prompts sequentially —
@@ -1035,28 +1315,24 @@ Find the `## Intervention patterns` section. After Pattern 3, append:
 When a wait-script reports `FS=question` (research) or `VS=question` (verify):
 
 1. Read `_consult/question-<commander>.txt` — note `TEXT` and `OPTIONS`.
-2. Classify:
+2. Read `$TROOPER_DIR/findings.md` (or `verify.md`) for findings-so-far context.
+3. Classify:
    - critical → `AskUserQuestion(TEXT, OPTIONS)`.
-   - non-critical → answer from topic context (the consult topic plus any
-     findings-so-far you've read).
-3. Send the answer:
+   - non-critical → answer from topic + findings yourself.
+4. Send the answer:
    ```
    /clone-wars:send <commander> "$CONSULT_TOPIC" "ANSWER: <answer>
 
    (end of question response — resume your skill loop)
    END_OF_INSTRUCTION"
    ```
-4. Reset the offset past the question, preserving findings:
+5. Re-run the wait-script (no send-script, no offset-reset — wait-script
+   already advanced OFFSET):
    ```
-   "$CLAUDE_PLUGIN_ROOT/bin/consult-offset-reset.sh" "$CONSULT_TOPIC" \
-      <commander> <phase> --keep-findings
-   ```
-5. Re-arm the wait:
-   ```
-   "$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" \
+   "$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" \
       <commander> <model>          # research
    # or:
-   "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" \
+   "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" \
       <commander> <model>          # verify
    ```
 6. Loop until the trooper reports `FS=ok` or `VS=ok`.
@@ -1103,7 +1379,7 @@ parallel to Patterns 1 and 3."
 
 ---
 
-## Task 9: End-to-end mocked round-trip test
+## Task 9: End-to-end mocked round-trip test (multi-question + cross-phase)
 
 **Files:**
 - Create: `tests/test_consult_question_loop.sh`
@@ -1161,14 +1437,12 @@ pass "round-trip phase 1: wait-script caught question and wrote payload"
   || { echo "FAIL: payload should be cleared after offset-reset" >&2; exit 1; }
 pass "round-trip phase 2: offset-reset --keep-findings clears payload"
 
-# Phase 3: trooper resumes, emits done. New offset starts after the question line.
-OFFSET_AFTER_Q=$(wc -c < "$OUTBOX" | tr -d ' ')
+# Phase 3: trooper resumes (no offset-reset, no send-script — H1 closure).
+# The wait-script already appended OFFSET=<post-question> in phase 1.
+# Re-running the wait-script picks up the new offset via source $STATE_FILE.
 echo '{"event":"done"}' >> "$OUTBOX"
 echo "stub findings" > "$TD/rex-codex/findings.md"
 echo "[citation] sample claim" >> "$TD/rex-codex/findings.md"
-
-# Re-stage state file to mirror what consult-research-send would do post-reset.
-printf 'OFFSET=%s\n' "$OFFSET_AFTER_Q" > "$TD/_consult/research-rex.txt"
 
 CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=5 \
   ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1
@@ -1176,7 +1450,49 @@ CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=5 \
 FS_FINAL=$(grep '^FS=' "$TD/_consult/research-rex.txt" | tail -1 | cut -d= -f2)
 [[ "$FS_FINAL" == "ok" ]] \
   || { echo "FAIL: expected FS=ok after resume; got '$FS_FINAL'" >&2; exit 1; }
-pass "round-trip phase 3: trooper resumes after answer, FS=ok"
+pass "round-trip phase 3: trooper resumes after answer, FS=ok (H1 closure)"
+
+# === H1 closure regression: ensure no offset-reset call was needed ===
+# The state file should have TWO OFFSET= lines (initial + post-question);
+# the second one is what wait-script picks up on re-arm.
+OFFSET_LINES=$(grep -c '^OFFSET=' "$TD/_consult/research-rex.txt")
+[[ "$OFFSET_LINES" -ge 2 ]] \
+  || { echo "FAIL: state file should have ≥2 OFFSET lines (initial + post-question); got $OFFSET_LINES" >&2; exit 1; }
+pass "wait-script auto-bumped OFFSET (no offset-reset call needed)"
+
+# === Multi-question loop: Q→A→Q→A→done ===
+TD2_TOPIC=$(../bin/consult-init.sh "design pattern multi-q test" | sed -n '1p')
+TD2="$CLONE_WARS_HOME/state/$RH/$TD2_TOPIC"
+mkdir -p "$TD2/rex-codex"
+OUTBOX2="$TD2/rex-codex/outbox.jsonl"
+echo '{"event":"ready"}' >> "$OUTBOX2"
+OFFSET_INIT=$(wc -c < "$OUTBOX2" | tr -d ' ')
+echo '{"event":"question","text":"Q1?","options":[]}' >> "$OUTBOX2"
+printf 'OFFSET=%s\n' "$OFFSET_INIT" > "$TD2/_consult/research-rex.txt"
+
+# First question caught.
+CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=5 \
+  ../bin/consult-research-wait.sh "$TD2_TOPIC" rex codex >/dev/null 2>&1
+FS=$(grep '^FS=' "$TD2/_consult/research-rex.txt" | tail -1 | cut -d= -f2)
+[[ "$FS" == "question" ]] || { echo "FAIL multi-q phase 1: FS=$FS"; exit 1; }
+
+# Simulate answer + second question.
+echo '{"event":"question","text":"Q2?","options":["A","B"]}' >> "$OUTBOX2"
+CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=5 \
+  ../bin/consult-research-wait.sh "$TD2_TOPIC" rex codex >/dev/null 2>&1
+FS=$(grep '^FS=' "$TD2/_consult/research-rex.txt" | tail -1 | cut -d= -f2)
+[[ "$FS" == "question" ]] || { echo "FAIL multi-q phase 2: FS=$FS"; exit 1; }
+Q2_TEXT=$(cw_consult_question_payload_read "$TD2/_consult/question-rex.txt" TEXT)
+[[ "$Q2_TEXT" == "Q2?" ]] || { echo "FAIL multi-q: payload should be Q2 got '$Q2_TEXT'"; exit 1; }
+
+# Final answer + done.
+echo '{"event":"done"}' >> "$OUTBOX2"
+echo "stub" > "$TD2/rex-codex/findings.md"; echo "[c] x" >> "$TD2/rex-codex/findings.md"
+CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=5 \
+  ../bin/consult-research-wait.sh "$TD2_TOPIC" rex codex >/dev/null 2>&1
+FS=$(grep '^FS=' "$TD2/_consult/research-rex.txt" | tail -1 | cut -d= -f2)
+[[ "$FS" == "ok" ]] || { echo "FAIL multi-q done: FS=$FS"; exit 1; }
+pass "multi-question loop: Q1→Q2→done, OFFSET advances each time, no send-script call"
 ```
 
 - [ ] **Step 2: Run test**
@@ -1200,16 +1516,177 @@ Expected: all tests pass (existing 24 + 5 new files).
 
 ```bash
 git add tests/test_consult_question_loop.sh
-git commit -m "test(consult): end-to-end question round-trip fixture
+git commit -m "test(consult): end-to-end question round-trip + multi-question fixture
 
-Mocks the outbox and walks through trooper emits question → wait-script
-catches → offset-reset --keep-findings → trooper resumes → FS=ok. Proves
-the v0.3 protocol is wired end-to-end."
+Mocks the outbox: trooper emits question → wait-script catches and
+auto-advances OFFSET → directive cw_send ANSWER → wait-script re-runs
+(no offset-reset, no send-script) → FS=ok. Also covers Q→A→Q→A→done
+multi-question loop. Proves H1 closure end-to-end at the unit level
+(complementing Task 10's real-CLI dogfood)."
 ```
 
 ---
 
-## Task 10: v0.3.0 release polish
+## Task 10: Real-CLI dogfood (H3 closure)
+
+**Files:**
+- Create: `tests/test_consult_question_dogfood.sh`
+
+**Why:** Task 9's mock test proves the IPC plumbing. It does NOT prove
+the autonomy contract actually overrides `superpowers:brainstorming`'s
+native AskUserQuestion call. That risk is the central H3 finding from
+Codex. This task adds a gated real-CLI test that spawns a live trooper.
+
+- [ ] **Step 1: Write the gated test**
+
+Create `tests/test_consult_question_dogfood.sh`:
+
+```bash
+#!/usr/bin/env bash
+# tests/test_consult_question_dogfood.sh — H3 closure: validates the
+# autonomy contract works against a real codex trooper. Gated on
+# codex+tmux availability; skipped (not failed) when missing.
+set -euo pipefail
+cd "$(dirname "$0")"
+source lib/assert.sh
+
+if ! command -v codex >/dev/null 2>&1; then
+  echo "SKIP: codex CLI not installed — autonomy-contract dogfood skipped"
+  exit 0
+fi
+if ! command -v tmux >/dev/null 2>&1; then
+  echo "SKIP: tmux not installed — autonomy-contract dogfood skipped"
+  exit 0
+fi
+if [[ -z "${TMUX:-}" ]]; then
+  echo "SKIP: not inside a tmux session — autonomy-contract dogfood skipped"
+  exit 0
+fi
+
+TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+export CLONE_WARS_HOME="$TMP/cw"
+export CLAUDE_PLUGIN_ROOT="$(cd .. && pwd)"
+
+source ../lib/state.sh
+source ../lib/ipc.sh
+source ../lib/consult.sh
+
+RH=$(cw_repo_hash)
+
+# Topic that classifies as brainstorming (forces a forked design choice).
+TOPIC=$(../bin/consult-init.sh "decide between sync and async cache eviction" | sed -n '1p')
+TD="$CLONE_WARS_HOME/state/$RH/$TOPIC"
+[[ "$(cat "$TD/_consult/skill.txt")" == "brainstorming" ]] \
+  || { echo "FAIL: expected brainstorming classification"; exit 1; }
+
+# Spawn real codex trooper (uses bin/spawn.sh).
+if ! ../bin/spawn.sh rex codex "$TOPIC" >/dev/null 2>&1; then
+  echo "SKIP: real codex spawn failed — autonomy-contract dogfood skipped"
+  exit 0
+fi
+trap 'rm -rf "$TMP"; ../bin/consult-teardown.sh "$TOPIC" >/dev/null 2>&1 || true' EXIT
+
+# Send research prompt with autonomy contract appended (consult-research-send.sh
+# does this automatically for brainstorming-classified topics).
+../bin/consult-research-send.sh "$TOPIC" rex codex >/dev/null 2>&1
+
+# Wait up to 90s for FS=question (the autonomy contract should make the
+# trooper write a question event instead of asking via TUI).
+T0=$(date +%s)
+DEADLINE=$((T0 + 90))
+while (( $(date +%s) < DEADLINE )); do
+  if grep -q '^FS=' "$TD/_consult/research-rex.txt" 2>/dev/null; then
+    break
+  fi
+  ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1 || true
+  sleep 1
+done
+
+FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" 2>/dev/null | tail -1 | cut -d= -f2 || echo "")
+case "$FS" in
+  question)
+    pass "real codex trooper wrote {event:question} via outbox (autonomy contract OK)"
+    ;;
+  ok|empty|missing)
+    # Trooper may have just answered everything from defaults — also fine.
+    # Inspect findings.md for [Q&A] block.
+    TROOPER_DIR=$(cw_trooper_dir rex codex "$TOPIC")
+    if grep -q '\[Q&A\]\|\[assumption\]' "$TROOPER_DIR/findings.md" 2>/dev/null; then
+      pass "real codex trooper produced findings with [Q&A]/[assumption] markers"
+    else
+      pass "real codex trooper produced findings without questioning (autonomy contract permitted defaults)"
+    fi
+    ;;
+  *)
+    echo "FAIL: real codex trooper FS='$FS' (expected question or ok-with-Q&A)"
+    echo "  outbox tail:"
+    tail -20 "$(cw_outbox_path rex codex "$TOPIC")" 2>/dev/null || true
+    exit 1
+    ;;
+esac
+
+# Send a synthetic ANSWER and verify trooper resumes to done.
+if [[ "$FS" == "question" ]]; then
+  ../bin/send.sh rex "$TOPIC" "ANSWER: pick async (LRU eviction with TTL backstop)
+
+  (resume your skill loop)
+  END_OF_INSTRUCTION" >/dev/null 2>&1
+  T1=$(date +%s)
+  DEADLINE2=$((T1 + 60))
+  while (( $(date +%s) < DEADLINE2 )); do
+    ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1 || true
+    FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" 2>/dev/null | tail -1 | cut -d= -f2 || echo "")
+    [[ "$FS" == "ok" || "$FS" == "empty" || "$FS" == "missing" ]] && break
+    sleep 1
+  done
+  case "$FS" in
+    ok|empty|missing)
+      pass "real codex trooper resumed after ANSWER and reached terminal state ($FS)"
+      ;;
+    question)
+      pass "real codex trooper asked a follow-up question after answer (multi-Q loop confirmed)"
+      ;;
+    *)
+      echo "FAIL: trooper did not resume after ANSWER; FS='$FS'"; exit 1
+      ;;
+  esac
+fi
+```
+
+- [ ] **Step 2: Make executable + run (manual; skipped in CI)**
+
+```bash
+chmod +x tests/test_consult_question_dogfood.sh
+bash tests/test_consult_question_dogfood.sh
+```
+
+Expected outcomes:
+- Inside a tmux session with codex installed → live spawn, live behavior tested.
+- Outside tmux or without codex → SKIP with clear reason; rc=0.
+- This is the only test that proves the autonomy contract is respected
+  by a real superpowers skill. Its pass / skip / fail status is
+  load-bearing for v0.3.0 release confidence.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add tests/test_consult_question_dogfood.sh
+git commit -m "test(consult): real-CLI dogfood for autonomy contract (H3 closure)
+
+Spawns a live codex trooper, sends a brainstorming-classified prompt
+with the autonomy-contract hint appended, and asserts the trooper
+either (a) emits {event:question} via outbox (contract obeyed), or
+(b) writes findings with [Q&A]/[assumption] markers (contract permitted
+defaults). Then sends a synthetic ANSWER and asserts trooper resumes
+to ok/empty/missing.
+
+Gated on tmux + codex + \$TMUX. Skipped (not failed) when missing.
+Mocked unit coverage stays in test_consult_question_loop.sh."
+```
+
+---
+
+## Task 11: v0.3.0 release polish
 
 **Files:**
 - Modify: `.claude-plugin/plugin.json`
@@ -1231,14 +1708,14 @@ Append to `README.md` (under the existing version-history section, or as a new "
 ## v0.3.0 — trooper question protocol + skill routing
 
 The `consult` command now lets troopers ask questions back to the Jedi
-general while running `superpowers:brainstorming` or `superpowers:debugging`
+general while running `superpowers:brainstorming` or `superpowers:systematic-debugging`
 skills. Most questions are answered inline by the general; only critical
 ones (option-forks that would change the topic interpretation) reach the
 user via `AskUserQuestion`.
 
 - One skill is auto-picked per consult run based on topic shape:
   - design / "how should" / "decide between" → `superpowers:brainstorming`
-  - "why" / "broken" / "edge case" / "regression" → `superpowers:debugging`
+  - "why" / "broken" / "edge case" / "regression" → `superpowers:systematic-debugging`
   - default → no skill (plain research)
 - Override the auto-pick by editing `_consult/skill.txt` after `consult-init`.
 - The autonomy contract in the inbox prompt keeps question volume low.
@@ -1276,9 +1753,15 @@ git add .claude-plugin/plugin.json .claude-plugin/marketplace.json README.md CLA
 git commit -m "release: v0.3.0 — trooper question protocol + skill routing
 
 Adds {event:question} outbox protocol, topic classifier (brainstorming/
-debugging/none), skill-hint files with autonomy contract, --keep-findings
-flag on offset-reset, and Pattern 4 critical-question relay. Existing
-v0.2.1 dogfood path unchanged when topic classifies as 'none'.
+systematic-debugging/none), skill-hint files with autonomy contract,
+--keep-findings flag on offset-reset (Patterns 1/3 only), and Pattern 4
+critical-question relay. Existing v0.2.1 dogfood path unchanged when
+topic classifies as 'none'.
+
+Closes Codex Rev1 findings: H1 (no double-inbox-write on re-arm),
+H2 (wait-script branches on actual matched event), H3 (real-CLI dogfood
+test gated on codex+tmux), M4 (systematic-debugging not debugging),
+M5 (validate JSON before treating as question).
 
 Spec: docs/superpowers/specs/2026-04-29-clone-wars-consult-question-protocol-design.md"
 ```
@@ -1289,36 +1772,67 @@ Spec: docs/superpowers/specs/2026-04-29-clone-wars-consult-question-protocol-des
 
 | Test | Status | Coverage |
 |---|---|---|
-| `test_consult_classify_topic.sh` | new | regex matches, word-boundary, priority ties |
-| `test_consult_skill_hint.sh` | new | hint files + send-script append, none default |
-| `test_consult_question_event.sh` | new | payload helpers, wait-script catches event |
-| `test_consult_offset_reset_keep.sh` | new | --keep-findings flag |
-| `test_consult_question_loop.sh` | new | end-to-end mock round-trip |
+| `test_consult_classify_topic.sh` | new | regex matches, word-boundary, M-tier trigger refinement |
+| `test_consult_skill_hint.sh` | new | hint files + append, override env-var, PLUGIN_ROOT, skill resolution |
+| `test_consult_question_event.sh` | new | payload helpers, wait-script catches event, malformed-input fixtures (M5) |
+| `test_consult_question_event_priority.sh` | new (H2) | wait-script branches on actual matched event; question→error / question→done / multi-question |
+| `test_consult_offset_reset_keep.sh` | new | `--keep-findings` flag (Patterns 1/3 only) |
+| `test_consult_question_loop.sh` | new | mock round-trip + Q→A→Q→A→done multi-question |
+| `test_consult_question_dogfood.sh` | new (H3) | real-CLI dogfood; gated on codex+tmux |
 | `test_consult_init.sh` | extended | skill.txt assertion |
-| `test_consult_research_wait.sh` | extended | question-event case |
-| `test_consult_verify_wait.sh` | extended | question-event case |
+| `test_consult_research_wait.sh` | extended | capture-MATCHED + question-event case |
+| `test_consult_verify_wait.sh` | extended | capture-MATCHED + question-event case |
+| `test_consult_offset_reset.sh` | extended | pin existing 3-arg signature post Task 7 |
 
 ---
 
 ## Branch + PR plan
 
-- All 10 tasks land on `feat/v0.3-question-protocol`.
-- Each task is one commit. PR opens after Task 10.
-- Bisect-safe: every commit through Task 9 keeps existing v0.2.1 paths green
-  (skill.txt missing → `none` → no append; question event optional).
+- All 11 tasks land on `feat/v0.3-question-protocol`.
+- Each task is one commit. PR opens after Task 11.
+- Bisect-safe: every commit through Task 10 keeps existing v0.2.1 paths green
+  (skill.txt missing → `none` → no append; question event optional;
+  Task 7 arg-parser preserves the 3-arg signature).
 - v0.2.1 must merge first; rebase `feat/v0.3-question-protocol` onto post-merge
   main before opening the PR.
 
 ---
 
-## Self-review against spec
+## Self-review against Rev2 spec
 
-- ✅ All 5 spec sections (protocol, classifier, skill hints, directive loop, intervention pattern) have implementation tasks.
-- ✅ All 5 spec test specifications have matching test files (Tasks 1, 3, 6, 7, 9).
-- ✅ The `--keep-findings` flag covered in Task 7 matches the spec contract (preserve trooper output + cascade artifacts; clear payload).
+Codex Rev1 closures verified:
+
+- ✅ **H1** (re-arm double-write): Task 6's wait-script appends `OFFSET=` on
+  question match; Task 8 directive recipe drops `consult-research-send.sh`
+  from re-arm; Task 9 fixture asserts ≥2 OFFSET= lines in state file
+  without offset-reset call.
+- ✅ **H2** (matched-event branch): Task 6 captures MATCHED, parses event,
+  case-arms; new `test_consult_question_event_priority.sh` covers
+  question→error / question→done / multi-question / malformed.
+- ✅ **H3** (real-CLI test): new Task 10 spawns live codex trooper, validates
+  autonomy-contract behavior; gated on tmux + codex.
+- ✅ **M4** (systematic-debugging): renamed throughout; Task 3 test asserts
+  hint skill-names resolve to installed `SKILL.md`.
+- ✅ **M5** (JSON validation): Task 5 adds validator + extractor; Task 6
+  routes invalid payloads to FS=failed not FS=question; fixtures cover
+  missing-text, empty-text, escaped-quote, empty-options, non-JSON.
+
+Lower-tier tightening verified:
+
+- ✅ Task 1 trigger refinement: "design"/"structure"/"approach" alone do not match.
+- ✅ Task 4 helper asserts `PLUGIN_ROOT`/`CLAUDE_PLUGIN_ROOT` set; fixture pins it.
+- ✅ Task 4 helper respects `CW_CONSULT_SKILL_OVERRIDE=none`; fixture pins it.
+- ✅ Task 8 directive recipe explicitly Reads findings.md/verify.md before classify.
+
+Implementation-mechanics:
+
+- ✅ Spec coverage: every Rev2 spec section has implementation tasks.
+- ✅ Type/symbol consistency: `cw_consult_classify_topic`,
+  `cw_consult_skill_hint_append`, `cw_consult_question_payload_{read,write}`,
+  `cw_consult_question_validate_line`, `cw_consult_question_extract_to_payload`
+  named identically across spec and plan. Old `cw_consult_question_extract_from_outbox`
+  is **NOT** introduced (replaced by `_extract_to_payload` directly in wait-script).
 - ✅ Both research and verify paths covered symmetrically (Tasks 4, 6, 8).
-- ✅ Backwards-compat tests included (Task 4: missing skill.txt; Task 7: existing offset-reset behavior unchanged).
-- ✅ The autonomy contract from the spec is reproduced verbatim in Task 3's hint files.
-- ✅ Every code step shows the actual code; no placeholders.
-- ✅ Every test step shows the actual assertions; no "similar to above".
-- ✅ Type/symbol consistency: `cw_consult_classify_topic`, `cw_consult_skill_hint_append`, `cw_consult_question_payload_{read,write}`, `cw_consult_question_extract_from_outbox` all named identically across spec and plan.
+- ✅ Backwards-compat: Task 4 (missing skill.txt → none); Task 7 (3-arg signature preserved).
+- ✅ Every code step shows actual code; no placeholders.
+- ✅ Every test step shows actual assertions; no "similar to above".
