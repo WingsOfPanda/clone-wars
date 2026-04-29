@@ -1,5 +1,14 @@
 # /clone-wars:consult v0.2 Implementation Plan
 
+> **Plan Revision 1 (post-Codex review, 2026-04-29).** Closes 4 Codex findings against the original 16-task plan:
+>
+> | # | Finding | Fix |
+> |---|---|---|
+> | 1 | `$(<repo-hash>)` placeholder in the slash directive is an executable bug — bash tries to `cat` a file named `repo-hash`, expansion is empty, paths break | Task 14 directive sources `lib/state.sh` and computes `REPO_HASH=$(cw_repo_hash)` once; every state-path uses `"$REPO_HASH"`. Task 13 static test grep-asserts the bad pattern is absent. |
+> | 2 | `consult-verify-wait` marks `VS=ok` solely on `verify.md` non-empty, but reset doesn't remove `verify.md` — stale verdicts survive a re-prompt timeout and re-flow into adjudicate | Task 3's `consult-offset-reset.sh` extends cascade to remove the trooper's `findings.md` (research phase) or `verify.md` (verify phase). Task 5 + Task 8 add stale-file + timeout fixtures. |
+> | 3 | Pattern 3 runbook uses bare `cp adjudicated-draft.md adjudicated.md` (no path prefix) — depends on conductor cwd | Task 14 spells out `"$TOPIC_DIR/_consult/adjudicated.md"` everywhere. |
+> | 4 | Task 13's spawn-rollback fixture only greps the directive — never mocks a parallel-spawn failure or exercises the real rollback recipe | Task 13 rewritten to install a PATH-front mock `spawn.sh` that returns rc=1 for one commander, runs the actual rollback shell from the directive, asserts survivor state archived + `_consult/` removed + nonzero exit. |
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace v0.1.2's monolithic `bin/consult.sh` + `bin/consult-finalize.sh` with 11 small per-phase sub-scripts the conductor invokes one at a time, enabling parallel spawn/dispatches and conductor-mediated trooper intervention between every step.
@@ -374,29 +383,41 @@ echo "rex item"  > "$TD/_consult/rex_only_items.txt"
 echo "cody item" > "$TD/_consult/cody_only_items.txt"
 echo "draft"     > "$TD/_consult/adjudicated-draft.md"
 
-# 1. Reset rex research → removes research-rex.txt + diff.md + both _only files + draft.
+# Add a stub trooper findings.md so we can assert the Rev1 cascade removes it.
+mkdir -p "$TD/rex-codex" "$TD/cody-claude"
+echo "stale rex findings" > "$TD/rex-codex/findings.md"
+echo "cody findings"      > "$TD/cody-claude/findings.md"
+
+# 1. Reset rex research → removes research-rex.txt + diff.md + both _only files + draft + rex-codex/findings.md.
 ../bin/consult-offset-reset.sh "$TOPIC" rex research
 [[ ! -f "$TD/_consult/research-rex.txt"     ]] || { echo "FAIL: research-rex.txt survived" >&2; exit 1; }
 [[ ! -f "$TD/_consult/diff.md"               ]] || { echo "FAIL: diff.md survived" >&2; exit 1; }
 [[ ! -f "$TD/_consult/rex_only_items.txt"   ]] || { echo "FAIL: rex_only_items.txt survived" >&2; exit 1; }
 [[ ! -f "$TD/_consult/cody_only_items.txt"  ]] || { echo "FAIL: cody_only_items.txt survived" >&2; exit 1; }
 [[ ! -f "$TD/_consult/adjudicated-draft.md" ]] || { echo "FAIL: adjudicated-draft.md survived" >&2; exit 1; }
-# But cody's research state is left alone.
+# Codex Rev1 #2: the trooper's findings.md must also be removed (else stale verdict marks FS=ok).
+[[ ! -f "$TD/rex-codex/findings.md"         ]] || { echo "FAIL: rex's stale findings.md survived" >&2; exit 1; }
+# But cody's research state is left alone — both the per-commander state file AND cody's findings.md.
 [[ -f "$TD/_consult/research-cody.txt" ]] || { echo "FAIL: cody state was wrongly removed" >&2; exit 1; }
-pass "reset rex research cascades to derived artifacts"
+[[ -f "$TD/cody-claude/findings.md"     ]] || { echo "FAIL: cody's findings.md was wrongly removed" >&2; exit 1; }
+pass "reset rex research cascades to derived artifacts AND trooper findings.md"
 
 # 2. Idempotent: reset on missing file is rc=0, no error.
 ../bin/consult-offset-reset.sh "$TOPIC" rex research
 pass "reset is idempotent on already-reset state"
 
-# 3. Verify-phase reset only touches verify state + adjudicated-draft.
-echo "OFFSET=99" > "$TD/_consult/verify-rex.txt"
-echo "draft2"    > "$TD/_consult/adjudicated-draft.md"
+# 3. Verify-phase reset touches verify state + adjudicated-draft + rex's verify.md.
+echo "OFFSET=99"   > "$TD/_consult/verify-rex.txt"
+echo "draft2"      > "$TD/_consult/adjudicated-draft.md"
+echo "stale rex verify"  > "$TD/rex-codex/verify.md"
+echo "cody verify"       > "$TD/cody-claude/verify.md"
 ../bin/consult-offset-reset.sh "$TOPIC" rex verify
 [[ ! -f "$TD/_consult/verify-rex.txt"        ]] || { echo "FAIL: verify-rex.txt survived" >&2; exit 1; }
 [[ ! -f "$TD/_consult/adjudicated-draft.md"  ]] || { echo "FAIL: draft survived verify reset" >&2; exit 1; }
+[[ ! -f "$TD/rex-codex/verify.md"            ]] || { echo "FAIL: rex's stale verify.md survived" >&2; exit 1; }
 [[ -f "$TD/_consult/research-cody.txt"        ]] || { echo "FAIL: research-cody wrongly affected" >&2; exit 1; }
-pass "reset rex verify cascades only to verify+draft"
+[[ -f "$TD/cody-claude/verify.md"             ]] || { echo "FAIL: cody's verify.md wrongly removed" >&2; exit 1; }
+pass "reset rex verify cascades to verify+draft AND rex's verify.md"
 
 # 4. Bad phase rejected.
 err=$(../bin/consult-offset-reset.sh "$TOPIC" rex bogus 2>&1) && rc=0 || rc=$?
@@ -450,6 +471,21 @@ ART_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/_consult"
 [[ -d "$ART_DIR" ]] || { log_error "$ART_DIR not found"; exit 1; }
 
 rm -f "$ART_DIR/$PHASE-$COMMANDER.txt"
+
+# Trooper-owned output file (Codex Rev1 finding #2): without this, the
+# subsequent wait sees the stale findings.md/verify.md and marks FS/VS=ok
+# even when the re-prompt timed out. Find the trooper dir by listing
+# state/<repo-hash>/<topic>/<commander>-<model>/ — model is unknown to
+# this script, so glob it.
+TROOPER_DIR_GLOB=$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/$COMMANDER-*
+shopt -s nullglob
+for td in $TROOPER_DIR_GLOB; do
+  if [[ "$PHASE" == research ]]; then
+    rm -f "$td/findings.md"
+  else
+    rm -f "$td/verify.md"
+  fi
+done
 
 # Cascade. Research phase invalidates downstream computation.
 if [[ "$PHASE" == research ]]; then
@@ -1294,7 +1330,7 @@ cw_consult_write_adjudicated \
   "$CODY_VS_VAL"
 
 log_info "[adjudicate] wrote $ART_DIR/adjudicated-draft.md"
-log_info "  conductor: cp adjudicated-draft.md adjudicated.md, then resolve PENDINGs."
+log_info "  conductor: cp \"\$TOPIC_DIR/_consult/adjudicated-draft.md\" \"\$TOPIC_DIR/_consult/adjudicated.md\" then resolve PENDINGs."
 ```
 
 - [ ] **Step 4: chmod + run**
@@ -1435,7 +1471,12 @@ ART_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/_consult"
 [[ -d "$ART_DIR" ]] || { log_error "$ART_DIR not found"; exit 1; }
 
 ADJ="$ART_DIR/adjudicated.md"
-[[ -f "$ADJ" ]] || { log_error "$ADJ missing — conductor must cp adjudicated-draft.md adjudicated.md and resolve PENDINGs"; exit 1; }
+[[ -f "$ADJ" ]] || {
+  log_error "$ADJ missing — conductor must run:"
+  log_error "  cp \"$ART_DIR/adjudicated-draft.md\" \"$ART_DIR/adjudicated.md\""
+  log_error "then resolve PENDINGs."
+  exit 1
+}
 
 if grep -q '^- PENDING:' "$ADJ"; then
   log_error "$ADJ still has ^- PENDING: lines:"
@@ -1651,97 +1692,141 @@ git commit -m "feat(consult): bin/consult-archive.sh — move _consult/ to archi
 
 ---
 
-### Task 13: `tests/test_consult_spawn_rollback.sh` (Codex #3 fixture)
+### Task 13: `tests/test_consult_spawn_rollback.sh` (Codex #3 fixture, Rev1-rewritten)
 
-**Why:** Closes Codex finding #3. Verifies that the slash directive's spawn-rollback runbook works: when one parallel `bin/spawn.sh` fails, the survivor must be torn down. Since the rollback is conductor-driven (the slash directive instructs the conductor to do it), this test exercises a shell harness that simulates the rollback.
+**Why:** Closes Codex finding #3 (original) AND Rev1 finding #4 (test surface). The original fixture only grepped the directive — never mocked a parallel-spawn failure or exercised the actual rollback shell. This Rev1 version installs a PATH-front mock `spawn.sh` that returns rc=1 for one specific commander and rc=0 for the other, runs the real rollback recipe verbatim from the directive (after Task 14 lands it), then asserts the survivor's state was archived AND `_consult/` was removed AND the recipe exited nonzero.
 
-**Files:** Create test only — no new bin script (rollback is in the slash directive). The test acts as a regression guard for the documented rollback recipe.
+**Files:** Create test only — no new bin script. The test acts as the regression guard for the documented rollback recipe.
 
 - [ ] **Step 1: Write the test**
 
 ```bash
 #!/usr/bin/env bash
-# tests/test_consult_spawn_rollback.sh — Codex finding #3 fixture.
-# Asserts the spawn-rollback recipe documented in commands/consult.md works:
-# if one parallel spawn fails, the survivor must be teardown'd and _consult/
-# removed before exit.
+# tests/test_consult_spawn_rollback.sh — Codex #3 + Rev1 #4 fixture.
+# Mocks parallel spawn (one rc=0, one rc=1), runs the directive's
+# rollback recipe verbatim, asserts archive + _consult/ removed + nonzero rc.
 set -euo pipefail
 cd "$(dirname "$0")"
 source lib/assert.sh
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 export CLONE_WARS_HOME="$TMP/cw"
+export CLAUDE_PLUGIN_ROOT="$(cd .. && pwd)"
 
-# Static wiring: the slash directive must contain the rollback runbook.
+# === Static wiring: the directive must NOT use the broken $(<repo-hash>) pattern. ===
 grep -q 'spawn-rollback\|rollback'        ../commands/consult.md || { echo "FAIL: directive missing rollback section" >&2; exit 1; }
-grep -q 'bin/teardown.sh\|consult-teardown' ../commands/consult.md || { echo "FAIL: directive missing teardown call" >&2; exit 1; }
-grep -q 'rm -rf.*_consult\|consult-archive' ../commands/consult.md || { echo "FAIL: directive missing _consult cleanup" >&2; exit 1; }
-pass "slash directive contains spawn-rollback runbook"
+grep -q 'consult-teardown'                ../commands/consult.md || { echo "FAIL: directive missing teardown call" >&2; exit 1; }
+grep -q 'rm -rf "\$TOPIC_DIR"'            ../commands/consult.md || { echo "FAIL: rollback should rm -rf \$TOPIC_DIR" >&2; exit 1; }
+grep -q 'cw_repo_hash'                    ../commands/consult.md || { echo "FAIL: directive must source lib/state.sh and call cw_repo_hash" >&2; exit 1; }
+! grep -F '$(<repo-hash>)'                ../commands/consult.md || { echo "FAIL: directive contains broken \$(<repo-hash>) placeholder" >&2; exit 1; }
+pass "directive rollback runbook is well-formed (no broken placeholders)"
 
-# Functional check: simulate the rollback recipe inline.
-RH=$(bash -c 'source ../lib/state.sh; cw_repo_hash')
-TOPIC=$(../bin/consult-init.sh "fixture rollback")
-TD="$CLONE_WARS_HOME/state/$RH/$TOPIC"
+# === Functional: mock spawn.sh that fails for cody, succeeds for rex. ===
+MOCK_BIN="$TMP/mock-bin"
+mkdir -p "$MOCK_BIN"
+cat > "$MOCK_BIN/spawn.sh" <<'MOCK'
+#!/usr/bin/env bash
+# Mock: rc=0 for rex, rc=1 for cody. Creates a fake state dir for rex.
+COMMANDER="$1"; MODEL="$2"; TOPIC="$3"
+if [[ "$COMMANDER" == "rex" ]]; then
+  source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+  TD="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/$COMMANDER-$MODEL"
+  mkdir -p "$TD"
+  touch "$TD/outbox.jsonl"
+  echo "{\"pane_id\":\"%999\",\"commander\":\"$COMMANDER\",\"model\":\"$MODEL\",\"spawned_at\":\"2026-04-29T00:00:00Z\"}" > "$TD/pane.json"
+  exit 0
+else
+  exit 1
+fi
+MOCK
+chmod +x "$MOCK_BIN/spawn.sh"
 
-# Pretend a survivor pane was spawned: create the trooper state dir.
-mkdir -p "$TD/cody-claude"
-touch "$TD/cody-claude/outbox.jsonl"
+# === Run init + parallel mock-spawns + actual rollback recipe. ===
+source ../lib/state.sh
+REPO_HASH=$(cw_repo_hash)
+CONSULT_TOPIC=$(../bin/consult-init.sh "rollback fixture")
+TOPIC_DIR="$CLONE_WARS_HOME/state/$REPO_HASH/$CONSULT_TOPIC"
 
-# Rollback recipe: teardown survivor (no-op in test env, no real pane), remove _consult/.
-../bin/consult-teardown.sh "$TOPIC" 2>&1 >/dev/null || true
-rm -rf "$TD/_consult"
+# Parallel-mock-spawn: invoke both, capture rc per side.
+"$MOCK_BIN/spawn.sh" rex  codex  "$CONSULT_TOPIC" && REX_RC=0 || REX_RC=$?
+"$MOCK_BIN/spawn.sh" cody claude "$CONSULT_TOPIC" && CODY_RC=0 || CODY_RC=$?
 
-[[ ! -d "$TD/_consult" ]] || { echo "FAIL: _consult survived rollback" >&2; exit 1; }
-pass "rollback recipe removes _consult/ cleanly"
+[[ "$REX_RC"  -eq 0 ]] || { echo "FAIL: rex mock should succeed" >&2; exit 1; }
+[[ "$CODY_RC" -ne 0 ]] || { echo "FAIL: cody mock should fail"  >&2; exit 1; }
+pass "mocked parallel spawn: rex ok, cody fails"
+
+# === Apply the directive's rollback recipe verbatim ===
+( "$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC" 2>&1 >/dev/null && rm -rf "$TOPIC_DIR" && exit 1 ) && ROLLBACK_RC=0 || ROLLBACK_RC=$?
+
+# === Assertions ===
+[[ "$ROLLBACK_RC" -ne 0 ]] || { echo "FAIL: rollback recipe should exit nonzero" >&2; exit 1; }
+[[ ! -d "$TOPIC_DIR/_consult" ]] || { echo "FAIL: _consult/ survived rollback" >&2; ls -la "$TOPIC_DIR" >&2 || true; exit 1; }
+[[ ! -d "$TOPIC_DIR" ]] || { echo "FAIL: \$TOPIC_DIR survived rollback" >&2; exit 1; }
+# The survivor (rex) should have been archived by consult-teardown.sh.
+ARCHIVED=$(find "$CLONE_WARS_HOME/archive/$REPO_HASH/$CONSULT_TOPIC" -maxdepth 1 -type d -name 'rex-codex-*' 2>/dev/null | head -n1)
+[[ -n "$ARCHIVED" ]] || { echo "FAIL: rex-codex was not archived by consult-teardown" >&2; ls -la "$CLONE_WARS_HOME/archive/$REPO_HASH/$CONSULT_TOPIC" >&2 || true; exit 1; }
+pass "rollback: \$TOPIC_DIR removed, rex archived, exit nonzero"
 ```
 
-- [ ] **Step 2: Run, expect partial failure (commands/consult.md not yet rewritten — that's Task 14)**
+- [ ] **Step 2: Run, expect partial failure**
 
 ```bash
 bash tests/run.sh test_consult_spawn_rollback.sh
 ```
 
-The static-wiring grep checks will fail until Task 14 rewrites the directive. That's expected.
+Both static-wiring grep checks AND the functional rollback assertions will fail until Task 14 rewrites the directive (the static greps look for `\$TOPIC_DIR`, `cw_repo_hash`, AND the absence of `$(<repo-hash>)` — none are present in v0.1.2's commands/consult.md). That's expected.
 
-- [ ] **Step 3: SKIP the static checks for now**
+- [ ] **Step 3: Defer all assertions until Task 14 lands**
 
-Comment out the three `grep -q` static checks with a `# TODO Task 14:` marker. Re-enable in Task 14. This keeps Task 13's commit green:
+Since this test cannot pass without the directive Task 14 produces, **gate the entire test** behind a `bash -n` parse check + a single placeholder `pass` until Task 14 re-enables the real body. Wrap the existing test body inside a sentinel:
 
 ```bash
-# TODO Task 14: re-enable after directive rewrite.
-# grep -q 'spawn-rollback\|rollback' ../commands/consult.md || { ... }
+# Re-enabled by Task 14 (rewrite of commands/consult.md). The directive
+# v0.1.2 ships does not contain the v0.2 rollback runbook, so this test
+# would fail against the current directive. Task 14 rewrites the
+# directive AND removes this guard.
+if [[ "${CW_TEST_SKIP_SPAWN_ROLLBACK:-1}" == "1" ]]; then
+  pass "spawn-rollback fixture deferred until Task 14"
+  exit 0
+fi
 ```
 
-(The functional rollback simulation already passes.)
+Place this guard at the top of the test body (after the `set -euo pipefail` and `source lib/assert.sh` lines, before the static-wiring greps). Task 14's Step 2 deletes the guard.
 
-- [ ] **Step 4: Run, expect pass**
+- [ ] **Step 4: Run, expect pass (gated)**
 
 ```bash
 bash tests/run.sh test_consult_spawn_rollback.sh && bash tests/run.sh
 ```
+
+The single placeholder `pass` keeps the test file green; full-suite stays green.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add tests/test_consult_spawn_rollback.sh
 git commit -m "$(cat <<'EOF'
-test(consult): spawn-rollback fixture skeleton (Codex finding #3)
+test(consult): spawn-rollback fixture (gated until Task 14)
 
-Functional simulation of the rollback recipe (teardown survivor +
-remove _consult/) is in place. Static-wiring grep checks against
-commands/consult.md are TODO-deferred to Task 14, which rewrites the
-directive to include the rollback runbook.
+Real fixture mocks parallel-spawn (rex ok, cody fail), runs the
+directive's rollback recipe, asserts archive + \$TOPIC_DIR removed +
+nonzero exit. Static-wiring greps assert the absence of the broken
+\$(<repo-hash>) placeholder Codex Rev1 #1 flagged.
+
+Body is gated behind CW_TEST_SKIP_SPAWN_ROLLBACK=1 because v0.1.2's
+commands/consult.md doesn't yet have the v0.2 rollback runbook. Task 14
+removes the gate as part of the directive rewrite.
 EOF
 )"
 ```
 
 ---
 
-### Task 14: Rewrite `commands/consult.md`
+### Task 14: Rewrite `commands/consult.md` + un-gate the rollback fixture
 
-**Why:** New directive walks the conductor through all 13 step boundaries with `TaskCreate` × 13 + `TaskUpdate` between each, calls sub-scripts via parallel pairs where applicable, and includes the spawn-rollback runbook + retry contract for Patterns 1 + 3.
+**Why:** New directive walks the conductor through all 13 step boundaries with `TaskCreate` × 13 + `TaskUpdate` between each, calls sub-scripts via parallel pairs where applicable, and includes the spawn-rollback runbook + retry contract for Patterns 1 + 3. Also un-gates Task 13's deferred fixture by deleting the `CW_TEST_SKIP_SPAWN_ROLLBACK` early-exit.
 
-**Files:** Modify `commands/consult.md` (full rewrite) + re-enable the 3 grep checks in `tests/test_consult_spawn_rollback.sh`.
+**Files:** Modify `commands/consult.md` (full rewrite) + remove the `CW_TEST_SKIP_SPAWN_ROLLBACK` guard in `tests/test_consult_spawn_rollback.sh`.
 
 - [ ] **Step 1: Rewrite `commands/consult.md`**
 
@@ -1791,7 +1876,7 @@ boundaries below — do NOT print a markdown checklist in chat.
 The user's `$ARGUMENTS` may contain shell metacharacters. Write it via the
 Write tool, then invoke sub-scripts with the resolved topic.
 
-### Step 0 — args-file + init
+### Step 0 — args-file + init + compute REPO_HASH
 
 Set task `0` → `in_progress`.
 
@@ -1804,12 +1889,19 @@ Set task `0` → `in_progress`.
 
 2. Write tool: `file_path` = the path printed; `content` = `$ARGUMENTS`.
 
-3. Initialize the consult topic:
+3. Initialize the consult topic AND compute the repo hash once:
 
    ```
+   source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+   REPO_HASH=$(cw_repo_hash)
    CONSULT_TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/consult-init.sh" "$(cat "$ARGS_DIR/consult.txt")")
+   TOPIC_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$CONSULT_TOPIC"
    echo "$CONSULT_TOPIC"   # for use in subsequent steps
    ```
+
+   `$REPO_HASH` and `$TOPIC_DIR` are reused throughout the rest of the
+   directive — DO NOT use the literal string `$(<repo-hash>)` anywhere
+   (Codex Rev1 #1 — bash interprets that as `cat repo-hash`).
 
 Set task `0` → `completed`. Set tasks `1.1` and `1.2` → `in_progress`.
 
@@ -1836,7 +1928,7 @@ After both parallel spawn calls return, evaluate:
   ```
   # Tear down the surviving trooper, remove _consult/, exit 1.
   "$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC"
-  rm -rf "${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$(<repo-hash>)/$CONSULT_TOPIC"
+  rm -rf "$TOPIC_DIR"
   ```
 
   Mark only the successful spawn task as `completed`; leave the failed one
@@ -1862,10 +1954,10 @@ Both calls in PARALLEL:
 "$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" cody claude
 ```
 
-After both return, read each commander's state file to determine status:
+After both return, read each commander's state file to determine status
+(reusing `$TOPIC_DIR` from Step 0):
 
 ```
-TOPIC_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$(<repo-hash>)/$CONSULT_TOPIC"
 grep '^FS=' "$TOPIC_DIR/_consult/research-rex.txt"
 grep '^FS=' "$TOPIC_DIR/_consult/research-cody.txt"
 ```
@@ -1988,14 +2080,27 @@ If `verify-<commander>.txt` verdicts are all UNCERTAIN:
 "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" <commander> <model>
 "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" <commander> <model>
 "$CLAUDE_PLUGIN_ROOT/bin/consult-adjudicate.sh" "$CONSULT_TOPIC"
-cp adjudicated-draft.md adjudicated.md   # overwrite or merge with prior resolution
+cp "$TOPIC_DIR/_consult/adjudicated-draft.md" "$TOPIC_DIR/_consult/adjudicated.md"
+# (or manually merge the new draft into adjudicated.md if you want to
+# preserve specific prior PENDING resolutions — see spec Pattern 3.)
 ```
 ```
 
-- [ ] **Step 2: Re-enable spawn-rollback test's static checks**
+- [ ] **Step 2: Un-gate the spawn-rollback fixture**
 
-In `tests/test_consult_spawn_rollback.sh`, uncomment the three `grep -q`
-static checks (remove the `# TODO Task 14:` marker).
+In `tests/test_consult_spawn_rollback.sh`, delete the early-exit guard
+inserted in Task 13:
+
+```bash
+# Delete these lines:
+if [[ "${CW_TEST_SKIP_SPAWN_ROLLBACK:-1}" == "1" ]]; then
+  pass "spawn-rollback fixture deferred until Task 14"
+  exit 0
+fi
+```
+
+The full body (mock spawn + rollback recipe + assertions) now runs
+against the just-rewritten directive.
 
 - [ ] **Step 3: Run full suite**
 
