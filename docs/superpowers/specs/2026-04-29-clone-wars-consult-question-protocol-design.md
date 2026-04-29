@@ -1,10 +1,19 @@
 # /clone-wars:consult v0.3 — Trooper Question Protocol + Skill Routing
 
-**Status:** Design — Revision 4 (post-third Codex adversarial review, 2026-04-29)
+**Status:** Design — Revision 5 (post-fourth Codex adversarial review, 2026-04-29)
 **Date:** 2026-04-29
 **Target version:** v0.3.0
 **Builds on:** v0.2.1 (split orchestrator + Jedi general pool)
 **Spec it extends:** `docs/superpowers/specs/2026-04-29-clone-wars-consult-v2-design.md`
+
+## Revision 5 changelog (closes fourth-pass Codex findings — bash-mechanical)
+
+| # | Codex Rev4 finding | Resolution |
+|---|---|---|
+| H1‴ | Validator's NUL-in-regex pattern (`$'[^\x00-\x7f]'`) truncates grep input → emoji passes silently | Switched to NUL-free `[^ -~]` (printable ASCII range under `LC_ALL=C`). Same semantic intent, no NUL truncation. |
+| H2‴ | `LC_ALL=C` only scoped to the `read` builtin; `${#line}` in loop body still uses outer locale → `a😀b` reports 3 chars not 6 bytes | `local LC_ALL=C` at function start scopes byte-mode to the entire helper, including parameter expansion. |
+| H3‴ | Strict dogfood broke on first `FS=timeout` (transient poll result, not a real terminal state) → premature failure on slow Codex spawn | Loop-break `case` now distinguishes terminal states (question/ok/empty/missing/failed/malformed) from transient (timeout/empty/unknown). Only terminals exit the poll. |
+| M4‴ | Decoder silently corrupts literal `%` — no escape for the percent sign itself; trooper asking about `%22` gets `"` injected | Added `%25` → literal `%`. Decode order: `%25` LAST so nested encodings (`%2522` → `%22`) round-trip correctly. New fixtures cover single literal-percent + mixed encodings. |
 
 ## Revision 4 changelog (closes third-pass Codex findings)
 
@@ -238,10 +247,10 @@ re-run's `source $STATE_FILE` picks up the latest `OFFSET=` (last-wins).
 calling it would overwrite `inbox.md` (clobbering the ANSWER) and rebuild
 the prompt from scratch.
 
-### Trooper-side encoding requirement (Rev3 + Rev4)
+### Trooper-side encoding requirement (Rev3 + Rev4 + Rev5)
 
 Question event `text` and `options` fields are **printable ASCII only**
-(`0x20`-`0x7E`), with these four characters percent-encoded instead of
+(`0x20`-`0x7E`), with these characters percent-encoded instead of
 expressed as JSON escapes:
 
 | Character | Required encoding |
@@ -250,6 +259,13 @@ expressed as JSON escapes:
 | tab | `%09` |
 | double-quote | `%22` |
 | backslash | `%5C` |
+| literal `%` | `%25` (Rev5) |
+
+The `%25` escape lets a trooper ask about literal percent-sequences
+without the directive silently injecting decoded values. To send the
+literal text `%22` (e.g., asking the user about URL encoding), the
+trooper writes `%2522`. The directive decodes `%25` LAST, so other
+percent-sequences nested inside (`%2522`) round-trip correctly.
 
 **Validator fail-closes on:**
 - Any byte ≥ `0x80` (Rev4 — multi-byte UTF-8 sequences would break offset

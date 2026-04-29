@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Revision 4 — incorporates third-pass Codex adversarial findings (Rev3 left 3 unresolved; this revision closes them).
+**Status:** Revision 5 — incorporates fourth-pass Codex adversarial findings (bash-mechanical bugs in Rev4 closed here).
 
 **Goal:** Implement the trooper-question protocol and skill routing defined in `docs/superpowers/specs/2026-04-29-clone-wars-consult-question-protocol-design.md` (Rev 2).
 
@@ -13,6 +13,15 @@
 **Branch:** `feat/v0.3-question-protocol` off `main` (after v0.2.1 merges).
 
 **Total tasks:** 11. TDD throughout; every task includes a failing test, the implementation, the passing test, and a commit.
+
+## Revision 5 changelog (fourth Codex pass — bash-mechanical bugs)
+
+| # | Codex Rev4 finding | Resolution |
+|---|---|---|
+| H1‴ | Validator NUL-in-regex truncated grep input | Switched to `[^ -~]` (NUL-free). |
+| H2‴ | `LC_ALL=C` only scoped to `read`, not `${#line}` | `local LC_ALL=C` at function start. |
+| H3‴ | Strict dogfood broke on FS=timeout (transient) | Loop case-arm: only break on real terminals; timeout retries. |
+| M4‴ | Decoder corrupted literal `%` | Added `%25` → `%`, decoded LAST. New fixtures 2c/2d/2e. |
 
 ## Revision 4 changelog (third Codex pass)
 
@@ -377,20 +386,21 @@ via your outbox, but follow these rules:
    When inbox.md changes, read the line beginning "ANSWER: " — that is
    the response. Resume your skill loop with it.
 
-3. CHARACTER ENCODING (Rev3 + Rev4): the question's "text" and "options"
-   fields are PRINTABLE ASCII ONLY (0x20-0x7E). Special chars must be
-   percent-encoded; JSON escapes are rejected; non-ASCII (UTF-8, emoji,
-   non-Latin scripts) is rejected. Required encoding map:
+3. CHARACTER ENCODING (Rev3 + Rev4 + Rev5): the question's "text" and
+   "options" fields are PRINTABLE ASCII ONLY (0x20-0x7E). Special chars
+   must be percent-encoded; JSON escapes are rejected; non-ASCII (UTF-8,
+   emoji, non-Latin scripts) is rejected. Required encoding map:
      newline      →  %0A
      tab          →  %09
      double-quote →  %22
      backslash    →  %5C
+     literal %    →  %25      (Rev5 — to ask about literal percent text)
    Example: instead of {"text":"He said \"hi\""} write
-   {"text":"He said %22hi%22"}. The general decodes %xx before
-   answering; you receive plain text in the ANSWER line. If you need
-   to ask in another language or include emoji, transliterate to ASCII
-   first (this is a v0.3.0 protocol limitation; v0.3.1+ will add full
-   JSON decoding).
+   {"text":"He said %22hi%22"}. To ask about literal "%22" (the encoding
+   itself), write "%2522". The general decodes %xx before answering;
+   you receive plain text in the ANSWER line. If you need to ask in
+   another language or include emoji, transliterate to ASCII first
+   (v0.3.0 protocol limitation; v0.3.1+ will add full JSON decoding).
 
 4. Do not pre-classify questions as critical/non-critical. The general
    makes that call. Just ask plainly.
@@ -432,9 +442,9 @@ Jedi general via your outbox, but follow these rules:
    When inbox.md changes, read the line beginning "ANSWER: " — that is
    the response. Resume your skill loop with it.
 
-3. CHARACTER ENCODING (Rev3 + Rev4): "text" and "options" are
+3. CHARACTER ENCODING (Rev3 + Rev4 + Rev5): "text" and "options" are
    PRINTABLE ASCII ONLY (0x20-0x7E). Percent-encode special chars:
-     newline → %0A, tab → %09, " → %22, \ → %5C.
+     newline → %0A, tab → %09, " → %22, \ → %5C, literal % → %25.
    JSON escapes (\", \\, \n, \uXXXX) and non-ASCII bytes (UTF-8, emoji)
    are rejected. v0.3.0 protocol limitation; full JSON decoding deferred
    to v0.3.1+.
@@ -688,6 +698,41 @@ read_opts2b=$(cw_consult_question_payload_read "$TMP/q2b.txt" OPTIONS)
   || { echo "FAIL: OPTIONS decoder broken — got: $read_opts2b" >&2; exit 1; }
 pass "Rev4 decoder: OPTIONS field also decodes %22 (and other encodings)"
 
+# 2c. Rev5 literal-percent (Codex Rev4 #4):
+#     trooper writes "%2522" intending the user to see literal "%22";
+#     decoder must produce "%22" not '"'.
+cat > "$TMP/q2c.txt" <<'PAY'
+TEXT=trooper meant the literal string %2522 here
+PHASE=research
+ASKED_AT=0
+PAY
+read_text2c=$(cw_consult_question_payload_read "$TMP/q2c.txt" TEXT)
+[[ "$read_text2c" == "trooper meant the literal string %22 here" ]] \
+  || { echo "FAIL: Rev5 %2522 → %22 broken — got: $read_text2c" >&2; exit 1; }
+pass "Rev5 literal-percent: %2522 decodes to %22 (literal), not '\"'"
+
+# 2d. Single literal percent: %25 → %.
+cat > "$TMP/q2d.txt" <<'PAY'
+TEXT=100%25 done
+PHASE=research
+ASKED_AT=0
+PAY
+read_text2d=$(cw_consult_question_payload_read "$TMP/q2d.txt" TEXT)
+[[ "$read_text2d" == "100% done" ]] \
+  || { echo "FAIL: Rev5 %25 → % broken — got: $read_text2d" >&2; exit 1; }
+pass "Rev5 literal-percent: %25 decodes to literal %"
+
+# 2e. Combined: %25 + other encodings should not interfere.
+cat > "$TMP/q2e.txt" <<'PAY'
+TEXT=mix %22quoted%22 with %25 percent
+PHASE=research
+ASKED_AT=0
+PAY
+read_text2e=$(cw_consult_question_payload_read "$TMP/q2e.txt" TEXT)
+[[ "$read_text2e" == 'mix "quoted" with % percent' ]] \
+  || { echo "FAIL: Rev5 mixed-encoding broken — got: $read_text2e" >&2; exit 1; }
+pass "Rev5 literal-percent: mixed %22 + %25 in one string decodes correctly"
+
 # 3. OPTIONS line round-trips.
 read_opts=$(cw_consult_question_payload_read "$TMP/q2.txt" OPTIONS)
 assert_eq "$read_opts" "A|B" "OPTIONS round-trip"
@@ -829,10 +874,19 @@ cw_consult_question_payload_write() {
 }
 
 # cw_consult_question_payload_read <file> <key>
-# Echo the value for KEY. Decodes ALL four percent-encodings the autonomy
+# Echo the value for KEY. Decodes the FIVE percent-encodings the autonomy
 # contract teaches the trooper to use:
-#   %0A → newline    %09 → tab    %22 → "    %5C → \
-# Applied to both TEXT and OPTIONS (Rev4 — Codex Rev3 #1 closure).
+#   %0A → newline    %09 → tab    %22 → "    %5C → \    %25 → %
+# Applied to both TEXT and OPTIONS (Rev4 + Rev5 — Codex Rev3 #1 + Rev4 #4).
+#
+# Rev5 fix: %25 added so a trooper can ask about literal "%" characters
+# without the directive silently injecting decoded values. To send a
+# literal "%22" string, the trooper writes "%2522".
+#
+# Decode order: replace %25 LAST. Otherwise "%2522" → "%22" → "\"" (wrong).
+# By saving %25 for the end, "%2522" goes through the first 4 passes
+# unchanged (no match for %25xx), then the final pass turns "%2522" into
+# "%22" — preserving the trooper's intent.
 cw_consult_question_payload_read() {
   local file="$1" key="$2"
   [[ -f "$file" ]] || return 1
@@ -840,14 +894,11 @@ cw_consult_question_payload_read() {
   raw=$(awk -F= -v k="$key" '$1==k { sub(/^[^=]*=/, ""); print; exit }' "$file")
   case "$key" in
     TEXT|OPTIONS)
-      # Order matters: decode %5C last so we don't double-decode any
-      # other percent sequences nested inside. (Trooper's contract is to
-      # use these exact 4 sequences for SPECIAL chars; they don't
-      # combine with `%xx` in arbitrary text.)
       raw=${raw//%0A/$'\n'}
       raw=${raw//%09/$'\t'}
       raw=${raw//%22/\"}
       raw=${raw//%5C/\\}
+      raw=${raw//%25/%}     # Rev5: literal-percent escape — must be LAST
       ;;
   esac
   printf '%s' "$raw"
@@ -868,8 +919,13 @@ cw_consult_question_payload_read() {
 cw_consult_question_validate_line() {
   local line="$1"
   [[ "$line" == *'"event":"question"'* ]] || return 1
-  # Reject non-ASCII bytes (must use LC_ALL=C so byte-class match is exact).
-  if LC_ALL=C printf '%s' "$line" | LC_ALL=C grep -q $'[^\x00-\x7f]'; then
+  # Rev5 fix (Codex Rev4 #1): reject anything outside printable ASCII
+  # (space 0x20 .. tilde 0x7E). Using $'\x00-\x7f' would put a NUL into
+  # the grep pattern and truncate it; GNU grep returns rc=2 and the
+  # validator silently accepts emoji. The printable-ASCII range is
+  # what the contract actually requires, so [^ -~] is both correct and
+  # NUL-free.
+  if LC_ALL=C printf '%s' "$line" | LC_ALL=C grep -q '[^ -~]'; then
     return 1
   fi
   # Require a "text":"..." field with non-empty content; no escaped quotes
@@ -900,14 +956,17 @@ cw_consult_question_extract_to_payload() {
 # non-ASCII in question events, but `done`/`error` events are not validated).
 cw_consult_outbox_match_endbyte() {
   local outbox="$1" start="$2" matched="$3"
+  # Rev5 fix (Codex Rev4 #2): LC_ALL=C must be in scope for the WHOLE
+  # function, not just the `read` builtin. `${#line}` is computed in the
+  # OUTER shell's locale otherwise — verified with bash 5.2: `a😀b` is
+  # 6 bytes but ${#line}=3 under UTF-8. `local LC_ALL=C` ensures both
+  # `read` AND the parameter expansion use byte-mode.
+  local LC_ALL=C
   [[ -f "$outbox" ]] || return 1
   local pos=$start
   local line
-  # LC_ALL=C makes ${#line} report byte count (not char count). Without it,
-  # any leaked UTF-8 in done/error events would under-advance the offset.
-  while LC_ALL=C IFS= read -r line; do
-    # +1 for the trailing newline that read -r stripped.
-    pos=$(( pos + ${#line} + 1 ))
+  while IFS= read -r line; do
+    pos=$(( pos + ${#line} + 1 ))   # +1 for newline stripped by read -r
     if [[ "$line" == "$matched" ]]; then
       printf '%s\n' "$pos"
       return 0
@@ -917,11 +976,13 @@ cw_consult_outbox_match_endbyte() {
 }
 ```
 
-> **Byte-mode arithmetic (Rev4):** the helper runs the read-loop under
-> `LC_ALL=C`, which makes `${#line}` byte-count (not char-count). Combined
-> with the validator's ASCII-only rejection for question events, this
-> ensures offset advancement is exact. Verified against Codex Rev3's emoji
-> regression case (50 chars / 53 bytes — under `LC_ALL=C` it's 53/53).
+> **Byte-mode arithmetic (Rev4 + Rev5):** `local LC_ALL=C` at function
+> start scopes byte-mode to the entire helper — not just the `read`
+> call. Verified against Codex Rev4's regression: 6-byte `a😀b` reports
+> length 6 (not 3) under `local LC_ALL=C`. Combined with the validator's
+> ASCII-only rejection for question events, offset advancement is exact
+> across both ASCII and (defensively) any UTF-8 that leaked through
+> done/error events.
 
 (The old `cw_consult_question_extract_from_outbox` is replaced — see Task 6
 for the wait-script call site that uses these helpers.)
@@ -1883,15 +1944,26 @@ fi
 
 # Wait up to 120s for FS=question. STRICT: any FS other than 'question'
 # in this loop fails the test.
-# Rev4: per-call wait timeout = 10s, so the outer 120s deadline is real
+# Rev4: per-call wait timeout = 10s so the outer 120s deadline is real
 # (each inner wait blocks at most 10s, not the default 600s).
+# Rev5 fix (Codex Rev4 #3): wait-script writes FS=timeout on no-match,
+# but that's a transient poll result — keep polling until the OUTER
+# deadline expires. Only break early on a real terminal/question state.
+# Also: clear stale FS lines between polls so we read only the latest
+# wait's result.
 T0=$(date +%s); DEADLINE=$((T0 + 120))
 while (( $(date +%s) < DEADLINE )); do
   CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=10 \
     ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1 || true
   FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" 2>/dev/null | tail -1 | cut -d= -f2 || echo "")
-  [[ -n "$FS" ]] && break
-  sleep 2
+  case "$FS" in
+    question|ok|empty|missing|failed|malformed)
+      break ;;   # real terminal — stop polling
+    timeout|"")
+      sleep 2 ;; # transient — keep polling until outer deadline
+    *)
+      sleep 2 ;; # unknown — also transient
+  esac
 done
 
 # STRICT gate: FS MUST be question.
@@ -1921,8 +1993,11 @@ while (( $(date +%s) < DEADLINE2 )); do
   CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=10 \
     ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1 || true
   FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" 2>/dev/null | tail -1 | cut -d= -f2 || echo "")
-  [[ "$FS" == "ok" || "$FS" == "empty" || "$FS" == "missing" || "$FS" == "question" ]] && break
-  sleep 2
+  # Rev5: FS=timeout is transient — keep polling until outer deadline.
+  case "$FS" in
+    ok|empty|missing|question|failed|malformed) break ;;
+    *) sleep 2 ;;
+  esac
 done
 
 case "$FS" in
@@ -2000,10 +2075,14 @@ trap 'rm -rf "$TMP"; ../bin/consult-teardown.sh "$TOPIC" >/dev/null 2>&1 || true
 
 T0=$(date +%s); DEADLINE=$((T0 + 120))
 while (( $(date +%s) < DEADLINE )); do
-  ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1 || true
+  CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=10 \
+    ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1 || true
   FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" 2>/dev/null | tail -1 | cut -d= -f2 || echo "")
-  [[ -n "$FS" ]] && break
-  sleep 2
+  # Rev5: timeout is transient.
+  case "$FS" in
+    ok|empty|missing|question|failed|malformed) break ;;
+    *) sleep 2 ;;
+  esac
 done
 
 case "$FS" in
