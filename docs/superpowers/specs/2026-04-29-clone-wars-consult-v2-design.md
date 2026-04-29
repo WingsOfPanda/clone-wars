@@ -1,9 +1,18 @@
 # /clone-wars:consult v0.2 — Split Orchestrator with Conductor-Reachable Steps
 
-**Status:** Design (locked pending user approval)
+**Status:** Design — Revision 1 (post-Codex adversarial review, 2026-04-29)
 **Date:** 2026-04-29
 **Target version:** v0.2.0 — replaces v0.1.x's monolithic `bin/consult.sh` + `bin/consult-finalize.sh`
 **Supersedes:** `docs/superpowers/specs/2026-04-28-clone-wars-consult-design.md` (v0.1 architecture)
+
+## Revision 1 changelog (closes Codex adversarial findings)
+
+| # | Codex finding | Resolution in this revision |
+|---|---|---|
+| 1 | Offset files poison retry — no executable contract for re-prompt | Per-commander state files (`_consult/research-<commander>.txt`) replace the shared `research_offsets.txt`; new `bin/consult-offset-reset.sh <topic> <commander> <phase>` primitive provides the documented retry path |
+| 2 | `cw_outbox_wait_all` returns on first timeout — can't surface per-trooper status | Wait split per-commander: `bin/consult-research-wait.sh <topic> <commander>` × 2 parallel; each writes its own commander state file. Helper change scoped to switching from `cw_outbox_wait_all` to a single-trooper `cw_outbox_wait_since` per script |
+| 3 | Parallel spawn drops rollback guarantee | Spawn-group rollback added to slash directive contract: if either parallel `bin/spawn.sh` returns nonzero, conductor immediately tears down the surviving pane and removes `_consult/`. Test fixture covers one-success/one-failure |
+| 4 | Adjudicate overwrite deletes resolved decisions | Adjudicated file split: `consult-adjudicate.sh` writes `adjudicated-draft.md` (regenerable). Conductor copies to `adjudicated.md` and resolves PENDINGs there. `consult-synthesize.sh` reads only `adjudicated.md` |
 
 ---
 
@@ -66,14 +75,14 @@ slash directive  ──▶  bin/consult-init.sh <topic-text>
                             ▼
                       ┌── bin/consult-research-send.sh <topic> rex codex   ─┐ PARALLEL
                       └── bin/consult-research-send.sh <topic> cody claude  ┘
-                            │ writes one line each to _consult/research_offsets.txt
-                            │ format: <commander>:<model>:<offset>
+                            │ each writes its own _consult/research-<commander>.txt
+                            │ with OFFSET=<n>; idempotency-fail-loud per file
                             ▼
-                      bin/consult-research-wait.sh <topic>
-                            │ reads research_offsets.txt; cw_outbox_wait_all
-                            │ writes _consult/research_status.txt
-                            │   REX_FS=ok|empty|malformed|missing
-                            │   CODY_FS=ok|empty|malformed|missing
+                      ┌── bin/consult-research-wait.sh <topic> rex codex   ─┐ PARALLEL
+                      └── bin/consult-research-wait.sh <topic> cody claude  ┘
+                            │ each appends FS=<status> to its own commander
+                            │ state file; per-trooper status survives even
+                            │ if its peer times out
                             ▼
                       bin/consult-diff.sh <topic>
                             │ cw_consult_diff
@@ -83,16 +92,19 @@ slash directive  ──▶  bin/consult-init.sh <topic-text>
                       └── bin/consult-verify-send.sh <topic> cody claude  ┘ (each conditional —
                             │                                               skips if peer's
                             │                                               _ONLY file is empty)
-                            │ writes one line each to _consult/verify_offsets.txt
+                            │ each writes _consult/verify-<commander>.txt
+                            │ with OFFSET=<n> (or VS=skipped if no peer items)
                             ▼
-                      bin/consult-verify-wait.sh <topic>
-                            │ reads verify_offsets.txt; cw_outbox_wait_all
-                            │ writes _consult/verify_status.txt
-                            │   REX_VS=ok|skipped|send-failed|timeout|error|missing|empty
-                            │   CODY_VS=...
+                      ┌── bin/consult-verify-wait.sh <topic> rex codex   ─┐ PARALLEL
+                      └── bin/consult-verify-wait.sh <topic> cody claude  ┘
+                            │ each appends VS=<status> to its own state file
                             ▼
                       bin/consult-adjudicate.sh <topic>
-                            │ writes adjudicated.md (with PENDING items)
+                            │ reads research-*.txt + verify-*.txt + verify.md files
+                            │ writes adjudicated-DRAFT.md (regenerable, idempotent)
+                            ▼
+                      conductor: cp adjudicated-draft.md adjudicated.md
+                            │ (no script — explicit shell step in directive)
                             ▼
             ┃ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             ┃   INTERMEDIATE INTERVENTION POINT — see "Intervention patterns"
@@ -117,11 +129,11 @@ slash directive  ──▶  bin/consult-init.sh <topic-text>
             slash directive presents synthesis.md to user
 ```
 
-**10 sub-scripts. 11 conductor-controlled steps** (init, 2 spawn-parallel, 2
-research-send-parallel, research-wait, diff, 2 verify-send-parallel,
-verify-wait, adjudicate, synthesize, teardown, archive — counting parallel
-pairs as one step each from the conductor's POV; 11 step boundaries between
-init and final archive).
+**12 sub-scripts. 13 conductor-controlled step boundaries** (init, 2
+spawn-parallel, 2 research-send-parallel, 2 research-wait-parallel, diff, 2
+verify-send-parallel, 2 verify-wait-parallel, adjudicate, draft-copy,
+synthesize, teardown, archive — plus `consult-offset-reset.sh` invoked
+on-demand inside intervention loops).
 
 ---
 
@@ -163,27 +175,36 @@ passes it to subsequent calls.
 - Validates topic; resolves trooper state dir.
 - Builds the research prompt via `cw_consult_build_research_prompt`.
 - Captures the trooper's outbox file size: `OFFSET=$(wc -c < <outbox>)`.
-- Atomically appends `<commander>:<model>:<offset>` to
-  `_consult/research_offsets.txt`. **Refuses if a line for this
-  `<commander>` is already present** (idempotency).
+- Writes per-commander state file `_consult/research-<commander>.txt` with
+  one line: `OFFSET=<n>`. **Refuses if the file already exists**
+  (idempotency-fail-loud). To re-prompt, the conductor first runs
+  `bin/consult-offset-reset.sh <topic> <commander> research` which removes
+  the file.
 - Invokes `bin/send.sh <commander> <topic> "@<prompt-path>"`.
-- Returns rc=0 on success, ≥1 on send failure (with the offset already
-  appended — so the conductor knows a send was attempted).
+- Returns rc=0 on success, ≥1 on send failure (with the state file already
+  written — so the conductor knows a send was attempted; reset to retry).
 
-### `bin/consult-research-wait.sh <topic>`
+### `bin/consult-research-wait.sh <topic> <commander> <model>`
 
-- Reads `_consult/research_offsets.txt`; refuses if absent (must come after
-  both `research-send` calls).
-- Builds the troopers file expected by `cw_outbox_wait_all`
-  (`<commander>:<model>:<topic>:<offset>` per line).
-- Reads research timeout from `cw_consult_timeout research`.
-- Calls `cw_outbox_wait_all "$file" done error "$timeout"`.
-- For each trooper, sets findings status via `cw_consult_findings_status`
-  (ok / empty / malformed / missing).
-- Writes `_consult/research_status.txt` with `REX_FS=...` / `CODY_FS=...`.
-- Returns rc=0 if both were dispatched (regardless of `_FS` value — degraded
-  paths are downstream's problem). Returns rc=1 only if `cw_outbox_wait_all`
-  itself timed out without seeing either side's `done`.
+Per-trooper wait. The conductor invokes 2× in parallel.
+
+- Refuses if `_consult/research-<commander>.txt` is missing (no offset to
+  wait against — `research-send` must have run first).
+- Reads `OFFSET=<n>` from the file; reads research timeout from
+  `cw_consult_timeout research`.
+- Calls `cw_outbox_wait_since <commander> <model> <topic> "$OFFSET" done error "$timeout"`.
+- After wait, computes findings status via `cw_consult_findings_status`
+  (ok / empty / malformed / missing) — even if the wait timed out, status
+  is computed against whatever findings.md the trooper produced.
+- Appends `FS=<status>` to `_consult/research-<commander>.txt`.
+- Returns rc=0 always — the status field carries what happened. (The
+  conductor gates downstream steps on the status, not the rc.) Stderr gets
+  a log line on timeout.
+
+**Per-trooper-file design rationale**: parallel writers each touch their
+own commander file, so there's no append-race on a shared
+`research_status.txt`. The split also fixes Codex finding #2: if rex times
+out and cody finishes, cody's status survives.
 
 ### `bin/consult-diff.sh <topic>`
 
@@ -196,48 +217,83 @@ passes it to subsequent calls.
 
 ### `bin/consult-verify-send.sh <topic> <commander> <model>`
 
+Symmetric to `research-send`, but conditional.
+
 - Validates topic; resolves trooper state.
-- Reads peer's `_only_items.txt` (rex sends → reads `cody_only_items.txt`,
-  cody sends → reads `rex_only_items.txt`).
-- If empty → exits rc=0 with stdout `SKIPPED` (conductor knows no dispatch
-  happened; `verify-wait` later will see no offset entry for this commander
-  and mark its status `skipped`).
-- Otherwise: builds verify prompt, captures offset, appends to
-  `verify_offsets.txt`, sends. Same idempotency + failure semantics as
-  `research-send`.
+- Refuses if `_consult/verify-<commander>.txt` already exists.
+- Reads peer's `_only_items.txt` (rex sends → reads `cody_only_items.txt`).
+- If peer file empty → writes `_consult/verify-<commander>.txt` with one
+  line `VS=skipped` and exits rc=0. (No prompt sent; `verify-wait` will
+  see the skipped status and short-circuit.)
+- Otherwise: builds verify prompt, captures offset, writes
+  `_consult/verify-<commander>.txt` with `OFFSET=<n>`, sends. Same
+  failure semantics as `research-send`.
 
-### `bin/consult-verify-wait.sh <topic>`
+### `bin/consult-verify-wait.sh <topic> <commander> <model>`
 
-Mirrors `research-wait` but reads `verify_offsets.txt` and writes
-`verify_status.txt` (REX_VS / CODY_VS). Both sides' status defaults to
-`skipped` if no offset entry exists; otherwise resolved per the v0.1
-state-machine (ok / send-failed / timeout / error / missing / empty).
+Per-trooper wait, mirrors `research-wait`.
+
+- Refuses if `_consult/verify-<commander>.txt` is missing.
+- If file contains `VS=skipped` (no dispatch happened) → exits rc=0; nothing to wait.
+- Else reads `OFFSET=<n>`, calls `cw_outbox_wait_since`, derives verify
+  status (ok / empty / missing / timeout / error / send-failed) by
+  examining the resulting `verify.md` and the wait rc.
+- Appends `VS=<status>` to `_consult/verify-<commander>.txt`.
+- Returns rc=0 always.
+
+### `bin/consult-offset-reset.sh <topic> <commander> <phase>`
+
+NEW (post-Codex-rev1). Required executable primitive for the intervention
+patterns. Removes the per-commander state file so the conductor can re-run
+`research-send` or `verify-send` after re-prompting a trooper.
+
+- `<phase>` is `research` or `verify`.
+- Refuses if topic / commander / phase invalid.
+- Atomically removes `_consult/<phase>-<commander>.txt`. Removal is the
+  reset signal — the absence of the file is what `research-send` /
+  `verify-send` requires to re-run.
+- ALSO removes any downstream artifacts that depend on this commander's
+  state for that phase (e.g., reset of `research-rex.txt` removes `diff.md`
+  and `*_only_items.txt` and `adjudicated-draft.md` if they exist, since
+  they're computed from the now-stale findings).
+- Returns rc=0 always (idempotent: removing a missing file is fine).
+- Documented as "the only way to retry a phase for one commander" — the
+  spec forbids manual editing of state files.
 
 ### `bin/consult-adjudicate.sh <topic>`
 
-- Reads `verify_status.txt`, `research_status.txt`, both verify.md files,
-  both _only_items.txt files.
-- Calls into the existing adjudicate-section-emitting logic from v0.1's
-  `bin/consult.sh` Phase 5 (which is straightforward awk; will be extracted
-  to `lib/consult.sh` as `cw_consult_write_adjudicated`).
-- Writes `_consult/adjudicated.md` with `## Cross-verified` + `## Adjudicated
-  (PENDING items)` + `## Contested` + `## Not-verified` sections.
-- **May be re-run** if the conductor wants to regenerate after `cw_send`-ing
-  a trooper a follow-up that produces a fresh `verify.md`. The
-  fail-loud-on-existing-output rule is **relaxed for adjudicate only** —
-  this is the one sub-script that supports re-run, because the conductor
-  intervention pattern explicitly requires it. Implementation: emit a
-  warning to stderr if `adjudicated.md` already exists, then overwrite. The
-  warning makes the re-run intentional (the conductor must have decided to
-  re-adjudicate).
+- Reads all four `research-<commander>.txt` and `verify-<commander>.txt`
+  files via `cw_consult_status_load` (per-file env-var parse).
+- Reads both `verify.md` files and `_only_items.txt` files.
+- Writes `_consult/adjudicated-draft.md` (NOT `adjudicated.md`) with the
+  four-section schema.
+- **Idempotent on the draft** — overwrites `adjudicated-draft.md` freely
+  on re-run. No warning, no backup. The draft is regenerable computation
+  output, never edited by the conductor.
+- The conductor's PENDING-resolution work lives in `adjudicated.md`, NOT
+  the draft. The two-file split (Codex finding #4 closure) is the contract
+  that prevents conductor edits from being silently destroyed.
+
+After `consult-adjudicate.sh` produces the draft, the slash directive
+instructs the conductor:
+
+```
+cp _consult/adjudicated-draft.md _consult/adjudicated.md
+```
+
+(or skips the cp if `_consult/adjudicated.md` already exists, since that
+means the conductor's prior resolution work survives a re-adjudicate). The
+conductor edits `adjudicated.md` to resolve PENDINGs.
 
 ### `bin/consult-synthesize.sh <topic>`
 
 - Refuses if `synthesis.md` already exists (idempotency).
+- Refuses if `_consult/adjudicated.md` is missing — the conductor must
+  have copied the draft and resolved PENDINGs.
 - Refuses if `adjudicated.md` contains any `^- PENDING:` line. Print the
   offending line(s) and the path the conductor should edit. Exit 1.
-- Loads statuses via `cw_consult_status_load`
-  (whitelisted KEY=VAL parser — promoted from v0.1's `consult-finalize.sh`).
+- Loads statuses via `cw_consult_status_load` (per-commander env-var
+  parser).
 - Calls `cw_consult_synthesize` → writes `synthesis.md`.
 - **Prints the synthesis to stdout** so the conductor / user sees it inline.
 
@@ -248,12 +304,20 @@ state-machine (ok / send-failed / timeout / error / missing / empty).
   archive. Does NOT touch `_consult/`.
 - Returns rc=0 even if some panes were already gone (teardown.sh's behavior).
 
+**Note** (Codex finding #6): existing `bin/teardown.sh` ends with `rmdir
+"$topic_dir" 2>/dev/null || true`, which silently no-ops when `_consult/`
+is still present. The contract: teardown's rmdir is a "remove if empty"
+hint; the actual topic-dir cleanup is `consult-archive`'s job. The dual
+rmdir is benign — teardown's fails silently because `_consult/` is still
+inside; archive's succeeds after the move.
+
 ### `bin/consult-archive.sh <topic>`
 
+- Refuses if `_consult/` is missing (already archived) — fail-loud.
 - Moves `<topic-dir>/_consult/` to
   `<archive-root>/<topic>/_consult-<ts>/`.
-- Removes the now-empty `<topic-dir>` (rmdir, ignore failure).
-- Refuses if `_consult/` is missing (already archived) — fail-loud.
+- Removes the now-empty `<topic-dir>` (rmdir, ignore failure — if some
+  unexpected sibling remains, leave it for forensics).
 
 ---
 
@@ -275,36 +339,83 @@ orchestration; data formats stay the same:
 
 New files (v0.2 only):
 
-- **`_consult/research_offsets.txt`** — one line per dispatched trooper:
-  `<commander>:<model>:<offset>`. Written incrementally by `research-send`,
-  read once by `research-wait`.
-- **`_consult/verify_offsets.txt`** — same shape, for verify dispatches.
+- **`_consult/research-<commander>.txt`** — per-commander state for the
+  research phase. Two-line shape after `research-wait` completes:
 
-These offset files are internal plumbing; not part of any external contract.
+  ```
+  OFFSET=<n>
+  FS=<ok|empty|malformed|missing>
+  ```
+
+  Written by `research-send` (just `OFFSET=`), then appended by
+  `research-wait` (`FS=`). One file per commander → no shared-file race.
+
+- **`_consult/verify-<commander>.txt`** — per-commander state for verify.
+  Same shape with `VS=` after `verify-wait`. Special case: if peer's
+  `_only_items.txt` is empty, `verify-send` writes only `VS=skipped` and
+  no `OFFSET=`.
+
+- **`_consult/adjudicated-draft.md`** — generated by `consult-adjudicate`,
+  freely overwritable. Never edited by conductor.
+
+- **`_consult/adjudicated.md`** — conductor's resolution surface. Created
+  by `cp` from the draft, edited via `Edit` tool to resolve `^- PENDING:`
+  lines into `^- CONFIRMED:`/`^- REFUTED:`/move-to-Contested. Read by
+  `consult-synthesize`. **Never overwritten by any sub-script** — this is
+  the contract that prevents Codex finding #4.
+
+These per-commander files and the draft/resolved split are internal
+plumbing; the only externally visible artifacts are `findings.md`,
+`verify.md`, `diff.md`, `synthesis.md`, and the trooper-state archive.
 
 ---
 
 ## Idempotency contract
 
 **Rule (per Q2A): every sub-script fails loud if its expected output already
-exists.** Two exceptions, documented above:
+exists.** Two exceptions:
 
-- `bin/consult-adjudicate.sh` may overwrite `adjudicated.md` with a stderr
-  warning. This is the explicit support for the conductor-mediated
-  re-dispatch pattern: after `cw_send`-ing a trooper a clarifying prompt and
-  receiving a fresh `verify.md`, the conductor re-runs adjudicate to refresh
-  the PENDING list.
-- `bin/spawn.sh` (existing v0.0.x) already refuses duplicate
-  `<commander>` on a topic — that's where idempotency for spawn lives.
+- `bin/consult-adjudicate.sh` writes `adjudicated-draft.md`, which IS
+  freely overwritable on re-run. The conductor-edited `adjudicated.md` is
+  a separate file that adjudicate **never** touches (Codex finding #4
+  closure).
+- `bin/consult-offset-reset.sh` is the **only** documented retry tool. It
+  removes per-commander state to permit a new `research-send` /
+  `verify-send`. Calling reset on a non-existent file is a no-op.
+
+`bin/spawn.sh` (existing v0.0.x) already refuses duplicate `<commander>`
+on a topic — that's where idempotency for spawn lives.
+
+**Retry contract (Codex finding #1 closure)**. The intervention patterns
+require executable steps, not narrative. The supported retry sequence for
+re-prompting a trooper is:
+
+```
+1. /clone-wars:send <commander> <topic> "<clarifying prompt>"   # nudges trooper
+2. bin/consult-offset-reset.sh <topic> <commander> research     # removes
+                                                                # research-<commander>.txt
+                                                                # AND derived artifacts
+3. bin/consult-research-send.sh <topic> <commander> <model>     # re-records OFFSET=<new>
+4. bin/consult-research-wait.sh <topic> <commander> <model>     # waits for done; sets FS
+5. bin/consult-diff.sh <topic>                                  # recomputes diff (was
+                                                                # cleared by reset)
+```
+
+The reset script's removal of derived artifacts (diff.md, _only_items.txt,
+adjudicated-draft.md) is the documented executable contract for state
+hygiene. Without reset, the conductor would have to manually `rm` 4 files
+in a specific order — exactly the "undocumented state surgery" Codex
+flagged.
 
 **Failure mode**: any sub-script that detects its output already present
-exits rc=1 with a stderr message naming the file. The conductor must
-explicitly clean up (e.g., `rm <topic>/_consult/diff.md` or run
-`bin/consult-teardown.sh + bin/consult-archive.sh`) before retrying.
+exits rc=1 with a stderr message naming the file AND the reset command to
+clear it. The conductor must explicitly run reset (or for non-trooper
+artifacts, just `rm`) before retrying.
 
-This is intentional: silent re-runs can corrupt the offset cursor (the
-second `research-send` would record an offset *past* the trooper's first
-`done` event, and `research-wait` would never see new events).
+**Why fail-loud over silent overwrite**: silent re-runs can corrupt the
+offset cursor. The second `research-send` would record an offset *past*
+the trooper's first `done` event, and `research-wait` would never see new
+events. Reset makes the retry explicit and idempotent.
 
 ---
 
@@ -315,30 +426,27 @@ spec; the slash directive references these so users know what's possible:
 
 ### Pattern 1: Malformed findings → re-prompt before diff
 
-After `consult-research-wait`, if `research_status.txt` shows
-`REX_FS=malformed`:
+After `consult-research-wait rex codex`, if `research-rex.txt` shows
+`FS=malformed`, the conductor uses the documented retry contract:
 
 ```
-The conductor reads rex's findings.md, sees the trooper wrote
-prose without [citation] format, and:
-
-1. Uses /clone-wars:send rex <topic> "Re-format your findings using
-   [<citation>] tags before each claim, per the original prompt.
+1. /clone-wars:send rex <topic> "Reformat your findings — every claim
+   needs a [<citation>] prefix. Write to <state-dir>/findings.md.
    END_OF_INSTRUCTION"
-2. Captures the new outbox offset; appends it to research_offsets.txt
-   (manually overwrites rex's old line — this is one of the few cases
-   where idempotency-fail-loud doesn't apply, because the conductor
-   is intentionally re-driving).
-3. Re-runs bin/consult-research-wait.sh — but only if it can refresh
-   the offset. Easier path: the conductor calls /clone-wars:collect
-   rex <topic> directly, then re-runs bin/consult-diff.sh with the
-   updated findings.md.
+2. bin/consult-offset-reset.sh <topic> rex research
+3. bin/consult-research-send.sh <topic> rex codex
+4. bin/consult-research-wait.sh <topic> rex codex
+5. bin/consult-diff.sh <topic>          # diff.md was reset; recompute
 ```
 
-The exact mechanic isn't fully prescribed; the design preserves the option
-without claiming a one-size-fits-all recipe. The slash directive's
-"Troubleshooting" section will document the most common pattern (rebuild
-the offsets file, re-run wait) for completeness.
+After step 5, status check `research-rex.txt` again; if `FS=ok`, proceed
+to verify-send. If still malformed, escalate to the user.
+
+**Constraint on the re-prompt content**: the cw_send message MUST tell
+the trooper to write to `<state-dir>/findings.md` (matching the original
+research prompt's contract). A free-form re-prompt that doesn't specify
+the path will leave findings.md unchanged — research-wait will see the
+same `FS=malformed` and the loop fails to advance.
 
 ### Pattern 2: Zero-AGREED diff → user pause
 
@@ -357,15 +465,54 @@ proceed, the conductor moves to `consult-verify-send`.
 ### Pattern 3: All-UNCERTAIN verify → escalate or re-prompt
 
 After `consult-verify-wait`, if every verdict in either `verify.md` is
-`UNCERTAIN`, the trooper couldn't form an opinion. The conductor:
+`UNCERTAIN`, the trooper couldn't form an opinion. The conductor uses the
+verify retry contract (mirror of Pattern 1 but for `verify` phase):
 
-- Reads the trooper's `verify.md` to see whether the items lacked
-  evidence-bearing context.
-- Either `cw_send`s a follow-up (e.g., "For each UNCERTAIN item, read the
-  cited source files at <path> and re-grade") and re-runs adjudicate (which
-  is allowed to overwrite per the exception above), OR
-- Accepts the partial verification and proceeds to adjudicate / synthesize
-  with the UNCERTAIN items flowing into PENDING for conductor adjudication.
+```
+1. /clone-wars:send rex <topic> "For each UNCERTAIN item, read the cited
+   source at the file:line and re-grade. Write to
+   <state-dir>/verify.md. END_OF_INSTRUCTION"
+2. bin/consult-offset-reset.sh <topic> rex verify
+3. bin/consult-verify-send.sh <topic> rex codex
+4. bin/consult-verify-wait.sh <topic> rex codex
+5. bin/consult-adjudicate.sh <topic>   # regenerates adjudicated-draft.md
+```
+
+Then the conductor copies the fresh draft to `adjudicated.md` (overwriting
+any prior resolution work — but since the verify changed, prior
+resolutions were against stale data anyway). Or, if the conductor wants
+to preserve specific prior resolutions, they manually merge the new
+draft into the existing `adjudicated.md` instead of `cp`-overwriting.
+
+Alternative: accept the partial verification and proceed straight to
+synthesize with UNCERTAIN items flowing into PENDING for conductor
+adjudication via Edit.
+
+### Pattern 4: Spawn-group rollback (Codex finding #3 closure)
+
+The conductor invokes `bin/spawn.sh rex codex <topic>` and `bin/spawn.sh
+cody claude <topic>` as parallel Bash tool calls. v0.1's sequential spawn
+gave a free rollback (rex failure → cody never starts), but parallel spawn
+loses that. The slash directive enforces explicit transactional rollback:
+
+```
+After both parallel spawn invocations return:
+  if (rex_rc != 0 && cody_rc != 0):
+      log "both spawns failed"; remove _consult/, exit 1.
+  elif (rex_rc != 0 && cody_rc == 0):
+      bin/teardown.sh cody <topic>     # kill the survivor
+      remove _consult/                  # remove init artifacts
+      log "rex spawn failed; tore down cody"; exit 1
+  elif (rex_rc == 0 && cody_rc != 0):
+      bin/teardown.sh rex <topic>      # symmetric
+      remove _consult/
+      log "cody spawn failed; tore down rex"; exit 1
+```
+
+The slash directive carries this pseudo-code as explicit step 1.5 in the
+runbook. A test fixture (`tests/test_consult_spawn_rollback.sh` or
+extension to `test_spawn_rollback.sh`) covers the one-success/one-failure
+case by mocking `bin/spawn.sh` to fail for one commander.
 
 ---
 
@@ -375,17 +522,20 @@ After `consult-verify-wait`, if every verdict in either `verify.md` is
 |---|---|---|
 | Topic arg missing or path-traversal | any | rc=2 with stderr; no state mutation |
 | Topic dir already exists at init | `consult-init` | conflict resolver bumps `-N` up to 999, then rc=1 |
-| Research-send fails on send.sh | `consult-research-send` | rc=1; offset already appended (so wait can see the failure later as missing-done) |
-| Research-wait timeout | `consult-research-wait` | writes `research_status.txt` with whichever side reached `done`; rc=1 if neither |
+| One spawn fails, peer succeeds | (slash directive) | rollback: teardown peer, remove `_consult/`, exit 1 |
+| Research-send fails on send.sh | `consult-research-send` | rc=1; `research-<commander>.txt` already has OFFSET (so reset is required to retry) |
+| Research-wait per-trooper timeout | `consult-research-wait` | appends `FS=missing` (or `empty`/`malformed`) to that commander's file; rc=0 always — peer's wait runs unaffected |
 | Diff: missing findings | `consult-diff` | rc=1 with stderr naming the missing file; conductor decides next step |
-| Verify-send: peer's _only file empty | `consult-verify-send` | rc=0 + stdout `SKIPPED`; no offset appended |
-| Verify-wait timeout | `consult-verify-wait` | writes `verify_status.txt`; rc=0 always (statuses convey what happened) |
+| Verify-send: peer's _only file empty | `consult-verify-send` | rc=0; writes `VS=skipped` |
+| Verify-wait per-trooper timeout | `consult-verify-wait` | appends `VS=timeout` (or other terminal state); rc=0 always |
 | Adjudicate: missing input files | `consult-adjudicate` | rc=1 with stderr |
-| Adjudicate: re-run on existing | `consult-adjudicate` | warns to stderr, overwrites |
+| Adjudicate: re-run | `consult-adjudicate` | overwrites `adjudicated-draft.md` freely (no warning); never touches `adjudicated.md` |
+| Synthesize: `adjudicated.md` missing | `consult-synthesize` | rc=1 — conductor forgot to `cp adjudicated-draft.md adjudicated.md` |
 | Synthesize: PENDING remains | `consult-synthesize` | rc=1 with the offending line |
 | Synthesize: synthesis.md already exists | `consult-synthesize` | rc=1; conductor must `rm` first |
 | Teardown: panes already gone | `consult-teardown` | rc=0 (delegates to existing teardown) |
 | Archive: `_consult/` missing | `consult-archive` | rc=1 |
+| Offset reset: file missing | `consult-offset-reset` | rc=0 (idempotent — the desired state is "absent") |
 
 The conductor handles each by reading stderr, deciding whether to retry,
 intervene, or escalate to the user.
@@ -416,61 +566,80 @@ intervene, or escalate to the user.
 
 v0.1.x → v0.2.0:
 
-1. **`bin/consult.sh`** (v0.1 monolith) — **deleted**. Anyone depending on
-   the old path gets a 404; the slash directive is the supported surface.
+1. **`bin/consult.sh`** (v0.1 monolith) — **deleted**.
 2. **`bin/consult-finalize.sh`** — **deleted**. Logic is split across
    `consult-synthesize.sh`, `consult-teardown.sh`, `consult-archive.sh`.
    The no-PENDING gate moves into `consult-synthesize.sh`.
 3. **Existing v0.1.x archives** — unchanged. They're immutable; v0.2 reads
    from the same archive layout.
 4. **Slash directive** (`commands/consult.md`) — fully rewritten. New
-   step-by-step walks the conductor through 11 step boundaries with
+   step-by-step walks the conductor through 13 step boundaries with
    `TaskUpdate` between each.
 5. **`lib/consult.sh`** — gains `cw_consult_topic_validate`,
-   `cw_consult_status_load`, `cw_consult_write_adjudicated`. Existing
-   helpers (path, parse, diff, prompt builders, synthesizer) unchanged.
+   `cw_consult_status_load` (per-commander env-var parser, simpler than
+   v0.1's whitelisted parser since per-commander files aren't appended in
+   parallel — Codex finding #7 simplification), and
+   `cw_consult_write_adjudicated`. Existing helpers (path, parse, diff,
+   prompt builders, synthesizer) unchanged.
 
-The v0.2 release is a major-bump (0.1.x → 0.2.0) because the bin-script
-surface changes incompatibly. Users with their own wrappers calling
-`bin/consult.sh` directly will need to update.
+**Public API surface (Codex finding #9 closure)**: the supported user
+surface is the slash command `/clone-wars:consult`. The `bin/` directory
+is plugin-internal — not a stable contract. Users should not call sub-
+scripts directly from their own scripts; the slash directive is the
+versioned surface. The v0.2 → 0.2.0 major bump is for users who wrap the
+slash command itself; bin-script changes are not externally visible.
+
+`cw_consult_status_load` design note (Codex finding #7): v0.1 hardened
+this against trooper-injection because troopers can write to state dirs.
+In v0.2, status files are written exclusively by sub-scripts (research-
+wait / verify-wait); troopers write findings.md / verify.md but never
+status files. The threat model that motivated v0.1's whitelist parser
+doesn't apply, so v0.2's status loader is a plain `source` of the per-
+commander file. The defense-in-depth rationale (status files live under
+`$CLONE_WARS_HOME/state/...` which is user-writable but not externally
+attacker-controlled) makes plain `source` acceptable.
 
 ---
 
 ## Testing
 
-Each new sub-script gets a focused test in `tests/test_consult_<name>.sh`:
+Per Codex finding #10, the test surface is **not** simply "one focused
+test per sub-script". Most sub-scripts are thin wrappers around lib
+helpers that already have dedicated unit tests. The v0.2 testing strategy:
 
-- `test_consult_init.sh` — replaces today's `test_consult_slug.sh`. Same
-  slug-cap-to-20 / conflict-bound / empty-rejection cases. Adds a check
-  that `topic.txt` is written.
-- `test_consult_research_send.sh` — given a fixture topic dir + a stub
-  trooper outbox, verify offset captured + appended to
-  `research_offsets.txt` + idempotency-fail-loud on second call.
-- `test_consult_research_wait.sh` — fixture with two trooper outboxes
-  pre-populated with `done` events, verify status file written.
-- `test_consult_diff.sh` (existing, lightly amended) — already covers the
-  diff helper itself; add a smoke test that exercises the new sub-script
-  wrapper.
-- `test_consult_verify_send.sh` — peer-empty → `SKIPPED`; peer-non-empty
-  → offset captured.
-- `test_consult_verify_wait.sh` — same shape as research-wait.
-- `test_consult_adjudicate.sh` — input verify.md fixtures → produces
-  expected adjudicated.md sections; re-run case asserts the warning +
-  overwrite behavior.
-- `test_consult_synthesize.sh` (replaces part of today's
-  `test_consult_finalize.sh`) — PENDING → rc=1; clean → rc=0 + writes
-  synthesis.md; re-run on existing → rc=1.
-- `test_consult_teardown.sh` (replaces part of today's
-  `test_consult_finalize.sh`) — calls existing `bin/teardown.sh`; smoke.
-- `test_consult_archive.sh` (replaces part of today's
-  `test_consult_finalize.sh`) — moves `_consult/` to archive; smoke.
+**Library-helper unit tests (existing, mostly unchanged)**:
+- `test_consult_findings_parse.sh` — claims parser
+- `test_consult_diff.sh` — citation overlap + diff bucketing
+- `test_consult_prompts.sh` — research + verify prompt builders + verdict parser
+- `test_consult_synthesis.sh` — synthesis assembler
 
-`tests/test_consult_finalize.sh` is **deleted** (the script it tested no
-longer exists). Its assertions are split across the three new test files.
+**New v0.2 sub-script smoke tests** (just the bits not covered by lib unit tests):
+- `test_consult_init.sh` — replaces `test_consult_slug.sh`. Slug cap + conflict bound + topic.txt write + path-traversal rejection.
+- `test_consult_research_send.sh` — offset captured into per-commander file + idempotency-fail-loud + reset enables retry.
+- `test_consult_research_wait.sh` — wait_since per-commander → file gets FS=. Asserts the per-trooper-survives-peer-timeout case (Codex finding #2 fixture).
+- `test_consult_verify_send.sh` — peer-empty → VS=skipped; peer-non-empty → OFFSET=.
+- `test_consult_verify_wait.sh` — mirrors research-wait.
+- `test_consult_offset_reset.sh` — removes per-commander file + cascades to derived artifacts (diff.md, _only_items.txt, adjudicated-draft.md). Idempotent on missing file.
+- `test_consult_adjudicate.sh` — generates `adjudicated-draft.md`; re-run overwrites draft but never touches `adjudicated.md`. Asserts the file split (Codex finding #4 fixture).
+- `test_consult_synthesize.sh` — PENDING in `adjudicated.md` → rc=1; missing `adjudicated.md` → rc=1; clean → rc=0 + synthesis.md.
+- `test_consult_teardown.sh` — smoke; delegates to `bin/teardown.sh`.
+- `test_consult_archive.sh` — moves `_consult/` to archive; smoke.
+- `test_consult_spawn_rollback.sh` — NEW. Mocks `bin/spawn.sh` to fail for one commander; asserts the spawn-group rollback (peer torn down + `_consult/` removed). Codex finding #3 fixture.
 
-End-to-end live test (manual, dogfood): run `/clone-wars:consult` against a
-real topic, observe the task list updates at every boundary, deliberately
-trigger a malformed-findings scenario to exercise Pattern 1.
+`tests/test_consult_finalize.sh` is **deleted**.
+
+**Why not one integration test instead of the 10+ smoke tests**: each
+sub-script has a unique state-machine contract (which file it reads,
+which it writes, which idempotency rule applies). A single end-to-end
+test wouldn't exercise the failure-mode matrix above; we'd lose the
+ability to localize regressions when a single sub-script breaks. The
+sub-script smoke tests are deliberately small (~30 lines each) and run
+fast in pure bash.
+
+End-to-end live test (manual, dogfood): run `/clone-wars:consult` against
+a real topic, observe the task list updates at every boundary,
+deliberately trigger a malformed-findings scenario to exercise Pattern 1's
+re-prompt → reset → re-send → re-wait loop.
 
 ---
 
@@ -487,14 +656,20 @@ same dir.
 
 ## What ships in v0.2.0
 
-- 10 new bin scripts (init, research-send, research-wait, diff, verify-send,
-  verify-wait, adjudicate, synthesize, teardown, archive)
-- 3 new helpers in `lib/consult.sh` (topic-validate, status-load,
-  write-adjudicated)
-- Rewritten `commands/consult.md` slash directive walking 11 step
-  boundaries with `TaskCreate` × 13 + `TaskUpdate` between each
-- 9 new test files (most replacing or augmenting v0.1 tests)
+- **11 new bin scripts**: init, research-send, research-wait, diff,
+  verify-send, verify-wait, adjudicate, synthesize, teardown, archive,
+  **offset-reset** (the executable retry primitive added in Revision 1)
+- **3 new helpers in `lib/consult.sh`**: `cw_consult_topic_validate`,
+  `cw_consult_status_load` (per-commander env-var parser), and
+  `cw_consult_write_adjudicated`
+- **Rewritten `commands/consult.md` slash directive** walking 13 step
+  boundaries with `TaskCreate` × 13 + `TaskUpdate` between each. Includes
+  spawn-group rollback runbook and the executable retry sequences from
+  Patterns 1 + 3.
+- **11 new test files** (most replacing or augmenting v0.1 tests +
+  `test_consult_offset_reset.sh` and `test_consult_spawn_rollback.sh`)
 - Removed: `bin/consult.sh`, `bin/consult-finalize.sh`,
-  `tests/test_consult_finalize.sh`
+  `tests/test_consult_finalize.sh`, `tests/test_consult_slug.sh` (renamed
+  to `test_consult_init.sh`)
 - Version bump v0.1.x → v0.2.0
 - README + CHANGELOG entry
