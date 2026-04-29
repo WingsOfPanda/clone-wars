@@ -287,10 +287,11 @@ This repo follows Conventional Commits loosely: `feat:`, `fix:`, `docs:`, `test:
 - [x] `/clone-wars:medic` (live; spawn/send/collect/list/teardown stubbed)
 - [x] User-facing README (v0.0.1-pre1 marketplace listing)
 - [x] Marketplace publish (v0.0.1-pre1 tagged + pushed; install path live)
-- [ ] Tracer-bullet for codex
-- [ ] Tracer-bullet for gemini
-- [ ] Tracer-bullet for claudecode
-- [ ] Real implementations of spawn/send/collect/list/teardown (replace stubs)
-- [ ] Real-task dogfood
-- [ ] Tag v0.0.1 (runtime commands working end-to-end)
-- [ ] Submit to claude-plugins-official (post-dogfood)
+- [x] Tracer-bullet for codex
+- [x] Real implementations of spawn/send/collect/list/teardown (v0.0.6+)
+- [x] v0.1.x: dual-model consult command (cross-verified investigation)
+- [x] v0.2.0: split-orchestrator consult — Master Yoda reachable between every step
+- [x] v0.2.1: citation-overlap robustness + Master Yoda role rename
+- [x] v0.3.0: trooper question protocol + skill routing (brainstorming/systematic-debugging)
+- [ ] v0.3.0 strict-dogfood pass on a real machine (release gate)
+- [ ] Submit to claude-plugins-official (post v0.3.0 dogfood)

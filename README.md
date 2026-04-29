@@ -115,7 +115,31 @@ contract is fully documented in the slash directive.
 /clone-wars:consult "review src/auth/oauth.py for token-refresh edge cases"
 ```
 
-The full spec is at `docs/superpowers/specs/2026-04-29-clone-wars-consult-v2-design.md`.
+The full v0.2 spec is at `docs/superpowers/specs/2026-04-29-clone-wars-consult-v2-design.md`.
+
+### v0.3 — trooper question protocol + skill routing
+
+Topic-shaped skill hints let the consult run with `superpowers:brainstorming`
+or `superpowers:systematic-debugging` inside each trooper. When a skill
+asks a design question, the trooper writes `{"event":"question",...}` to
+its outbox; Master Yoda either answers from topic context (non-critical)
+or escalates to the user via `AskUserQuestion` (critical). Most questions
+never reach the user.
+
+- Topic classifier (regex over topic text) writes `_consult/skill.txt`
+  with one of `brainstorming` / `systematic-debugging` / `none`.
+- Send-scripts append `config/skill-hints/<skill>.md` to the inbox prompt.
+  The hint contains the autonomy contract (encoding rules, document Q&A
+  in findings.md, ask the general not the user).
+- Wait-scripts catch `question` events with terminal-event precedence
+  (done/error win) and head -n1 semantics among questions (serialization).
+- `CW_CONSULT_SKILL_OVERRIDE=none` env-var disables hints mid-run.
+
+Limitations (v0.3.0): question payloads are printable ASCII only; special
+chars must be percent-encoded (`%0A %09 %22 %5C %2C %25`). Multi-byte
+content is rejected. Full JSON decoding deferred to v0.3.1+.
+
+Spec: `docs/superpowers/specs/2026-04-29-clone-wars-consult-question-protocol-design.md`.
 
 ---
 
