@@ -163,6 +163,17 @@ Write your verdicts to $write_to in this exact format:
 
 Where <TAG> is one of: AGREE / DISPUTE / UNCERTAIN.
 
+Verification methods (v0.3.2):
+You may use any tool in your environment to verify these claims —
+WebSearch / WebFetch are explicitly authorized when an item cites a
+URL, references external standards/docs, or makes a claim that local
+repo evidence cannot resolve. For URL-cited items, fetching the source
+is the default verification step. For file-cited items, prefer reading
+the local file but reach for web tools when the file references an
+external behavior (e.g., HTTP semantics, library APIs). If a tool is
+unavailable in your environment, mark the item UNCERTAIN and note the
+gap rather than fabricating evidence.
+
 Then emit {"event":"done", "summary":"verified N items", "ts":"<iso>"} to your outbox.
 
 END_OF_INSTRUCTION
@@ -244,6 +255,18 @@ Citation format options:
 Each claim must have a citation in [brackets]. Claims without citations
 will be silently dropped by Master Yoda — and if NO claim has a
 citation, your findings will be flagged as malformed in the report.
+
+Research methods (v0.3.2):
+You may use any tool available in your environment to investigate this
+topic. When local repository evidence is insufficient or the topic
+references external knowledge (RFCs, standards, library docs, vendor
+APIs, recent CVEs, design patterns), you SHOULD use WebSearch / WebFetch
+(or the equivalent in your TUI) to find authoritative sources and cite
+them as URL citations. The citation parser already handles \`https://...\`
+strings — see the URL row in the citation-format list above. Prefer
+primary sources (specifications, official docs, source repos) over blog
+posts. If a tool is not available in your environment, fall back to
+local-only investigation and note the gap as an [unverified] claim.
 
 Then emit {"event":"done", "summary":"researched $topic", "ts":"<iso>"} to your outbox.
 
