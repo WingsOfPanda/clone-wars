@@ -17,7 +17,7 @@ Spawn a clone trooper as a new tmux pane running the chosen model TUI.
   (sandboxed). Pulled from the provider's `modes:` map in `contracts.yaml`.
 - `initial-prompt` — optional first task to dispatch via inbox after spawn returns.
 
-The first trooper on a topic right-splits the conductor; subsequent troopers down-split
+The first trooper on a topic right-splits the Jedi general; subsequent troopers down-split
 the most-recently-spawned trooper on the same topic (per `docs/DESIGN.md` §Pane layout).
 The pane is labeled with the trooper's Morandi color and rank
 (`captain-rex:codex:auth-review`); the active pane's border outlines in that color.

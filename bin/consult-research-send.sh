@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # bin/consult-research-send.sh — Phase 2 dispatch for one commander.
-# The conductor invokes 2x in parallel (one per trooper).
+# the Jedi general invokes 2x in parallel (one per trooper).
 #
 # Usage: bin/consult-research-send.sh <consult-topic> <commander> <model>
 #

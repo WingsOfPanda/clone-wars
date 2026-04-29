@@ -41,7 +41,7 @@ chmod +x "$MOCK_BIN/spawn.sh"
 # === Run init + parallel mock-spawns + actual rollback recipe. ===
 source ../lib/state.sh
 REPO_HASH=$(cw_repo_hash)
-CONSULT_TOPIC=$(../bin/consult-init.sh "rollback fixture")
+CONSULT_TOPIC=$(../bin/consult-init.sh "rollback fixture" | sed -n '1p')
 TOPIC_DIR="$CLONE_WARS_HOME/state/$REPO_HASH/$CONSULT_TOPIC"
 
 # Parallel-mock-spawn: invoke both, capture rc per side.

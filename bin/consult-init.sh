@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# bin/consult-init.sh — derive consult-<slug> + create _consult/ + save topic.txt.
-# Prints CONSULT_TOPIC to stdout; INFO logs to stderr.
+# bin/consult-init.sh — derive consult-<slug> + create _consult/ + save topic.txt + pick a Jedi general.
+# Prints CONSULT_TOPIC on line 1 of stdout, GENERAL on line 2; INFO logs to stderr.
 #
 # Usage: bin/consult-init.sh <topic-text>
 
@@ -38,7 +38,14 @@ done
 mkdir -p "$TOPIC_DIR/_consult"
 printf '%s' "$TOPIC_TEXT" > "$TOPIC_DIR/_consult/topic.txt"
 
+# Pick a Jedi general at random from the pool and persist for the rest of the run.
+GENERAL=$(cw_consult_general_pick_random)
+[[ -n "$GENERAL" ]] || { log_error "generals.yaml is empty — cannot pick a Jedi general"; exit 1; }
+printf '%s' "$GENERAL" > "$TOPIC_DIR/_consult/general.txt"
+
 log_info "consultation topic: $CONSULT_TOPIC"
 log_info "  artifacts dir:    $TOPIC_DIR/_consult"
+log_info "  Jedi general:     $GENERAL"
 
 printf '%s\n' "$CONSULT_TOPIC"
+printf '%s\n' "$GENERAL"

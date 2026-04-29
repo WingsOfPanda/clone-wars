@@ -233,7 +233,7 @@ Output requirements — write to $write_to with this EXACT structure:
   ...
 
   ## Notes
-  <any free-form additions; not parsed by conductor>
+  <any free-form additions; not parsed by the Jedi general>
 
 Citation format options:
   - <file path>:<line>          e.g. src/auth/store.py:42
@@ -242,7 +242,7 @@ Citation format options:
   - runtime: <command>          e.g. runtime: pytest tests/test_auth.py
 
 Each claim must have a citation in [brackets]. Claims without citations
-will be silently dropped by the conductor — and if NO claim has a
+will be silently dropped by the Jedi general — and if NO claim has a
 citation, your findings will be flagged as malformed in the report.
 
 Then emit {"event":"done", "summary":"researched $topic", "ts":"<iso>"} to your outbox.
@@ -297,6 +297,28 @@ cw_consult_synthesize() {
   } > "$out"
 }
 
+# cw_consult_general_pool — print every Jedi general slug from the pool.
+# Pool source: $CLONE_WARS_HOME/generals.yaml (per-machine, user-editable),
+# falls back to the shipped default at $PLUGIN_ROOT/config/generals.yaml.
+cw_consult_general_pool() {
+  local p="$(cw_state_root)/generals.yaml"
+  [[ -f "$p" ]] || p="$PLUGIN_ROOT/config/generals.yaml"
+  awk '
+    /^[[:space:]]*#/  { next }
+    /^[[:space:]]*$/  { next }
+    /^[[:space:]]*-[[:space:]]+/ {
+      sub(/^[[:space:]]*-[[:space:]]+/, "", $0)
+      gsub(/^[ \t]+|[ \t\r]+$/, "", $0)
+      if ($0 != "") print
+    }
+  ' "$p"
+}
+
+# cw_consult_general_pick_random — pick one Jedi general slug at random.
+cw_consult_general_pick_random() {
+  cw_consult_general_pool | shuf | head -n1
+}
+
 # cw_consult_topic_validate <topic>
 # Return 0 if the topic is a safe consult topic name; 1 otherwise.
 # Rules:
@@ -344,14 +366,14 @@ cw_consult_write_adjudicated() {
       | awk -F'\t' '$1 == "AGREE" { printf "- [%s] %s — REX confirmed: %s\n", $2, $3, ($4 != "" ? $4 : $3) }'
 
     printf '\n## Adjudicated\n'
-    printf '<!-- conductor: read each cited source for every "PENDING" line below; rewrite the prefix to CONFIRMED, REFUTED, or move to ## Contested. consult-synthesize.sh refuses to finalize while any PENDING remains. -->\n'
+    printf '<!-- the Jedi general: read each cited source for every "PENDING" line below; rewrite the prefix to CONFIRMED, REFUTED, or move to ## Contested. consult-synthesize.sh refuses to finalize while any PENDING remains. -->\n'
     [[ -f "$cody_v" ]] && cw_consult_parse_verdicts "$cody_v" \
       | awk -F'\t' '$1 != "AGREE" { printf "- PENDING: [%s] %s — CODY %s: %s\n", $2, $3, $1, ($4 != "" ? $4 : $3) }'
     [[ -f "$rex_v" ]] && cw_consult_parse_verdicts "$rex_v" \
       | awk -F'\t' '$1 != "AGREE" { printf "- PENDING: [%s] %s — REX %s: %s\n", $2, $3, $1, ($4 != "" ? $4 : $3) }'
 
     printf '\n## Contested\n'
-    printf '<!-- conductor: move CONTESTED items here from Adjudicated. Items in this section ship in synthesis as unresolved. -->\n'
+    printf '<!-- the Jedi general: move CONTESTED items here from Adjudicated. Items in this section ship in synthesis as unresolved. -->\n'
 
     printf '\n## Not-verified\n'
     if [[ "$rex_vs" != "ok" && "$rex_vs" != "skipped" && -s "$cody_only" ]]; then

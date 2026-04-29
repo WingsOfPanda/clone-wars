@@ -27,7 +27,7 @@ cat > "$ADJ" <<'MD'
 - [src/auth/refresh.py:15-30] No retry. — CODY confirmed (refresh.py:25)
 
 ## Adjudicated
-- CONFIRMED: [src/oauth/callback.py:88] State unvalidated. — REX disputed; conductor verdict: callback.py:88 reads from request
+- CONFIRMED: [src/oauth/callback.py:88] State unvalidated. — REX disputed; the Jedi general verdict: callback.py:88 reads from request
 
 ## Contested
 

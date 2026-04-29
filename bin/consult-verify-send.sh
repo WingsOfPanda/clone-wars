@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # bin/consult-verify-send.sh — Phase 4 dispatch for one commander.
-# The conductor invokes 2x in parallel.
+# the Jedi general invokes 2x in parallel.
 #
 # Usage: bin/consult-verify-send.sh <consult-topic> <commander> <model>
 #

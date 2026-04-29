@@ -1,0 +1,11 @@
+# config/generals.yaml — curated Jedi general pool; user-editable.
+# /clone-wars:consult picks one randomly to fill the orchestrator role per run.
+# Names are slug-form (lowercase, hyphenated) — used compactly in task labels
+# like `[yoda]`, `[obi-wan]`, `[anakin]`. Five most iconic generals from the
+# Clone Wars canon.
+generals:
+  - yoda
+  - obi-wan
+  - anakin
+  - windu
+  - qui-gon

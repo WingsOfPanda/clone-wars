@@ -5,36 +5,43 @@ argument-hint: <topic — what to research>
 
 # /clone-wars:consult
 
-Run a cross-verified dual-model investigation on `$ARGUMENTS`. The conductor
-orchestrates 13 steps via per-phase sub-scripts under `bin/`. Between every
-step, the conductor regains control — if a trooper produces unexpected
-output, the conductor can `cw_send` a clarifying prompt before the next
+Run a cross-verified dual-model investigation on `$ARGUMENTS`. A Jedi
+general (picked at random per run from `config/generals.yaml`) orchestrates
+13 steps via per-phase sub-scripts under `bin/`. Between every step, the
+Jedi general regains control — if a trooper produces unexpected output,
+the Jedi general can `cw_send` a clarifying prompt before the next
 sub-script runs.
 
 Both panes stay attached for the entire run — `tmux select-pane` to watch.
 
 Spec: `docs/superpowers/specs/2026-04-29-clone-wars-consult-v2-design.md`
 
-## Task list (TaskCreate × 13 BEFORE step 1)
+## Task list (TaskCreate × 13 AFTER step 0)
 
-Create the 13-task list using `TaskCreate`. Update statuses at the
-boundaries below — do NOT print a markdown checklist in chat.
+Step 0 (below) runs `bin/consult-init.sh` which prints the consult topic on
+line 1 and a randomly-picked Jedi general slug (e.g., `yoda`, `obi-wan`,
+`anakin`, `windu`, `qui-gon`) on line 2. **Read both** before running
+TaskCreate, then substitute the picked slug for `<general>` in every task
+label below.
 
-| # | subject | activeForm |
+Update statuses at the boundaries documented in each step — do NOT print a
+markdown checklist in chat.
+
+| # | subject (substitute `<general>` with the slug from `general.txt`) | activeForm |
 |---|---|---|
-| 0   | `0   Stage args-file [conductor]`               | `Staging args-file` |
-| 1.1 | `1.1 Spawn rex (codex) [conductor]`             | `Spawning rex` |
-| 1.2 | `1.2 Spawn cody (claude) [conductor]`           | `Spawning cody` |
+| 0   | `0   Stage args-file [<general>]`               | `Staging args-file` |
+| 1.1 | `1.1 Spawn rex (codex) [<general>]`             | `Spawning rex` |
+| 1.2 | `1.2 Spawn cody (claude) [<general>]`           | `Spawning cody` |
 | 1.3 | `1.3 Research [rex/codex]`                      | `Rex researching` |
 | 1.4 | `1.4 Research [cody/claude]`                    | `Cody researching` |
-| 1.5 | `1.5 Diff findings [conductor]`                 | `Diffing findings` |
+| 1.5 | `1.5 Diff findings [<general>]`                 | `Diffing findings` |
 | 1.6 | `1.6 Cross-verify cody-only items [rex/codex]`  | `Rex verifying` |
 | 1.7 | `1.7 Cross-verify rex-only items [cody/claude]` | `Cody verifying` |
-| 2   | `2   Resolve PENDING items [conductor]`         | `Resolving PENDING items` |
-| 3.1 | `3.1 Synthesize report [conductor]`             | `Synthesizing` |
-| 3.2 | `3.2 Teardown panes [conductor]`                | `Tearing down` |
-| 3.3 | `3.3 Archive _consult/ [conductor]`             | `Archiving` |
-| 4   | `4   Present final synthesis [conductor]`       | `Presenting synthesis` |
+| 2   | `2   Resolve PENDING items [<general>]`         | `Resolving PENDING items` |
+| 3.1 | `3.1 Synthesize report [<general>]`             | `Synthesizing` |
+| 3.2 | `3.2 Teardown panes [<general>]`                | `Tearing down` |
+| 3.3 | `3.3 Archive _consult/ [<general>]`             | `Archiving` |
+| 4   | `4   Present final synthesis [<general>]`       | `Presenting synthesis` |
 
 ## Steps
 
@@ -54,14 +61,17 @@ Set task `0` → `in_progress`.
 
 2. Write tool: `file_path` = the path printed; `content` = `$ARGUMENTS`.
 
-3. Initialize the consult topic AND compute the repo hash once:
+3. Initialize the consult topic, compute the repo hash, and read the picked
+   Jedi general (line 1 = topic, line 2 = general):
 
    ```
    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
    REPO_HASH=$(cw_repo_hash)
-   CONSULT_TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/consult-init.sh" "$(cat "$ARGS_DIR/consult.txt")")
+   INIT_OUT=$("$CLAUDE_PLUGIN_ROOT/bin/consult-init.sh" "$(cat "$ARGS_DIR/consult.txt")")
+   CONSULT_TOPIC=$(echo "$INIT_OUT" | sed -n '1p')
+   GENERAL=$(echo "$INIT_OUT" | sed -n '2p')
    TOPIC_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$CONSULT_TOPIC"
-   echo "$CONSULT_TOPIC"   # for use in subsequent steps
+   echo "topic=$CONSULT_TOPIC general=$GENERAL"
    ```
 
    `$REPO_HASH` and `$TOPIC_DIR` are reused throughout the rest of the
@@ -69,6 +79,12 @@ Set task `0` → `in_progress`.
    redirect anywhere (Codex Rev1 #1 — bash interprets `$(< repo-hash )` as
    `cat repo-hash`, which would shell out to read a file named
    `repo-hash`). Always use the `$REPO_HASH` variable computed above.
+
+   Now run `TaskCreate` × 13, substituting the actual `$GENERAL` slug
+   wherever the task-list table above shows `<general>`. The task list
+   pinned to the bottom of the terminal will then show `[yoda]`,
+   `[obi-wan]`, `[anakin]`, `[windu]`, or `[qui-gon]` — whichever the
+   pool picked this run.
 
 Set task `0` → `completed`. Set tasks `1.1` and `1.2` → `in_progress`.
 
@@ -168,7 +184,7 @@ Pattern 3 intervention. Else set `1.6` and `1.7` → `completed`.
 ```
 
 This writes `_consult/adjudicated-draft.md`. Then copy it to the
-conductor's resolution surface:
+the Jedi general's resolution surface:
 
 ```
 cp "$TOPIC_DIR/_consult/adjudicated-draft.md" "$TOPIC_DIR/_consult/adjudicated.md"

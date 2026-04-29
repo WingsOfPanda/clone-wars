@@ -1,11 +1,11 @@
-# lib/ipc.sh — file-based IPC between conductor and troopers.
+# lib/ipc.sh — file-based IPC between the Jedi general and troopers.
 # Sourced. Depends on lib/state.sh.
 #
 # State layout (per docs/DESIGN.md §State directory layout):
 #   $CLONE_WARS_HOME/state/<repo-hash>/<topic>/<commander>-<model>/
 #     ├── identity.md      — system prompt injected at spawn
-#     ├── inbox.md         — conductor writes; trooper reads on nudge
-#     ├── outbox.jsonl     — trooper appends; conductor tails
+#     ├── inbox.md         — the Jedi general writes; trooper reads on nudge
+#     ├── outbox.jsonl     — trooper appends; the Jedi general tails
 #     ├── status.json      — trooper's current state (Plan B+ may use)
 #     └── pane.json        — {pane_id, pid, spawned_at} for orphan detection
 
