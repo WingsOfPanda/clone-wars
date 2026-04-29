@@ -1,20 +1,29 @@
 # /clone-wars:consult v0.3 — Trooper Question Protocol + Skill Routing
 
-**Status:** Design — Revision 2 (post-Codex adversarial review, 2026-04-29)
+**Status:** Design — Revision 3 (post-second Codex adversarial review, 2026-04-29)
 **Date:** 2026-04-29
 **Target version:** v0.3.0
 **Builds on:** v0.2.1 (split orchestrator + Jedi general pool)
 **Spec it extends:** `docs/superpowers/specs/2026-04-29-clone-wars-consult-v2-design.md`
 
-## Revision 2 changelog (closes Codex adversarial findings)
+## Revision 3 changelog (closes second-pass Codex findings)
+
+| # | Codex Rev2 finding | Resolution |
+|---|---|---|
+| H1' | Task 9 fixture still calls `consult-offset-reset.sh --keep-findings` mid-loop, contradicting the H1 closure (state file removed → wait-script can't pick up the appended OFFSET) | Fixture rewritten: H1 regression check anchored AFTER Phase 1 (assert ≥2 OFFSET= lines exist immediately after question caught). Phase 2 simulates `cw_send` only (no state-file touch). Phase 3 re-runs wait-script directly. No `consult-offset-reset.sh` call anywhere in the question loop. |
+| H2' | `NEW_OFFSET=$(wc -c $OUTBOX)` race — events written between match and measurement get silently consumed; multiple queued questions not serialized (`tail -n1` returns last not first) | Wait-script re-scans tail for FIRST match (terminal events `done`/`error` win first; among questions, head -n1). New helper `cw_consult_outbox_match_endbyte` computes exact end-byte of matched line. New fixtures: `q1+q2` only (catch q1, OFFSET points before q2; re-run catches q2); `q+done` (terminal precedence — done wins). |
+| H3' | Rev1's single dogfood test was a non-gate (accepted `FS=ok` without `[Q&A]` markers — trooper could pass by ignoring contract) | Split into `_strict.sh` (release gate; forced-fork topic; MUST reach `FS=question`, MUST consume ANSWER, MUST reflect ANSWER content in findings.md) and `_default.sh` (informational). v0.3.0 ships only after strict PASSES on a real machine. |
+| M5' | Validator regex `'"text":"[^"]+"'` accepts `{"text":"He said \"hi\""}` because `[^"]+` truncates at first quote; sed extractor returns corrupted `He said \` | **Fail-closed:** validator rejects any `text` containing backslash (`\`). Trooper instructed to percent-encode special characters (`%0A`, `%22`, `%5C`, `%09`) instead of JSON escapes. Fixtures: escaped-quote → FS=failed; backslash → FS=failed. Proper JSON decoder deferred to v0.3.1+. |
+
+## Revision 2 changelog (closes first-pass Codex adversarial findings)
 
 | # | Codex Rev1 finding | Resolution in this revision |
 |---|---|---|
 | H1 | Re-arm step double-writes inbox (`cw_send` ANSWER then phase send-script overwrites the same `inbox.md` and nudges again) | Answer-resume path no longer calls the phase send-script. Wait-script auto-advances `OFFSET=` in the per-commander state file when a `question` event is matched. Directive's recipe is: `cw_send ANSWER → consult-research-wait.sh` (no send-script invocation). `consult-offset-reset.sh --keep-findings` removed from Pattern 4 — the flag stays only for Patterns 1/3 cascade resets. |
-| H2 | Wait-script ignores the matched event and rescans for `question` from the original offset, masking trailing `done`/`error` | Wait-script now captures `cw_outbox_wait_since` stdout (the matched JSON line), parses `event=…`, and branches on the actual matched event. No standalone rescan. New fixtures cover `question→error`, `question→done`, multi-question windows. |
-| H3 | Task 9 mocks the protocol it's meant to prove (no real trooper, no real skill) | New Task 10 (real-CLI dogfood) gated on `command -v codex && command -v tmux`: spawns a live trooper with the autonomy contract + brainstorming-shaped task, asserts it actually emits `event=question`, answers via cw_send, asserts trooper resumes and emits `done`. Mock test stays as Task 9 for fast unit coverage. |
+| H2 | Wait-script ignores the matched event and rescans for `question` from the original offset, masking trailing `done`/`error` | Wait-script blocks via `cw_outbox_wait_since` (any awaited event), then re-scans the tail with explicit priority: **terminal events (done/error) win over question** (mid-state); among questions, **first match wins** (serialization across re-arms). New fixtures cover `question→error` (FS=failed), `question→done` (FS=ok). **Race fix (Rev3):** new offset is computed from the matched line's exact end-byte via `cw_consult_outbox_match_endbyte` — NOT `wc -c $OUTBOX` (which would skip events written between match and measurement). New fixture queues `q1→q2→done` then runs wait once; asserts q1 caught, OFFSET points BEFORE q2/done. The next wait then catches done (terminal precedence). |
+| H3 | Task 9 mocks the protocol it's meant to prove (no real trooper, no real skill) | Task 10 split into **strict** + **default-path**. Strict (`test_consult_question_dogfood_strict.sh`) is the release gate: forces a topic with no sensible default (LRU vs LFU eviction), MUST reach `FS=question`, MUST consume ANSWER, MUST reflect ANSWER content in findings.md. Skips only on missing `codex`/`tmux`/`$TMUX`. Default-path (`_default.sh`) covers `skill=none` plain-audit; permissive, informational. **Release policy:** v0.3.0 ships only after strict PASSES at least once on a real machine; SKIPs do not satisfy the gate. (Codex Rev2: Rev1's single test was a non-gate — accepted `FS=ok` without `[Q&A]` markers.) |
 | M4 | Hint referenced `superpowers:debugging`, but the installed skill is `superpowers:systematic-debugging` | Renamed everywhere: classifier emits `systematic-debugging` (not `debugging`); hint file is `config/skill-hints/systematic-debugging.md`. Test asserts every skill name in hint files resolves to an installed `SKILL.md` under `~/.claude/plugins/cache/.../superpowers/.../skills/<name>/`. |
-| M5 | JSON-via-sed extractor accepts malformed payloads, escaped quotes truncate text, missing `text` still yields non-empty extraction | Extractor validates: `text` must be present and non-empty. Missing/unparsable `text` → `FS=failed`/`VS=failed` (not `question`). New fixtures: escaped-quote, missing-text, embedded-backslash, empty-options, malformed-JSON. |
+| M5 | JSON-via-sed extractor accepts malformed payloads, escaped quotes truncate text, missing `text` still yields non-empty extraction | Extractor validates: `text` must be present, non-empty, AND contain no backslash escapes (`\"`, `\\`, `\n`, etc.). **Rev3 fail-closed policy:** any backslash in `text` rejects the payload — `FS=failed`/`VS=failed`, not `question`. The autonomy contract instructs troopers to percent-encode (`%0A`, etc.) instead of using JSON escapes. A proper JSON decoder is deferred to v0.3.1+. New fixtures cover escaped-quote, embedded-backslash, missing-text, empty-text, empty-options, malformed-JSON. |
 
 Lower-severity tightening from the same review:
 
@@ -152,10 +161,25 @@ and branches on the **actually-matched event** — never on a standalone
 rescan of the outbox:
 
 ```bash
-MATCHED=$(cw_outbox_wait_since "$COMMANDER" "$MODEL" "$TOPIC" "$OFFSET" \
-                                done error question "$TIMEOUT" || true)
+# Block until any awaited event appears (or timeout). Discard wait_since's
+# stdout: it returns LAST-match per event type, but Rev3 serialization
+# requires FIRST-match across all types. Re-scan tail below.
+cw_outbox_wait_since "$COMMANDER" "$MODEL" "$TOPIC" "$OFFSET" \
+                      done error question "$TIMEOUT" >/dev/null || true
+
+# Rev3 priority: terminal events (done/error) win over question (mid-state).
+# Among questions, take FIRST (head -n1) for serialization.
+TAIL=$(tail -c "+$(( OFFSET + 1 ))" "$OUTBOX" 2>/dev/null || true)
+MATCHED=$(printf '%s\n' "$TAIL" | grep -m1 -E '"event":"(done|error)"' || true)
+[[ -z "$MATCHED" ]] \
+  && MATCHED=$(printf '%s\n' "$TAIL" | grep -m1 '"event":"question"' || true)
 EVENT=$(printf '%s' "$MATCHED" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p')
-NEW_OFFSET=$(wc -c < "$OUTBOX" | tr -d ' ')
+if [[ -n "$MATCHED" ]]; then
+  NEW_OFFSET=$(cw_consult_outbox_match_endbyte "$OUTBOX" "$OFFSET" "$MATCHED") \
+    || NEW_OFFSET="$OFFSET"
+else
+  NEW_OFFSET="$OFFSET"   # timeout
+fi
 
 case "$EVENT" in
   question)
@@ -205,6 +229,24 @@ re-run's `source $STATE_FILE` picks up the latest `OFFSET=` (last-wins).
 **The phase send-script (`consult-research-send.sh`) is NOT called again** —
 calling it would overwrite `inbox.md` (clobbering the ANSWER) and rebuild
 the prompt from scratch.
+
+### Trooper-side encoding requirement (Rev3)
+
+The trooper MUST **percent-encode special characters** in the `text`
+and `options` fields rather than using JSON escape sequences:
+
+| Character | Required encoding |
+|---|---|
+| newline | `%0A` |
+| tab | `%09` |
+| double-quote | `%22` |
+| backslash | `%5C` |
+
+The autonomy contract instructs troopers to do this. The validator
+fail-closes on any backslash in `text`, so a trooper that emits
+`"text":"He said \"hi\""` gets `FS=failed` (not a corrupted question).
+This avoids the JSON-via-sed extractor's known limitations until a
+proper decoder lands in v0.3.1+.
 
 ### Critical-question file format
 

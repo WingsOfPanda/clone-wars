@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Revision 2 — incorporates Codex adversarial findings (3 highs, 2 mediums) plus low-severity tightening.
+**Status:** Revision 3 — incorporates second-pass Codex adversarial findings (Rev2 left 4 unresolved; this revision closes them).
 
 **Goal:** Implement the trooper-question protocol and skill routing defined in `docs/superpowers/specs/2026-04-29-clone-wars-consult-question-protocol-design.md` (Rev 2).
 
@@ -13,6 +13,15 @@
 **Branch:** `feat/v0.3-question-protocol` off `main` (after v0.2.1 merges).
 
 **Total tasks:** 11. TDD throughout; every task includes a failing test, the implementation, the passing test, and a commit.
+
+## Revision 3 changelog (second Codex pass)
+
+| # | Codex Rev2 finding | Resolution |
+|---|---|---|
+| H1' | Task 9 fixture still called `consult-offset-reset.sh --keep-findings`, contradicting the H1 closure | Task 9 rewritten: H1 regression check anchored after Phase 1 (assert ≥2 OFFSET= lines + 2nd OFFSET == outbox size). Phase 2 simulates cw_send (no state touch). Phase 3 re-runs wait-script directly. |
+| H2' | `wc -c` race + multiple queued questions not serialized | Wait-script re-scans tail (head -n1 across event types, with terminal-event precedence); new `cw_consult_outbox_match_endbyte` helper computes exact end-byte. New fixtures: case 5 (q1+q2 — first wins, OFFSET before q2), case 5b (re-run catches q2), case 6 (q+done — terminal wins). |
+| H3' | Rev1 dogfood was a non-gate | Split into `_strict.sh` (release gate, MUST reach FS=question + verify ANSWER consumed) and `_default.sh` (informational). |
+| M5' | Validator passes escaped quotes; extractor returns truncated text | Fail-closed: validator rejects any `\` in text. Autonomy contract teaches trooper to percent-encode (`%0A`/`%22`/`%5C`/`%09`). Fixtures cover escaped-quote + backslash. |
 
 ## Revision 2 changelog
 
@@ -360,18 +369,30 @@ via your outbox, but follow these rules:
    When inbox.md changes, read the line beginning "ANSWER: " — that is
    the response. Resume your skill loop with it.
 
-3. Do not pre-classify questions as critical/non-critical. The general
+3. CHARACTER ENCODING (Rev3): in the question's "text" and "options"
+   fields, you MUST percent-encode special characters instead of using
+   JSON escapes. The general's parser is line-based and rejects payloads
+   with backslash escapes. Encoding map:
+     newline      →  %0A
+     tab          →  %09
+     double-quote →  %22
+     backslash    →  %5C
+   Example: instead of {"text":"He said \"hi\""} write
+   {"text":"He said %22hi%22"}. The general decodes %xx before
+   answering; you receive plain text in the ANSWER line.
+
+4. Do not pre-classify questions as critical/non-critical. The general
    makes that call. Just ask plainly.
 
-4. Be concrete. "Should we use Postgres or DynamoDB?" is good.
+5. Be concrete. "Should we use Postgres or DynamoDB?" is good.
    "What database?" is too open — answer it yourself with a default.
 
-5. Document each Q&A in your findings.md as:
+6. Document each Q&A in your findings.md as:
      [Q&A] question: <q> // answer: <a> (resolved by general)
    This lets the consult reader see the design choices that shaped the
    findings.
 
-6. If the skill says "ask the user X", you ask the GENERAL X via this
+7. If the skill says "ask the user X", you ask the GENERAL X via this
    protocol. The general will relay to the user only if the question is
    critical. Otherwise the general answers from topic context.
 ```
@@ -400,16 +421,21 @@ Jedi general via your outbox, but follow these rules:
    When inbox.md changes, read the line beginning "ANSWER: " — that is
    the response. Resume your skill loop with it.
 
-3. Do not pre-classify questions as critical/non-critical. The general
+3. CHARACTER ENCODING (Rev3): in the question's "text" and "options"
+   fields, percent-encode special characters instead of JSON escapes:
+     newline → %0A, tab → %09, " → %22, \ → %5C.
+   The general's parser rejects payloads with backslash escapes.
+
+4. Do not pre-classify questions as critical/non-critical. The general
    makes that call. Just ask plainly.
 
-4. Be concrete. "Is the error from the Postgres driver or our wrapper?"
+5. Be concrete. "Is the error from the Postgres driver or our wrapper?"
    is good. "What's wrong?" is too open — investigate first.
 
-5. Document each Q&A in your findings.md as:
+6. Document each Q&A in your findings.md as:
      [Q&A] question: <q> // answer: <a> (resolved by general)
 
-6. If the skill says "ask the user X", you ask the GENERAL X via this
+7. If the skill says "ask the user X", you ask the GENERAL X via this
    protocol. The general will relay to the user only if the question is
    critical. Otherwise the general answers from topic context.
 ```
@@ -676,6 +702,29 @@ cw_consult_question_extract_to_payload '{"event":"question","text":"x","options"
 [[ -z "$(cw_consult_question_payload_read "$TMP/q5.txt" OPTIONS)" ]] \
   || { echo "FAIL: empty options should produce empty OPTIONS" >&2; exit 1; }
 pass "empty options array round-trips as empty OPTIONS"
+
+# === Rev3 escaped-quote fail-closed (Codex Rev2 M-tier) ===
+# 12. Escaped quotes in text → validator REJECTS (rather than mis-extracting
+#     to truncated text). This is intentional fail-closed: the autonomy
+#     contract instructs the trooper to percent-encode special characters,
+#     so escaped JSON quotes shouldn't appear in well-formed payloads.
+cw_consult_question_validate_line '{"event":"question","text":"He said \"hi\"","options":[]}' \
+  && { echo "FAIL: escaped-quote text should fail validation (fail-closed)" >&2; exit 1; } || true
+pass "Rev3 escaped-quote fail-closed: payload with \\\" rejected"
+
+# 13. Backslash in text → also rejected (\\n, \\t, \\\\, etc. all corrupt sed).
+cw_consult_question_validate_line '{"event":"question","text":"line1\nline2","options":[]}' \
+  && { echo "FAIL: backslash text should fail validation" >&2; exit 1; } || true
+pass "Rev3 backslash fail-closed: payload with \\n rejected"
+
+# 14. extract_to_payload rejects escaped-quote input — no payload written.
+rm -f "$TMP/q6.txt"
+cw_consult_question_extract_to_payload \
+  '{"event":"question","text":"He said \"hi\"","options":[]}' "$TMP/q6.txt" "research" \
+  && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] || { echo "FAIL: extract should fail on escaped-quote input" >&2; exit 1; }
+[[ ! -f "$TMP/q6.txt" ]] || { echo "FAIL: payload should not be written for escaped-quote" >&2; exit 1; }
+pass "Rev3 escaped-quote: extract refuses to write payload"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -719,13 +768,20 @@ cw_consult_question_payload_read() {
 
 # cw_consult_question_validate_line <json-line>
 # Returns 0 if the line is a parseable {"event":"question",...} with non-empty
-# text; rc=1 otherwise. Used by wait-script to gate FS=question vs FS=failed
-# (Codex Rev1 M5 closure).
+# text AND no JSON escapes (which the sed extractor cannot handle). Returns
+# rc=1 otherwise. Used by wait-script to gate FS=question vs FS=failed
+# (Codex Rev1 M5 closure + Rev2 M-tier escaped-quote tightening).
+#
+# Rev3 fail-closed policy: payloads containing backslash escapes
+# (\", \\, \n, \t, \uXXXX, etc.) are REJECTED rather than mis-extracted.
+# The trooper must percent-encode special characters via the autonomy
+# contract instead. A real JSON decoder is deferred to v0.3.1+.
 cw_consult_question_validate_line() {
   local line="$1"
   [[ "$line" == *'"event":"question"'* ]] || return 1
-  # Require a "text":"..." field with non-empty content.
-  printf '%s' "$line" | grep -qE '"text":"[^"]+"' || return 1
+  # Require a "text":"..." field with non-empty content (no escaped quotes
+  # — escaped quotes would slip through [^"]+ and corrupt extraction).
+  printf '%s' "$line" | grep -qE '"text":"[^"\\]+"' || return 1
   return 0
 }
 
@@ -743,7 +799,38 @@ cw_consult_question_extract_to_payload() {
                               | sed 's/"//g; s/, */|/g; s/,/|/g')
   cw_consult_question_payload_write "$path" "$text" "$opts" "$phase"
 }
+
+# cw_consult_outbox_match_endbyte <outbox-path> <start-offset> <matched-line>
+# Rev3 H2-race fix: the wait-script's old approach was NEW_OFFSET=$(wc -c < outbox)
+# AFTER cw_outbox_wait_since returned — but the trooper might have written more
+# events in that window, silently skipping them. This helper instead returns
+# start-offset + bytes-up-to-and-including the matched line — the exact byte
+# position past which the next wait should resume.
+#
+# Echoes the byte-position; rc=0 if matched line found in tail starting at
+# start-offset; rc=1 if not found. Callers fall back to start-offset on rc=1.
+cw_consult_outbox_match_endbyte() {
+  local outbox="$1" start="$2" matched="$3"
+  [[ -f "$outbox" ]] || return 1
+  local pos=$start
+  local line
+  while IFS= read -r line; do
+    # +1 for the trailing newline that read -r stripped.
+    pos=$(( pos + ${#line} + 1 ))
+    if [[ "$line" == "$matched" ]]; then
+      printf '%s\n' "$pos"
+      return 0
+    fi
+  done < <(tail -c "+$(( start + 1 ))" "$outbox")
+  return 1
+}
 ```
+
+> **Byte-vs-character note:** `${#line}` is character count, not byte count.
+> Our outbox JSON is ASCII-only by protocol (multi-byte content is
+> percent-encoded by the trooper), so character count = byte count and the
+> arithmetic is exact. If the protocol relaxes this in the future, switch
+> to `LC_ALL=C` + `awk 'length($0)'` for byte-mode length.
 
 (The old `cw_consult_question_extract_from_outbox` is replaced — see Task 6
 for the wait-script call site that uses these helpers.)
@@ -856,13 +943,38 @@ printf 'FS=%s\n' "$FS" >> "$STATE_FILE"
 New code (capture stdout, branch on actual event):
 
 ```bash
-MATCHED=$(cw_outbox_wait_since "$COMMANDER" "$MODEL" "$TOPIC" "$OFFSET" \
-                                done error question "$TIMEOUT" || true)
-EVENT=$(printf '%s' "$MATCHED" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p')
-
 TROOPER_DIR=$(cw_trooper_dir "$COMMANDER" "$MODEL" "$TOPIC")
 OUTBOX="$TROOPER_DIR/outbox.jsonl"
-NEW_OFFSET=$(wc -c < "$OUTBOX" 2>/dev/null | tr -d ' ' || echo 0)
+
+# Block until any awaited event appears past OFFSET. Discard wait_since's
+# stdout — it returns LAST-match per event type (tail -n1), but Rev3
+# serialization requires FIRST-match across all event types. We re-scan
+# the tail ourselves below (head -n1) to honor that contract without
+# changing wait_since's v0.2 behavior.
+cw_outbox_wait_since "$COMMANDER" "$MODEL" "$TOPIC" "$OFFSET" \
+                      done error question "$TIMEOUT" >/dev/null || true
+
+# Rev3 priority + race fix:
+#   1. Terminal events (done/error) WIN over mid-state question events. If
+#      a trooper emits question then died (error) or finished (done), the
+#      terminal event is what matters; the in-flight question is dropped.
+#   2. Among questions, take FIRST (grep -m1) for serialization — multiple
+#      queued questions get processed one at a time across re-arms.
+#   3. NEW_OFFSET is computed from the matched line's exact end-byte (NOT
+#      from `wc -c $OUTBOX`), so events written after the match aren't
+#      silently consumed.
+TAIL=$(tail -c "+$(( OFFSET + 1 ))" "$OUTBOX" 2>/dev/null || true)
+MATCHED=$(printf '%s\n' "$TAIL" | grep -m1 -E '"event":"(done|error)"' || true)
+[[ -z "$MATCHED" ]] \
+  && MATCHED=$(printf '%s\n' "$TAIL" | grep -m1 '"event":"question"' || true)
+EVENT=$(printf '%s' "$MATCHED" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p')
+
+if [[ -n "$MATCHED" ]]; then
+  NEW_OFFSET=$(cw_consult_outbox_match_endbyte "$OUTBOX" "$OFFSET" "$MATCHED" 2>/dev/null) \
+    || NEW_OFFSET="$OFFSET"
+else
+  NEW_OFFSET="$OFFSET"
+fi
 
 case "$EVENT" in
   question)
@@ -1002,6 +1114,64 @@ FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" | tail -1 | cut -d= -f2)
 [[ ! -f "$TD/_consult/question-rex.txt" ]] \
   || { echo "FAIL case4: malformed question should not write payload"; exit 1; }
 pass "case 4 (malformed question): FS=failed, no payload (M5 closure)"
+
+# Case 5 (Rev3 serialization + race fix): two questions queued before wait
+# fires. wait-script catches the FIRST (head -n1 semantics) and OFFSET points
+# BEFORE the second (NOT past the entire outbox). Critical for two reasons:
+#  - serialization: questions get processed one at a time, not batched
+#  - race fix: NEW_OFFSET is end-of-matched-line, not wc -c of outbox
+TD=$(stage_topic "case5 q-q-no-done")
+OUTBOX="$TD/rex-codex/outbox.jsonl"
+echo '{"event":"ack"}'                                            >> "$OUTBOX"
+OFFSET=$(wc -c < "$OUTBOX" | tr -d ' ')
+echo '{"event":"question","text":"Q1?","options":[]}'              >> "$OUTBOX"
+END_OF_Q1=$(wc -c < "$OUTBOX" | tr -d ' ')
+echo '{"event":"question","text":"Q2?","options":[]}'              >> "$OUTBOX"
+TOPIC=$(basename "$TD")
+printf 'OFFSET=%s\n' "$OFFSET" > "$TD/_consult/research-rex.txt"
+CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=5 \
+  ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1
+FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" | tail -1 | cut -d= -f2)
+[[ "$FS" == "question" ]] \
+  || { echo "FAIL case5: expected FS=question on multi-question; got $FS"; exit 1; }
+NEW_OFF=$(grep '^OFFSET=' "$TD/_consult/research-rex.txt" | tail -1 | cut -d= -f2)
+[[ "$NEW_OFF" == "$END_OF_Q1" ]] \
+  || { echo "FAIL case5: NEW_OFFSET=$NEW_OFF should equal end-of-Q1=$END_OF_Q1 (NOT past Q2)"; exit 1; }
+Q_TEXT=$(cw_consult_question_payload_read "$TD/_consult/question-rex.txt" TEXT)
+[[ "$Q_TEXT" == "Q1?" ]] \
+  || { echo "FAIL case5: should have Q1 payload (FIRST question); got '$Q_TEXT'"; exit 1; }
+pass "case 5 (Rev3 serialization+race): caught Q1, OFFSET points BEFORE Q2"
+
+# Case 5b: re-run wait-script — should now catch Q2 (since OFFSET advanced past Q1).
+CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=5 \
+  ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1
+Q_TEXT2=$(cw_consult_question_payload_read "$TD/_consult/question-rex.txt" TEXT)
+[[ "$Q_TEXT2" == "Q2?" ]] \
+  || { echo "FAIL case5b: re-run should catch Q2; got '$Q_TEXT2'"; exit 1; }
+pass "case 5b (Rev3): re-run wait catches Q2 — questions truly serialized"
+
+# Case 6 (Rev3 race fix variant): question + done queued together. Terminal
+# event WINS over question — the trooper finished, the in-flight question
+# is dropped. Critical for not blocking on a question the trooper already
+# moved past.
+TD=$(stage_topic "case6 q-done-priority")
+OUTBOX="$TD/rex-codex/outbox.jsonl"
+echo '{"event":"ack"}'                                            >> "$OUTBOX"
+OFFSET=$(wc -c < "$OUTBOX" | tr -d ' ')
+echo '{"event":"question","text":"abandoned Q","options":[]}'      >> "$OUTBOX"
+echo '{"event":"done"}'                                            >> "$OUTBOX"
+echo "stub findings" > "$TD/rex-codex/findings.md"
+echo "[citation] x" >> "$TD/rex-codex/findings.md"
+TOPIC=$(basename "$TD")
+printf 'OFFSET=%s\n' "$OFFSET" > "$TD/_consult/research-rex.txt"
+CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=5 \
+  ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1
+FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" | tail -1 | cut -d= -f2)
+[[ "$FS" == "ok" ]] \
+  || { echo "FAIL case6: terminal done should win over abandoned question; got FS=$FS"; exit 1; }
+[[ ! -f "$TD/_consult/question-rex.txt" ]] \
+  || { echo "FAIL case6: abandoned question payload should not be written"; exit 1; }
+pass "case 6 (Rev3 priority): terminal done wins over in-flight question"
 ```
 
 - [ ] **Step 6: Run tests**
@@ -1431,15 +1601,32 @@ grep -q '^FS=question$' "$TD/_consult/research-rex.txt" \
   || { echo "FAIL: question payload missing" >&2; exit 1; }
 pass "round-trip phase 1: wait-script caught question and wrote payload"
 
-# Phase 2: directive simulates answering. Reset --keep-findings, advance offset.
-../bin/consult-offset-reset.sh "$TOPIC" rex research --keep-findings
-[[ ! -f "$TD/_consult/question-rex.txt" ]] \
-  || { echo "FAIL: payload should be cleared after offset-reset" >&2; exit 1; }
-pass "round-trip phase 2: offset-reset --keep-findings clears payload"
+# === H1 closure regression (anchored AFTER Phase 1) ===
+# Wait-script must have appended a SECOND OFFSET= line past the question.
+# Test BEFORE any other action — we want to prove auto-bump worked, not
+# whether subsequent steps clear the file.
+OFFSET_LINES=$(grep -c '^OFFSET=' "$TD/_consult/research-rex.txt")
+[[ "$OFFSET_LINES" -ge 2 ]] \
+  || { echo "FAIL: state file should have ≥2 OFFSET lines (initial + post-question); got $OFFSET_LINES"; cat "$TD/_consult/research-rex.txt"; exit 1; }
+SECOND_OFFSET=$(grep '^OFFSET=' "$TD/_consult/research-rex.txt" | tail -1 | cut -d= -f2)
+OUTBOX_SIZE_AFTER_Q=$(wc -c < "$OUTBOX" | tr -d ' ')
+[[ "$SECOND_OFFSET" == "$OUTBOX_SIZE_AFTER_Q" ]] \
+  || { echo "FAIL: 2nd OFFSET=$SECOND_OFFSET should equal outbox size $OUTBOX_SIZE_AFTER_Q after question"; exit 1; }
+pass "wait-script auto-bumped OFFSET past question (no offset-reset call)"
 
-# Phase 3: trooper resumes (no offset-reset, no send-script — H1 closure).
-# The wait-script already appended OFFSET=<post-question> in phase 1.
-# Re-running the wait-script picks up the new offset via source $STATE_FILE.
+# Phase 2: directive simulates answering — writes inbox.md only (no state-file
+# touch). cw_send is a no-op for state files, so we don't even need to call
+# anything; the test just demonstrates the answer doesn't break the cursor.
+# Verify the state file survived intact.
+[[ -f "$TD/_consult/research-rex.txt" ]] \
+  || { echo "FAIL: state file should survive simulated answer" >&2; exit 1; }
+[[ -f "$TD/_consult/question-rex.txt" ]] \
+  || { echo "FAIL: payload should still exist before re-arm" >&2; exit 1; }
+pass "round-trip phase 2: simulated cw_send leaves state file + payload intact"
+
+# Phase 3: trooper resumes. Append done event + findings; re-run wait-script.
+# The wait-script must source the LATEST OFFSET (post-question) — it should
+# NOT re-process the question. This is the H1 contract under test.
 echo '{"event":"done"}' >> "$OUTBOX"
 echo "stub findings" > "$TD/rex-codex/findings.md"
 echo "[citation] sample claim" >> "$TD/rex-codex/findings.md"
@@ -1449,16 +1636,8 @@ CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=5 \
 
 FS_FINAL=$(grep '^FS=' "$TD/_consult/research-rex.txt" | tail -1 | cut -d= -f2)
 [[ "$FS_FINAL" == "ok" ]] \
-  || { echo "FAIL: expected FS=ok after resume; got '$FS_FINAL'" >&2; exit 1; }
-pass "round-trip phase 3: trooper resumes after answer, FS=ok (H1 closure)"
-
-# === H1 closure regression: ensure no offset-reset call was needed ===
-# The state file should have TWO OFFSET= lines (initial + post-question);
-# the second one is what wait-script picks up on re-arm.
-OFFSET_LINES=$(grep -c '^OFFSET=' "$TD/_consult/research-rex.txt")
-[[ "$OFFSET_LINES" -ge 2 ]] \
-  || { echo "FAIL: state file should have ≥2 OFFSET lines (initial + post-question); got $OFFSET_LINES" >&2; exit 1; }
-pass "wait-script auto-bumped OFFSET (no offset-reset call needed)"
+  || { echo "FAIL: expected FS=ok after resume; got '$FS_FINAL'" >&2; cat "$TD/_consult/research-rex.txt"; exit 1; }
+pass "round-trip phase 3: trooper resumes via re-run wait-script (no offset-reset, no send-script — H1 closure)"
 
 # === Multi-question loop: Q→A→Q→A→done ===
 TD2_TOPIC=$(../bin/consult-init.sh "design pattern multi-q test" | sed -n '1p')
@@ -1527,39 +1706,54 @@ multi-question loop. Proves H1 closure end-to-end at the unit level
 
 ---
 
-## Task 10: Real-CLI dogfood (H3 closure)
+## Task 10: Real-CLI dogfood — STRICT autonomy gate (H3 closure)
 
 **Files:**
-- Create: `tests/test_consult_question_dogfood.sh`
+- Create: `tests/test_consult_question_dogfood_strict.sh`
+- Create: `tests/test_consult_question_dogfood_default.sh`
 
 **Why:** Task 9's mock test proves the IPC plumbing. It does NOT prove
 the autonomy contract actually overrides `superpowers:brainstorming`'s
-native AskUserQuestion call. That risk is the central H3 finding from
-Codex. This task adds a gated real-CLI test that spawns a live trooper.
+native AskUserQuestion call. Codex Rev2 review found Rev1's single
+dogfood test was a non-gate (it accepted `FS=ok` without `[Q&A]` markers,
+so a trooper could pass by ignoring the contract entirely).
 
-- [ ] **Step 1: Write the gated test**
+Rev3 splits this into two tests:
 
-Create `tests/test_consult_question_dogfood.sh`:
+- **`_strict.sh`** — release-blocking. Skips ONLY on missing binaries
+  (`codex` / `tmux` / `$TMUX`). On any other path, MUST reach
+  `FS=question`, MUST send ANSWER, MUST verify trooper resumed. Failure
+  to reach `FS=question` is a test failure, not a permissive pass.
+  This is the actual H3 gate.
+- **`_default.sh`** — informational. Validates that a non-questioning
+  default path still produces well-formed `findings.md`. Permissive on
+  question vs no-question. Not release-blocking.
+
+- [ ] **Step 1: Write the strict test**
+
+Create `tests/test_consult_question_dogfood_strict.sh`:
 
 ```bash
 #!/usr/bin/env bash
-# tests/test_consult_question_dogfood.sh — H3 closure: validates the
-# autonomy contract works against a real codex trooper. Gated on
-# codex+tmux availability; skipped (not failed) when missing.
+# tests/test_consult_question_dogfood_strict.sh — H3 closure GATE.
+# Validates the autonomy contract is actually obeyed by a live codex
+# trooper. Skips ONLY on missing binaries — once the harness can run,
+# any failure to reach FS=question is a test failure (not a permissive
+# pass). This is the test that gates v0.3.0 release.
 set -euo pipefail
 cd "$(dirname "$0")"
 source lib/assert.sh
 
 if ! command -v codex >/dev/null 2>&1; then
-  echo "SKIP: codex CLI not installed — autonomy-contract dogfood skipped"
+  echo "SKIP: codex CLI not installed — STRICT dogfood skipped (release gate not exercised)"
   exit 0
 fi
 if ! command -v tmux >/dev/null 2>&1; then
-  echo "SKIP: tmux not installed — autonomy-contract dogfood skipped"
+  echo "SKIP: tmux not installed — STRICT dogfood skipped"
   exit 0
 fi
 if [[ -z "${TMUX:-}" ]]; then
-  echo "SKIP: not inside a tmux session — autonomy-contract dogfood skipped"
+  echo "SKIP: not inside a tmux session — STRICT dogfood skipped"
   exit 0
 fi
 
@@ -1573,116 +1767,197 @@ source ../lib/consult.sh
 
 RH=$(cw_repo_hash)
 
-# Topic that classifies as brainstorming (forces a forked design choice).
-TOPIC=$(../bin/consult-init.sh "decide between sync and async cache eviction" | sed -n '1p')
+# Forced-fork brainstorming topic — should COMPEL the trooper to ask if
+# the autonomy contract is being honored, because there's no sensible
+# default to choose from topic context alone.
+TOPIC=$(../bin/consult-init.sh \
+  "decide between LRU and LFU eviction for the cache layer; both are valid; need explicit pick" \
+  | sed -n '1p')
 TD="$CLONE_WARS_HOME/state/$RH/$TOPIC"
 [[ "$(cat "$TD/_consult/skill.txt")" == "brainstorming" ]] \
   || { echo "FAIL: expected brainstorming classification"; exit 1; }
 
-# Spawn real codex trooper (uses bin/spawn.sh).
 if ! ../bin/spawn.sh rex codex "$TOPIC" >/dev/null 2>&1; then
-  echo "SKIP: real codex spawn failed — autonomy-contract dogfood skipped"
+  echo "SKIP: codex spawn failed — STRICT dogfood skipped"
   exit 0
 fi
 trap 'rm -rf "$TMP"; ../bin/consult-teardown.sh "$TOPIC" >/dev/null 2>&1 || true' EXIT
 
-# Send research prompt with autonomy contract appended (consult-research-send.sh
-# does this automatically for brainstorming-classified topics).
 ../bin/consult-research-send.sh "$TOPIC" rex codex >/dev/null 2>&1
 
-# Wait up to 90s for FS=question (the autonomy contract should make the
-# trooper write a question event instead of asking via TUI).
-T0=$(date +%s)
-DEADLINE=$((T0 + 90))
+# Wait up to 120s for FS=question. STRICT: any FS other than 'question'
+# in this loop fails the test.
+T0=$(date +%s); DEADLINE=$((T0 + 120))
 while (( $(date +%s) < DEADLINE )); do
-  if grep -q '^FS=' "$TD/_consult/research-rex.txt" 2>/dev/null; then
-    break
-  fi
   ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1 || true
-  sleep 1
+  FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" 2>/dev/null | tail -1 | cut -d= -f2 || echo "")
+  [[ -n "$FS" ]] && break
+  sleep 2
 done
 
-FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" 2>/dev/null | tail -1 | cut -d= -f2 || echo "")
+# STRICT gate: FS MUST be question.
+[[ "$FS" == "question" ]] \
+  || { echo "FAIL: STRICT gate — expected FS=question on forced-fork topic; got '$FS'"
+       echo "  outbox tail:"; tail -30 "$(cw_outbox_path rex codex "$TOPIC")" 2>/dev/null || true
+       exit 1; }
+pass "STRICT: real codex trooper emitted {event:question} via outbox (contract obeyed)"
+
+# Verify payload extracted correctly.
+[[ -f "$TD/_consult/question-rex.txt" ]] \
+  || { echo "FAIL: question payload missing"; exit 1; }
+Q_TEXT=$(cw_consult_question_payload_read "$TD/_consult/question-rex.txt" TEXT)
+[[ -n "$Q_TEXT" ]] \
+  || { echo "FAIL: question payload TEXT is empty"; exit 1; }
+pass "STRICT: question payload extracted with non-empty TEXT"
+
+# Send synthetic ANSWER. Verify trooper recognizes the ANSWER: prefix
+# and resumes (not just any inbox change — must be ANSWER-line aware).
+../bin/send.sh rex "$TOPIC" "ANSWER: pick LRU (Least Recently Used). Use a doubly-linked list + hashmap. Document this choice in findings.md.
+
+(resume your skill loop)
+END_OF_INSTRUCTION" >/dev/null 2>&1
+
+T1=$(date +%s); DEADLINE2=$((T1 + 90))
+while (( $(date +%s) < DEADLINE2 )); do
+  ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1 || true
+  FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" 2>/dev/null | tail -1 | cut -d= -f2 || echo "")
+  [[ "$FS" == "ok" || "$FS" == "empty" || "$FS" == "missing" || "$FS" == "question" ]] && break
+  sleep 2
+done
+
 case "$FS" in
-  question)
-    pass "real codex trooper wrote {event:question} via outbox (autonomy contract OK)"
-    ;;
   ok|empty|missing)
-    # Trooper may have just answered everything from defaults — also fine.
-    # Inspect findings.md for [Q&A] block.
-    TROOPER_DIR=$(cw_trooper_dir rex codex "$TOPIC")
-    if grep -q '\[Q&A\]\|\[assumption\]' "$TROOPER_DIR/findings.md" 2>/dev/null; then
-      pass "real codex trooper produced findings with [Q&A]/[assumption] markers"
-    else
-      pass "real codex trooper produced findings without questioning (autonomy contract permitted defaults)"
-    fi
+    pass "STRICT: trooper resumed after ANSWER, reached terminal state ($FS)"
+    ;;
+  question)
+    # Multi-question loop is acceptable — but verify the new question is
+    # different from the first (proves the trooper resumed, didn't stall).
+    Q2_TEXT=$(cw_consult_question_payload_read "$TD/_consult/question-rex.txt" TEXT)
+    [[ "$Q2_TEXT" != "$Q_TEXT" ]] \
+      || { echo "FAIL: STRICT — trooper re-emitted SAME question; ANSWER not consumed"
+           exit 1; }
+    pass "STRICT: trooper resumed and asked a NEW question (multi-Q loop)"
     ;;
   *)
-    echo "FAIL: real codex trooper FS='$FS' (expected question or ok-with-Q&A)"
-    echo "  outbox tail:"
-    tail -20 "$(cw_outbox_path rex codex "$TOPIC")" 2>/dev/null || true
-    exit 1
+    echo "FAIL: STRICT — trooper did not resume after ANSWER; FS='$FS'"; exit 1
     ;;
 esac
 
-# Send a synthetic ANSWER and verify trooper resumes to done.
-if [[ "$FS" == "question" ]]; then
-  ../bin/send.sh rex "$TOPIC" "ANSWER: pick async (LRU eviction with TTL backstop)
-
-  (resume your skill loop)
-  END_OF_INSTRUCTION" >/dev/null 2>&1
-  T1=$(date +%s)
-  DEADLINE2=$((T1 + 60))
-  while (( $(date +%s) < DEADLINE2 )); do
-    ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1 || true
-    FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" 2>/dev/null | tail -1 | cut -d= -f2 || echo "")
-    [[ "$FS" == "ok" || "$FS" == "empty" || "$FS" == "missing" ]] && break
-    sleep 1
-  done
-  case "$FS" in
-    ok|empty|missing)
-      pass "real codex trooper resumed after ANSWER and reached terminal state ($FS)"
-      ;;
-    question)
-      pass "real codex trooper asked a follow-up question after answer (multi-Q loop confirmed)"
-      ;;
-    *)
-      echo "FAIL: trooper did not resume after ANSWER; FS='$FS'"; exit 1
-      ;;
-  esac
+# Verify findings.md contains the LRU choice from the ANSWER (proves
+# ANSWER text was actually parsed, not just "any inbox change resumes").
+TROOPER_DIR=$(cw_trooper_dir rex codex "$TOPIC")
+if [[ -f "$TROOPER_DIR/findings.md" ]]; then
+  if grep -qiE 'LRU|Least Recently Used' "$TROOPER_DIR/findings.md"; then
+    pass "STRICT: findings.md reflects ANSWER content (LRU choice) — ANSWER-line was parsed"
+  else
+    echo "FAIL: STRICT — ANSWER said LRU but findings.md does not mention it"
+    echo "  findings.md:"; cat "$TROOPER_DIR/findings.md"
+    exit 1
+  fi
 fi
 ```
 
-- [ ] **Step 2: Make executable + run (manual; skipped in CI)**
+- [ ] **Step 2: Write the permissive default-path test**
+
+Create `tests/test_consult_question_dogfood_default.sh`:
 
 ```bash
-chmod +x tests/test_consult_question_dogfood.sh
-bash tests/test_consult_question_dogfood.sh
+#!/usr/bin/env bash
+# tests/test_consult_question_dogfood_default.sh — informational dogfood.
+# Validates the trooper produces well-formed findings on a topic with
+# clear defaults (where NOT asking is also valid). NOT release-blocking.
+set -euo pipefail
+cd "$(dirname "$0")"
+source lib/assert.sh
+
+if ! command -v codex >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1 \
+   || [[ -z "${TMUX:-}" ]]; then
+  echo "SKIP: codex / tmux / TMUX missing — default-path dogfood skipped"
+  exit 0
+fi
+
+TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+export CLONE_WARS_HOME="$TMP/cw"
+export CLAUDE_PLUGIN_ROOT="$(cd .. && pwd)"
+source ../lib/state.sh
+source ../lib/ipc.sh
+source ../lib/consult.sh
+
+RH=$(cw_repo_hash)
+
+# Plain audit topic — should classify as 'none', no skill hint, no question.
+TOPIC=$(../bin/consult-init.sh "review the auth middleware for token-refresh edge cases" | sed -n '1p')
+TD="$CLONE_WARS_HOME/state/$RH/$TOPIC"
+[[ "$(cat "$TD/_consult/skill.txt")" == "none" ]] \
+  || { echo "FAIL: expected 'none' classification on plain audit topic"; exit 1; }
+
+if ! ../bin/spawn.sh rex codex "$TOPIC" >/dev/null 2>&1; then
+  echo "SKIP: codex spawn failed"; exit 0
+fi
+trap 'rm -rf "$TMP"; ../bin/consult-teardown.sh "$TOPIC" >/dev/null 2>&1 || true' EXIT
+
+../bin/consult-research-send.sh "$TOPIC" rex codex >/dev/null 2>&1
+
+T0=$(date +%s); DEADLINE=$((T0 + 120))
+while (( $(date +%s) < DEADLINE )); do
+  ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1 || true
+  FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" 2>/dev/null | tail -1 | cut -d= -f2 || echo "")
+  [[ -n "$FS" ]] && break
+  sleep 2
+done
+
+case "$FS" in
+  ok|empty|missing) pass "default-path: trooper terminated normally (FS=$FS)" ;;
+  *) echo "INFO: default-path trooper FS='$FS' (informational, not blocking)" ;;
+esac
+```
+
+- [ ] **Step 3: Make executable + run (manual; skipped in CI)**
+
+```bash
+chmod +x tests/test_consult_question_dogfood_strict.sh
+chmod +x tests/test_consult_question_dogfood_default.sh
+bash tests/test_consult_question_dogfood_strict.sh
+bash tests/test_consult_question_dogfood_default.sh
 ```
 
 Expected outcomes:
-- Inside a tmux session with codex installed → live spawn, live behavior tested.
-- Outside tmux or without codex → SKIP with clear reason; rc=0.
-- This is the only test that proves the autonomy contract is respected
-  by a real superpowers skill. Its pass / skip / fail status is
-  load-bearing for v0.3.0 release confidence.
+- Strict — outside tmux or without codex: SKIP rc=0 (release gate not
+  exercised; v0.3.0 should not ship without it passing manually). Inside
+  tmux + codex: must reach FS=question, must consume ANSWER, must reflect
+  LRU in findings.md. Otherwise FAIL.
+- Default — same skip conditions; permissive on output shape.
 
-- [ ] **Step 3: Commit**
+**Release gate policy:** v0.3.0 ships only after `_strict.sh` PASSES at
+least once on a real machine with codex+tmux. Document the run output in
+the v0.3.0 release notes. SKIPs do not satisfy the gate.
+
+- [ ] **Step 4: Commit**
 
 ```bash
-git add tests/test_consult_question_dogfood.sh
-git commit -m "test(consult): real-CLI dogfood for autonomy contract (H3 closure)
+git add tests/test_consult_question_dogfood_strict.sh tests/test_consult_question_dogfood_default.sh
+git commit -m "test(consult): real-CLI dogfood — STRICT gate + permissive default-path
 
-Spawns a live codex trooper, sends a brainstorming-classified prompt
-with the autonomy-contract hint appended, and asserts the trooper
-either (a) emits {event:question} via outbox (contract obeyed), or
-(b) writes findings with [Q&A]/[assumption] markers (contract permitted
-defaults). Then sends a synthetic ANSWER and asserts trooper resumes
+STRICT: forces a brainstorming topic with no sensible default (LRU vs LFU).
+The trooper MUST emit {event:question} or fail the test. Then sends an
+ANSWER referencing LRU and asserts findings.md reflects it (proves
+ANSWER-line was parsed, not just 'any inbox change resumes'). Skips only
+on missing tmux/codex.
+
+DEFAULT: plain audit topic (skill=none); permissive on output shape.
+
+Closes Codex Rev2 H3: Rev1's single dogfood test was a non-gate (accepted
+FS=ok without [Q&A] markers — trooper could pass by ignoring contract).
+Rev3 splits the test so the gate exists separately from informational
+default-path coverage."
 to ok/empty/missing.
 
 Gated on tmux + codex + \$TMUX. Skipped (not failed) when missing.
 Mocked unit coverage stays in test_consult_question_loop.sh."
 ```
+
+(That commit message text was the Rev2 plan; superseded by the strict+
+default split commit above. Kept here for diff-reading clarity only.)
 
 ---
 
