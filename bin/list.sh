@@ -48,6 +48,10 @@ for topic_dir in "$REPO_DIR"/*/; do
   [[ -z "$TOPIC_FILTER" || "$topic" == "$TOPIC_FILTER" ]] || continue
   for trooper_dir in "$topic_dir"*/; do
     [[ -d "$trooper_dir" ]] || continue
+    # Skip _-prefixed sibling dirs (e.g. _consult/ from /clone-wars:consult);
+    # they're not trooper state and have no pane.json.
+    base="${trooper_dir%/}"; base="${base##*/}"
+    [[ "$base" == _* ]] && continue
     mapfile -t META < <(cw_pane_meta_read_for_dir "$trooper_dir")
     commander="${META[0]}"
     model="${META[1]}"
