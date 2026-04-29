@@ -41,8 +41,11 @@ cw_commanders_in_use_in_topic() {
   [[ -d "$dir" ]] || return 0
   shopt -s nullglob
   local trooper_dir _META
+  local _base
   for trooper_dir in "$dir"/*/; do
     [[ -d "$trooper_dir" ]] || continue
+    _base="${trooper_dir%/}"; _base="${_base##*/}"
+    [[ "$_base" == _* ]] && continue
     mapfile -t _META < <(cw_pane_meta_read_for_dir "$trooper_dir")
     [[ -n "${_META[0]:-}" ]] && printf '%s\n' "${_META[0]}"
   done | sort -u
@@ -61,11 +64,13 @@ cw_commanders_in_use_globally() {
   local root="$(cw_state_root)/state/$(cw_repo_hash)"
   [[ -d "$root" ]] || return 0
   shopt -s nullglob
-  local topic_dir trooper_dir _META
+  local topic_dir trooper_dir _META _base
   for topic_dir in "$root"/*/; do
     [[ -d "$topic_dir" ]] || continue
     for trooper_dir in "$topic_dir"*/; do
       [[ -d "$trooper_dir" ]] || continue
+      _base="${trooper_dir%/}"; _base="${_base##*/}"
+      [[ "$_base" == _* ]] && continue
       mapfile -t _META < <(cw_pane_meta_read_for_dir "$trooper_dir")
       [[ -n "${_META[0]:-}" ]] && printf '%s\n' "${_META[0]}"
     done

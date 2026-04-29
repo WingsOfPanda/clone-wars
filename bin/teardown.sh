@@ -106,6 +106,10 @@ teardown_topic() {
   local trooper_dir
   for trooper_dir in "$topic_dir"/*/; do
     [[ -d "$trooper_dir" ]] || continue
+    # Skip _-prefixed sibling dirs (e.g. _consult/ from /clone-wars:consult);
+    # they're not trooper state and consult-finalize.sh archives them itself.
+    local _base="${trooper_dir%/}"; _base="${_base##*/}"
+    [[ "$_base" == _* ]] && continue
     local _META; mapfile -t _META < <(cw_pane_meta_read_for_dir "$trooper_dir")
     pairs+=("${_META[0]}:${_META[1]}")
   done
