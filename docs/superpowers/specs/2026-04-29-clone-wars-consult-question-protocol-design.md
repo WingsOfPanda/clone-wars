@@ -1,10 +1,16 @@
 # /clone-wars:consult v0.3 — Trooper Question Protocol + Skill Routing
 
-**Status:** Design — Revision 5 (post-fourth Codex adversarial review, 2026-04-29)
+**Status:** Design — Revision 6 (post-fifth Codex adversarial review, 2026-04-29)
 **Date:** 2026-04-29
 **Target version:** v0.3.0
 **Builds on:** v0.2.1 (split orchestrator + Jedi general pool)
 **Spec it extends:** `docs/superpowers/specs/2026-04-29-clone-wars-consult-v2-design.md`
+
+## Revision 6 changelog (closes fifth-pass Codex finding — option commas)
+
+| # | Codex Rev5 finding | Resolution |
+|---|---|---|
+| H1⁗ | Options extractor blindly converted every comma to `\|` → an option containing a literal comma fabricates extra choices (e.g. `"Use Postgres, not MySQL"` becomes 2 options) | Added `%2C` to the encoding contract for literal commas in option text. Validator now rejects un-encoded commas in `options[]` (compares occurrences of `,` to occurrences of `","` separator). Extractor splits on `","` boundaries; decoder restores `,` from `%2C`. New fixtures cover comma-rejection, `%2C` round-trip, baseline 2-option split. |
 
 ## Revision 5 changelog (closes fourth-pass Codex findings — bash-mechanical)
 
@@ -259,7 +265,17 @@ expressed as JSON escapes:
 | tab | `%09` |
 | double-quote | `%22` |
 | backslash | `%5C` |
+| literal `,` (in options only) | `%2C` (Rev6) |
 | literal `%` | `%25` (Rev5) |
+
+**Why `%2C` (Rev6):** the question payload's `options` field is a
+JSON array. The line-based extractor splits on the inter-option
+delimiter `","`. If an option text legitimately contains a literal
+comma (e.g., `"Use Postgres, not MySQL"`), the naïve splitter would
+fabricate extra options. The validator rejects literal commas in
+option text, forcing trooper to encode them. The extractor then
+splits unambiguously on `","` boundaries; the decoder restores the
+literal comma in the option string.
 
 The `%25` escape lets a trooper ask about literal percent-sequences
 without the directive silently injecting decoded values. To send the

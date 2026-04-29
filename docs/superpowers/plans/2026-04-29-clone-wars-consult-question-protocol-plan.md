@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Revision 5 — incorporates fourth-pass Codex adversarial findings (bash-mechanical bugs in Rev4 closed here).
+**Status:** Revision 6 — incorporates fifth-pass Codex finding (options-extractor comma corruption).
 
 **Goal:** Implement the trooper-question protocol and skill routing defined in `docs/superpowers/specs/2026-04-29-clone-wars-consult-question-protocol-design.md` (Rev 2).
 
@@ -13,6 +13,12 @@
 **Branch:** `feat/v0.3-question-protocol` off `main` (after v0.2.1 merges).
 
 **Total tasks:** 11. TDD throughout; every task includes a failing test, the implementation, the passing test, and a commit.
+
+## Revision 6 changelog (fifth Codex pass — options-comma corruption)
+
+| # | Codex Rev5 finding | Resolution |
+|---|---|---|
+| H1⁗ | Extractor turned every comma to pipe → comma-bearing option fabricated extras | Added `%2C` to encoding contract; validator rejects un-encoded commas in options; extractor splits on `","` only; decoder adds `%2C → ,` pass. Fixtures 11a/11b/11c/11d cover the round-trip + rejection. |
 
 ## Revision 5 changelog (fourth Codex pass — bash-mechanical bugs)
 
@@ -386,21 +392,25 @@ via your outbox, but follow these rules:
    When inbox.md changes, read the line beginning "ANSWER: " — that is
    the response. Resume your skill loop with it.
 
-3. CHARACTER ENCODING (Rev3 + Rev4 + Rev5): the question's "text" and
-   "options" fields are PRINTABLE ASCII ONLY (0x20-0x7E). Special chars
-   must be percent-encoded; JSON escapes are rejected; non-ASCII (UTF-8,
-   emoji, non-Latin scripts) is rejected. Required encoding map:
-     newline      →  %0A
-     tab          →  %09
-     double-quote →  %22
-     backslash    →  %5C
-     literal %    →  %25      (Rev5 — to ask about literal percent text)
+3. CHARACTER ENCODING (Rev3 + Rev4 + Rev5 + Rev6): the question's
+   "text" and "options" fields are PRINTABLE ASCII ONLY (0x20-0x7E).
+   Special chars must be percent-encoded; JSON escapes are rejected;
+   non-ASCII (UTF-8, emoji, non-Latin scripts) is rejected. Required
+   encoding map:
+     newline               →  %0A
+     tab                   →  %09
+     double-quote          →  %22
+     backslash             →  %5C
+     literal , (in options) →  %2C  (Rev6 — option-array delimiter)
+     literal %             →  %25  (Rev5 — escape the escape itself)
    Example: instead of {"text":"He said \"hi\""} write
-   {"text":"He said %22hi%22"}. To ask about literal "%22" (the encoding
-   itself), write "%2522". The general decodes %xx before answering;
-   you receive plain text in the ANSWER line. If you need to ask in
-   another language or include emoji, transliterate to ASCII first
-   (v0.3.0 protocol limitation; v0.3.1+ will add full JSON decoding).
+   {"text":"He said %22hi%22"}. For options like "Use Postgres, not
+   MySQL", encode the comma: {"options":["Use Postgres%2C not MySQL"]}.
+   To ask about literal "%22" (the encoding itself), write "%2522".
+   The general decodes %xx before answering; you receive plain text
+   in the ANSWER line. If you need to ask in another language or
+   include emoji, transliterate to ASCII first (v0.3.0 protocol
+   limitation; v0.3.1+ will add full JSON decoding).
 
 4. Do not pre-classify questions as critical/non-critical. The general
    makes that call. Just ask plainly.
@@ -442,9 +452,10 @@ Jedi general via your outbox, but follow these rules:
    When inbox.md changes, read the line beginning "ANSWER: " — that is
    the response. Resume your skill loop with it.
 
-3. CHARACTER ENCODING (Rev3 + Rev4 + Rev5): "text" and "options" are
-   PRINTABLE ASCII ONLY (0x20-0x7E). Percent-encode special chars:
-     newline → %0A, tab → %09, " → %22, \ → %5C, literal % → %25.
+3. CHARACTER ENCODING (Rev3-6): "text" and "options" are PRINTABLE
+   ASCII ONLY (0x20-0x7E). Percent-encode special chars:
+     newline → %0A, tab → %09, " → %22, \ → %5C,
+     literal , (in options) → %2C, literal % → %25.
    JSON escapes (\", \\, \n, \uXXXX) and non-ASCII bytes (UTF-8, emoji)
    are rejected. v0.3.0 protocol limitation; full JSON decoding deferred
    to v0.3.1+.
@@ -787,6 +798,40 @@ cw_consult_question_extract_to_payload '{"event":"question","text":"x","options"
   || { echo "FAIL: empty options should produce empty OPTIONS" >&2; exit 1; }
 pass "empty options array round-trips as empty OPTIONS"
 
+# === Rev6: comma-in-options handling (Codex Rev5 #1) ===
+# 11a. Literal comma in option text → validator REJECTS.
+cw_consult_question_validate_line \
+  '{"event":"question","text":"x","options":["Use Postgres, not MySQL","Use SQLite"]}' \
+  && { echo "FAIL: Rev6 — literal comma in option must be rejected" >&2; exit 1; } || true
+pass "Rev6 comma-rejection: literal comma in option fails validation"
+
+# 11b. Trooper using %2C for literal comma → accepted, decodes correctly.
+cw_consult_question_extract_to_payload \
+  '{"event":"question","text":"choose backend","options":["Use Postgres%2C not MySQL","Use SQLite"]}' \
+  "$TMP/q5b.txt" "research"
+read_opts5b=$(cw_consult_question_payload_read "$TMP/q5b.txt" OPTIONS)
+[[ "$read_opts5b" == 'Use Postgres, not MySQL|Use SQLite' ]] \
+  || { echo "FAIL: Rev6 — %2C decoding broken; got: $read_opts5b" >&2; exit 1; }
+pass "Rev6 %2C decoding: option with %2C round-trips with literal comma"
+
+# 11c. Two options no commas → standard split works.
+cw_consult_question_extract_to_payload \
+  '{"event":"question","text":"x","options":["A","B"]}' \
+  "$TMP/q5c.txt" "research"
+read_opts5c=$(cw_consult_question_payload_read "$TMP/q5c.txt" OPTIONS)
+[[ "$read_opts5c" == 'A|B' ]] \
+  || { echo "FAIL: Rev6 — basic split broken; got: $read_opts5c" >&2; exit 1; }
+pass "Rev6 baseline: basic 2-option split still works"
+
+# 11d. extract_to_payload refuses comma-bearing options — no payload.
+rm -f "$TMP/q5d.txt"
+cw_consult_question_extract_to_payload \
+  '{"event":"question","text":"x","options":["Use Postgres, not MySQL"]}' \
+  "$TMP/q5d.txt" "research" && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] || { echo "FAIL: Rev6 — extract should fail on comma" >&2; exit 1; }
+[[ ! -f "$TMP/q5d.txt" ]] || { echo "FAIL: Rev6 — payload should not be written" >&2; exit 1; }
+pass "Rev6: extract refuses to write payload with comma-bearing options"
+
 # === Rev3 escaped-quote fail-closed (Codex Rev2 M-tier) ===
 # 12. Escaped quotes in text → validator REJECTS (rather than mis-extracting
 #     to truncated text). This is intentional fail-closed: the autonomy
@@ -898,6 +943,7 @@ cw_consult_question_payload_read() {
       raw=${raw//%09/$'\t'}
       raw=${raw//%22/\"}
       raw=${raw//%5C/\\}
+      raw=${raw//%2C/,}     # Rev6: literal-comma escape (for OPTIONS)
       raw=${raw//%25/%}     # Rev5: literal-percent escape — must be LAST
       ;;
   esac
@@ -919,18 +965,33 @@ cw_consult_question_payload_read() {
 cw_consult_question_validate_line() {
   local line="$1"
   [[ "$line" == *'"event":"question"'* ]] || return 1
-  # Rev5 fix (Codex Rev4 #1): reject anything outside printable ASCII
-  # (space 0x20 .. tilde 0x7E). Using $'\x00-\x7f' would put a NUL into
-  # the grep pattern and truncate it; GNU grep returns rc=2 and the
-  # validator silently accepts emoji. The printable-ASCII range is
-  # what the contract actually requires, so [^ -~] is both correct and
-  # NUL-free.
+  # Rev5 fix (Codex Rev4 #1): reject anything outside printable ASCII.
   if LC_ALL=C printf '%s' "$line" | LC_ALL=C grep -q '[^ -~]'; then
     return 1
   fi
   # Require a "text":"..." field with non-empty content; no escaped quotes
-  # (would slip through [^"]+ and corrupt extraction); no backslashes.
+  # or backslashes (would slip through [^"\\]+ and corrupt extraction).
   printf '%s' "$line" | grep -qE '"text":"[^"\\]+"' || return 1
+  # Rev6 fix (Codex Rev5 #1): if an "options" array exists, each option
+  # string must contain no literal commas (which would split the array
+  # ambiguously) and no literal quotes/backslashes (extractor uses `","`
+  # as the inter-option delimiter). Trooper must encode these as
+  # %2C (comma), %22 (quote), %5C (backslash).
+  if printf '%s' "$line" | grep -q '"options":\['; then
+    # Extract the array contents and look at each option.
+    local raw_opts
+    raw_opts=$(printf '%s' "$line" | sed -n 's/.*"options":\[\([^]]*\)\].*/\1/p')
+    # The valid form is "opt1","opt2","opt3" (no spaces inside quotes,
+    # commas/quotes/backslashes inside option text encoded as %xx).
+    # Reject if any literal `,` appears OUTSIDE the inter-option `","`.
+    # Simpler: count occurrences of `","` plus 1 — that's option count.
+    # If the raw string has more `,` chars than that, an option contains a
+    # literal comma — reject.
+    local sep_count comma_count
+    sep_count=$(printf '%s' "$raw_opts" | grep -o '","' | wc -l | tr -d ' ')
+    comma_count=$(printf '%s' "$raw_opts" | tr -cd ',' | wc -c | tr -d ' ')
+    [[ "$sep_count" -eq "$comma_count" ]] || return 1
+  fi
   return 0
 }
 
@@ -938,14 +999,27 @@ cw_consult_question_validate_line() {
 # Validates + extracts the question event into the payload file format
 # expected by cw_consult_question_payload_read. Returns rc=0 on success,
 # rc=1 on validation/parse failure (no payload written).
+#
+# Rev6 fix (Codex Rev5 #1): the old extraction `s/, */|/g; s/,/|/g`
+# converted every comma to a pipe, fabricating extra options when an
+# option text legitimately contained a comma (e.g. "Use Postgres, not
+# MySQL" became 2 options "Use Postgres|not MySQL"). Fix: validator
+# now rejects literal commas inside options strings; trooper must use
+# %2C for literal commas (autonomy contract teaches this). With commas
+# forbidden in option text, splitting on `","` boundaries is unambiguous.
 cw_consult_question_extract_to_payload() {
   local line="$1" path="$2" phase="$3"
   cw_consult_question_validate_line "$line" || return 1
   local text opts
   text=$(printf '%s' "$line" | sed -n 's/.*"text":"\([^"]*\)".*/\1/p')
   [[ -n "$text" ]] || return 1
-  opts=$(printf '%s' "$line" | sed -n 's/.*"options":\[\([^]]*\)\].*/\1/p' \
-                              | sed 's/"//g; s/, */|/g; s/,/|/g')
+  # Extract the raw options-array contents (between [ and ]).
+  local raw_opts
+  raw_opts=$(printf '%s' "$line" | sed -n 's/.*"options":\[\([^]]*\)\].*/\1/p')
+  # Split on `","` boundaries (the JSON array delimiter), strip surrounding
+  # quotes from outer items. This is unambiguous because validator forbade
+  # literal `,` and `"` inside option text.
+  opts=$(printf '%s' "$raw_opts" | sed 's/^"//; s/"$//; s/","/|/g')
   cw_consult_question_payload_write "$path" "$text" "$opts" "$phase"
 }
 
