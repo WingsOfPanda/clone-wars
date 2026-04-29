@@ -362,3 +362,30 @@ cw_consult_write_adjudicated() {
     fi
   } > "$out"
 }
+
+# cw_consult_classify_topic <topic-text>  (v0.3.0)
+# Echo one of: brainstorming | systematic-debugging | none.
+# Brainstorming wins ties. Triggers case-insensitive, word-boundary anchored.
+# "design"/"structure"/"approach" alone do NOT trigger (Codex Rev1 M-tier).
+cw_consult_classify_topic() {
+  local topic="$1"
+  local lower
+  lower=$(printf '%s' "$topic" | tr '[:upper:]' '[:lower:]')
+
+  # Word-boundary fence: surround triggers with space/punctuation boundaries.
+  # Bash =~ POSIX ERE has no portable \b — replace punctuation with spaces.
+  local fenced=" $lower "
+  fenced=${fenced//[[:punct:]]/ }
+  fenced=$(printf '%s' "$fenced" | tr -s ' ')
+
+  local brain_re='( design patterns? | how should | best way | what s the best way | what is the best way | decide between )'
+  local debug_re='( why | broken | failing | regressions? | edge cases? | bugs? | doesn t work | does not work )'
+
+  if [[ "$fenced" =~ $brain_re ]]; then
+    printf 'brainstorming\n'
+  elif [[ "$fenced" =~ $debug_re ]]; then
+    printf 'systematic-debugging\n'
+  else
+    printf 'none\n'
+  fi
+}
