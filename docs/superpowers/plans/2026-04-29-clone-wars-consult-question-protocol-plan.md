@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Revision 3 — incorporates second-pass Codex adversarial findings (Rev2 left 4 unresolved; this revision closes them).
+**Status:** Revision 4 — incorporates third-pass Codex adversarial findings (Rev3 left 3 unresolved; this revision closes them).
 
 **Goal:** Implement the trooper-question protocol and skill routing defined in `docs/superpowers/specs/2026-04-29-clone-wars-consult-question-protocol-design.md` (Rev 2).
 
@@ -13,6 +13,14 @@
 **Branch:** `feat/v0.3-question-protocol` off `main` (after v0.2.1 merges).
 
 **Total tasks:** 11. TDD throughout; every task includes a failing test, the implementation, the passing test, and a commit.
+
+## Revision 4 changelog (third Codex pass)
+
+| # | Codex Rev3 finding | Resolution |
+|---|---|---|
+| H1″ | Reader decodes only `%0A` but contract teaches 4 encodings | Task 5 helper decodes `%0A %09 %22 %5C` for both TEXT and OPTIONS. Fixtures 2a, 2b cover full round-trip. |
+| H2″ | UTF-8 char-count vs byte-count mismatch under-advances OFFSET | Task 5 validator rejects any byte ≥ 0x80 (ASCII-only). Task 5 helper runs read-loop with `LC_ALL=C` for byte-mode arithmetic (defensive against non-ASCII in done/error events). Fixtures 15-18 cover: emoji rejected, plain ASCII still accepted, byte-mode regression with 50-char/53-byte line. |
+| M3″ | Strict dogfood SKIPs on spawn failure + lacks per-call wait timeout | Task 10 strict: spawn failure → FAIL when prereqs satisfied; each inner wait call sets `CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=10` so 120s outer deadline is enforceable. |
 
 ## Revision 3 changelog (second Codex pass)
 
@@ -369,17 +377,20 @@ via your outbox, but follow these rules:
    When inbox.md changes, read the line beginning "ANSWER: " — that is
    the response. Resume your skill loop with it.
 
-3. CHARACTER ENCODING (Rev3): in the question's "text" and "options"
-   fields, you MUST percent-encode special characters instead of using
-   JSON escapes. The general's parser is line-based and rejects payloads
-   with backslash escapes. Encoding map:
+3. CHARACTER ENCODING (Rev3 + Rev4): the question's "text" and "options"
+   fields are PRINTABLE ASCII ONLY (0x20-0x7E). Special chars must be
+   percent-encoded; JSON escapes are rejected; non-ASCII (UTF-8, emoji,
+   non-Latin scripts) is rejected. Required encoding map:
      newline      →  %0A
      tab          →  %09
      double-quote →  %22
      backslash    →  %5C
    Example: instead of {"text":"He said \"hi\""} write
    {"text":"He said %22hi%22"}. The general decodes %xx before
-   answering; you receive plain text in the ANSWER line.
+   answering; you receive plain text in the ANSWER line. If you need
+   to ask in another language or include emoji, transliterate to ASCII
+   first (this is a v0.3.0 protocol limitation; v0.3.1+ will add full
+   JSON decoding).
 
 4. Do not pre-classify questions as critical/non-critical. The general
    makes that call. Just ask plainly.
@@ -421,10 +432,12 @@ Jedi general via your outbox, but follow these rules:
    When inbox.md changes, read the line beginning "ANSWER: " — that is
    the response. Resume your skill loop with it.
 
-3. CHARACTER ENCODING (Rev3): in the question's "text" and "options"
-   fields, percent-encode special characters instead of JSON escapes:
+3. CHARACTER ENCODING (Rev3 + Rev4): "text" and "options" are
+   PRINTABLE ASCII ONLY (0x20-0x7E). Percent-encode special chars:
      newline → %0A, tab → %09, " → %22, \ → %5C.
-   The general's parser rejects payloads with backslash escapes.
+   JSON escapes (\", \\, \n, \uXXXX) and non-ASCII bytes (UTF-8, emoji)
+   are rejected. v0.3.0 protocol limitation; full JSON decoding deferred
+   to v0.3.1+.
 
 4. Do not pre-classify questions as critical/non-critical. The general
    makes that call. Just ask plainly.
@@ -649,6 +662,32 @@ read_text2=$(cw_consult_question_payload_read "$TMP/q2.txt" TEXT)
   || { echo "FAIL: multi-line round-trip broken: $(printf '%q' "$read_text2")" >&2; exit 1; }
 pass "multi-line text round-trips via %0A encoding"
 
+# 2a. Rev4 (Codex Rev3 #1): all four percent-encodings decode in TEXT.
+# Simulate a trooper having written percent-encoded special chars into
+# the payload file (skipping write helper, since write only encodes %0A).
+cat > "$TMP/q2a.txt" <<'PAY'
+TEXT=He said %22hi%22%0Athen left a path C:%5Cusers%09tab
+PHASE=research
+ASKED_AT=0
+PAY
+read_text2a=$(cw_consult_question_payload_read "$TMP/q2a.txt" TEXT)
+expected=$'He said "hi"\nthen left a path C:\\users\ttab'
+[[ "$read_text2a" == "$expected" ]] \
+  || { echo "FAIL: Rev4 4-encoding decoder broken — got: $(printf '%q' "$read_text2a")" >&2; exit 1; }
+pass "Rev4 decoder: %0A %09 %22 %5C all decode correctly in TEXT"
+
+# 2b. Same encodings decode in OPTIONS too.
+cat > "$TMP/q2b.txt" <<'PAY'
+TEXT=x
+OPTIONS=op%22A%22|op%22B%22
+PHASE=research
+ASKED_AT=0
+PAY
+read_opts2b=$(cw_consult_question_payload_read "$TMP/q2b.txt" OPTIONS)
+[[ "$read_opts2b" == 'op"A"|op"B"' ]] \
+  || { echo "FAIL: OPTIONS decoder broken — got: $read_opts2b" >&2; exit 1; }
+pass "Rev4 decoder: OPTIONS field also decodes %22 (and other encodings)"
+
 # 3. OPTIONS line round-trips.
 read_opts=$(cw_consult_question_payload_read "$TMP/q2.txt" OPTIONS)
 assert_eq "$read_opts" "A|B" "OPTIONS round-trip"
@@ -725,6 +764,42 @@ cw_consult_question_extract_to_payload \
 [[ "$rc" -ne 0 ]] || { echo "FAIL: extract should fail on escaped-quote input" >&2; exit 1; }
 [[ ! -f "$TMP/q6.txt" ]] || { echo "FAIL: payload should not be written for escaped-quote" >&2; exit 1; }
 pass "Rev3 escaped-quote: extract refuses to write payload"
+
+# === Rev4 ASCII-only enforcement (Codex Rev3 #2) ===
+# 15. Non-ASCII (UTF-8 emoji) in text → validator REJECTS.
+cw_consult_question_validate_line $'{"event":"question","text":"emoji \xf0\x9f\x98\x80","options":[]}' \
+  && { echo "FAIL: Rev4 — non-ASCII text should fail validation" >&2; exit 1; } || true
+pass "Rev4 ASCII-only: emoji text rejected"
+
+# 16. ASCII-only text passes (regression — make sure validator still
+#     accepts plain ASCII after Rev4 tightening).
+cw_consult_question_validate_line '{"event":"question","text":"plain ascii","options":[]}' \
+  || { echo "FAIL: Rev4 — plain ASCII should still pass" >&2; exit 1; }
+pass "Rev4 ASCII-only: plain text still accepted"
+
+# 17. extract_to_payload rejects non-ASCII — no payload written.
+rm -f "$TMP/q7.txt"
+cw_consult_question_extract_to_payload \
+  $'{"event":"question","text":"emoji \xf0\x9f\x98\x80","options":[]}' "$TMP/q7.txt" "research" \
+  && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] || { echo "FAIL: Rev4 — extract should fail on emoji input" >&2; exit 1; }
+[[ ! -f "$TMP/q7.txt" ]] || { echo "FAIL: Rev4 — emoji payload should not be written" >&2; exit 1; }
+pass "Rev4 ASCII-only: extract refuses emoji payload"
+
+# 18. cw_consult_outbox_match_endbyte byte-mode arithmetic — defensive test.
+# Even if a done/error event slipped non-ASCII bytes through (questions
+# can't), the helper should advance by BYTE count not char count.
+TMP_BOX=$(mktemp); trap "rm -f $TMP_BOX" RETURN
+echo '{"event":"ack"}' > "$TMP_BOX"
+START=$(wc -c < "$TMP_BOX" | tr -d ' ')
+# Append a line with a 4-byte emoji (1 char) — total line is 50 chars / 53 bytes.
+EMOJI_LINE=$'{"event":"done","note":"\xf0\x9f\x98\x80 emoji included"}'
+echo "$EMOJI_LINE" >> "$TMP_BOX"
+EXPECTED_END=$(wc -c < "$TMP_BOX" | tr -d ' ')
+ACTUAL_END=$(cw_consult_outbox_match_endbyte "$TMP_BOX" "$START" "$EMOJI_LINE")
+[[ "$ACTUAL_END" == "$EXPECTED_END" ]] \
+  || { echo "FAIL: Rev4 — outbox_match_endbyte byte-mode broken; got $ACTUAL_END expected $EXPECTED_END" >&2; exit 1; }
+pass "Rev4 byte-mode: cw_consult_outbox_match_endbyte advances by bytes (LC_ALL=C)"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -754,33 +829,51 @@ cw_consult_question_payload_write() {
 }
 
 # cw_consult_question_payload_read <file> <key>
-# Echo the value for KEY. Decodes %0A back to newline for TEXT.
+# Echo the value for KEY. Decodes ALL four percent-encodings the autonomy
+# contract teaches the trooper to use:
+#   %0A → newline    %09 → tab    %22 → "    %5C → \
+# Applied to both TEXT and OPTIONS (Rev4 — Codex Rev3 #1 closure).
 cw_consult_question_payload_read() {
   local file="$1" key="$2"
   [[ -f "$file" ]] || return 1
   local raw
   raw=$(awk -F= -v k="$key" '$1==k { sub(/^[^=]*=/, ""); print; exit }' "$file")
-  if [[ "$key" == "TEXT" ]]; then
-    raw=${raw//%0A/$'\n'}
-  fi
+  case "$key" in
+    TEXT|OPTIONS)
+      # Order matters: decode %5C last so we don't double-decode any
+      # other percent sequences nested inside. (Trooper's contract is to
+      # use these exact 4 sequences for SPECIAL chars; they don't
+      # combine with `%xx` in arbitrary text.)
+      raw=${raw//%0A/$'\n'}
+      raw=${raw//%09/$'\t'}
+      raw=${raw//%22/\"}
+      raw=${raw//%5C/\\}
+      ;;
+  esac
   printf '%s' "$raw"
 }
 
 # cw_consult_question_validate_line <json-line>
 # Returns 0 if the line is a parseable {"event":"question",...} with non-empty
-# text AND no JSON escapes (which the sed extractor cannot handle). Returns
-# rc=1 otherwise. Used by wait-script to gate FS=question vs FS=failed
-# (Codex Rev1 M5 closure + Rev2 M-tier escaped-quote tightening).
+# text AND no JSON escapes AND no non-ASCII bytes. rc=1 otherwise.
+# Used by wait-script to gate FS=question vs FS=failed.
 #
-# Rev3 fail-closed policy: payloads containing backslash escapes
-# (\", \\, \n, \t, \uXXXX, etc.) are REJECTED rather than mis-extracted.
-# The trooper must percent-encode special characters via the autonomy
-# contract instead. A real JSON decoder is deferred to v0.3.1+.
+# Rev3 fail-closed: payloads with backslash escapes (\", \\, \n, \t, \uXXXX)
+# rejected. Trooper must percent-encode (autonomy contract).
+# Rev4 fail-closed: payloads with non-ASCII bytes (>= 0x80) also rejected.
+# Without this, the offset helper's char-count math (${#line}) under-advances
+# in byte-mode — verified empirically by Codex Rev3 with emoji = 50 chars but
+# 53 bytes. ASCII-only keeps offset math exact. Multi-byte content is deferred
+# to v0.3.1+ along with the JSON decoder.
 cw_consult_question_validate_line() {
   local line="$1"
   [[ "$line" == *'"event":"question"'* ]] || return 1
-  # Require a "text":"..." field with non-empty content (no escaped quotes
-  # — escaped quotes would slip through [^"]+ and corrupt extraction).
+  # Reject non-ASCII bytes (must use LC_ALL=C so byte-class match is exact).
+  if LC_ALL=C printf '%s' "$line" | LC_ALL=C grep -q $'[^\x00-\x7f]'; then
+    return 1
+  fi
+  # Require a "text":"..." field with non-empty content; no escaped quotes
+  # (would slip through [^"]+ and corrupt extraction); no backslashes.
   printf '%s' "$line" | grep -qE '"text":"[^"\\]+"' || return 1
   return 0
 }
@@ -801,20 +894,18 @@ cw_consult_question_extract_to_payload() {
 }
 
 # cw_consult_outbox_match_endbyte <outbox-path> <start-offset> <matched-line>
-# Rev3 H2-race fix: the wait-script's old approach was NEW_OFFSET=$(wc -c < outbox)
-# AFTER cw_outbox_wait_since returned — but the trooper might have written more
-# events in that window, silently skipping them. This helper instead returns
-# start-offset + bytes-up-to-and-including the matched line — the exact byte
-# position past which the next wait should resume.
-#
-# Echoes the byte-position; rc=0 if matched line found in tail starting at
-# start-offset; rc=1 if not found. Callers fall back to start-offset on rc=1.
+# Returns OFFSET + bytes-up-to-and-including the matched line. Rev4: explicitly
+# byte-mode via LC_ALL=C so ${#line} is byte count even if a non-ASCII byte
+# leaked past the validator (defensive — the validator already rejects
+# non-ASCII in question events, but `done`/`error` events are not validated).
 cw_consult_outbox_match_endbyte() {
   local outbox="$1" start="$2" matched="$3"
   [[ -f "$outbox" ]] || return 1
   local pos=$start
   local line
-  while IFS= read -r line; do
+  # LC_ALL=C makes ${#line} report byte count (not char count). Without it,
+  # any leaked UTF-8 in done/error events would under-advance the offset.
+  while LC_ALL=C IFS= read -r line; do
     # +1 for the trailing newline that read -r stripped.
     pos=$(( pos + ${#line} + 1 ))
     if [[ "$line" == "$matched" ]]; then
@@ -826,11 +917,11 @@ cw_consult_outbox_match_endbyte() {
 }
 ```
 
-> **Byte-vs-character note:** `${#line}` is character count, not byte count.
-> Our outbox JSON is ASCII-only by protocol (multi-byte content is
-> percent-encoded by the trooper), so character count = byte count and the
-> arithmetic is exact. If the protocol relaxes this in the future, switch
-> to `LC_ALL=C` + `awk 'length($0)'` for byte-mode length.
+> **Byte-mode arithmetic (Rev4):** the helper runs the read-loop under
+> `LC_ALL=C`, which makes `${#line}` byte-count (not char-count). Combined
+> with the validator's ASCII-only rejection for question events, this
+> ensures offset advancement is exact. Verified against Codex Rev3's emoji
+> regression case (50 chars / 53 bytes — under `LC_ALL=C` it's 53/53).
 
 (The old `cw_consult_question_extract_from_outbox` is replaced — see Task 6
 for the wait-script call site that uses these helpers.)
@@ -1777,19 +1868,27 @@ TD="$CLONE_WARS_HOME/state/$RH/$TOPIC"
 [[ "$(cat "$TD/_consult/skill.txt")" == "brainstorming" ]] \
   || { echo "FAIL: expected brainstorming classification"; exit 1; }
 
+# Rev4 (Codex Rev3 #3): once prereqs (codex+tmux+TMUX) are satisfied,
+# spawn failure is a real harness failure — FAIL not SKIP.
 if ! ../bin/spawn.sh rex codex "$TOPIC" >/dev/null 2>&1; then
-  echo "SKIP: codex spawn failed — STRICT dogfood skipped"
-  exit 0
+  echo "FAIL: STRICT — codex spawn failed despite prereqs satisfied"
+  exit 1
 fi
 trap 'rm -rf "$TMP"; ../bin/consult-teardown.sh "$TOPIC" >/dev/null 2>&1 || true' EXIT
 
-../bin/consult-research-send.sh "$TOPIC" rex codex >/dev/null 2>&1
+if ! ../bin/consult-research-send.sh "$TOPIC" rex codex >/dev/null 2>&1; then
+  echo "FAIL: STRICT — consult-research-send failed despite prereqs"
+  exit 1
+fi
 
 # Wait up to 120s for FS=question. STRICT: any FS other than 'question'
 # in this loop fails the test.
+# Rev4: per-call wait timeout = 10s, so the outer 120s deadline is real
+# (each inner wait blocks at most 10s, not the default 600s).
 T0=$(date +%s); DEADLINE=$((T0 + 120))
 while (( $(date +%s) < DEADLINE )); do
-  ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1 || true
+  CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=10 \
+    ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1 || true
   FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" 2>/dev/null | tail -1 | cut -d= -f2 || echo "")
   [[ -n "$FS" ]] && break
   sleep 2
@@ -1819,7 +1918,8 @@ END_OF_INSTRUCTION" >/dev/null 2>&1
 
 T1=$(date +%s); DEADLINE2=$((T1 + 90))
 while (( $(date +%s) < DEADLINE2 )); do
-  ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1 || true
+  CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=10 \
+    ../bin/consult-research-wait.sh "$TOPIC" rex codex >/dev/null 2>&1 || true
   FS=$(grep '^FS=' "$TD/_consult/research-rex.txt" 2>/dev/null | tail -1 | cut -d= -f2 || echo "")
   [[ "$FS" == "ok" || "$FS" == "empty" || "$FS" == "missing" || "$FS" == "question" ]] && break
   sleep 2

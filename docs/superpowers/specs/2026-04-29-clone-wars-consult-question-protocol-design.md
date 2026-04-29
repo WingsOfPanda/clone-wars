@@ -1,10 +1,18 @@
 # /clone-wars:consult v0.3 — Trooper Question Protocol + Skill Routing
 
-**Status:** Design — Revision 3 (post-second Codex adversarial review, 2026-04-29)
+**Status:** Design — Revision 4 (post-third Codex adversarial review, 2026-04-29)
 **Date:** 2026-04-29
 **Target version:** v0.3.0
 **Builds on:** v0.2.1 (split orchestrator + Jedi general pool)
 **Spec it extends:** `docs/superpowers/specs/2026-04-29-clone-wars-consult-v2-design.md`
+
+## Revision 4 changelog (closes third-pass Codex findings)
+
+| # | Codex Rev3 finding | Resolution |
+|---|---|---|
+| H1″ | `cw_consult_question_payload_read` only decodes `%0A`, but autonomy contract teaches `%22`/`%5C`/`%09` too — those reach the directive as raw `%xx` | Reader decodes ALL four percent-encodings (`%0A %09 %22 %5C`) for both TEXT and OPTIONS. New fixtures cover full round-trip incl. OPTIONS decoding. |
+| H2″ | UTF-8 in question text passes validator; offset helper `${#line}` is char-count not byte-count → under-advances OFFSET by N bytes; verified empirically with emoji (50 chars vs 53 bytes) | (a) Validator now rejects any byte ≥ 0x80 (non-ASCII). Trooper must use only printable ASCII + the four percent-encodings. (b) Defensive: `cw_consult_outbox_match_endbyte` runs its read-loop under `LC_ALL=C` so `${#line}` is byte-count even if a non-ASCII byte slipped through `done`/`error` events (which aren't validated). New fixtures: emoji text → FS=failed; outbox_match_endbyte byte-mode regression. |
+| M3″ | Strict dogfood test (a) treats `spawn.sh` failure as SKIP rc=0 even after prereqs OK; (b) wraps a 120s outer deadline around `consult-research-wait.sh` without per-call override, so default 600s wait can block past the gate window | (a) After codex+tmux+`$TMUX` checks pass, spawn failure → FAIL not SKIP. (b) Each inner wait call sets `CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=10` so the 120s outer deadline is real. |
 
 ## Revision 3 changelog (closes second-pass Codex findings)
 
@@ -230,10 +238,11 @@ re-run's `source $STATE_FILE` picks up the latest `OFFSET=` (last-wins).
 calling it would overwrite `inbox.md` (clobbering the ANSWER) and rebuild
 the prompt from scratch.
 
-### Trooper-side encoding requirement (Rev3)
+### Trooper-side encoding requirement (Rev3 + Rev4)
 
-The trooper MUST **percent-encode special characters** in the `text`
-and `options` fields rather than using JSON escape sequences:
+Question event `text` and `options` fields are **printable ASCII only**
+(`0x20`-`0x7E`), with these four characters percent-encoded instead of
+expressed as JSON escapes:
 
 | Character | Required encoding |
 |---|---|
@@ -242,11 +251,16 @@ and `options` fields rather than using JSON escape sequences:
 | double-quote | `%22` |
 | backslash | `%5C` |
 
-The autonomy contract instructs troopers to do this. The validator
-fail-closes on any backslash in `text`, so a trooper that emits
-`"text":"He said \"hi\""` gets `FS=failed` (not a corrupted question).
-This avoids the JSON-via-sed extractor's known limitations until a
-proper decoder lands in v0.3.1+.
+**Validator fail-closes on:**
+- Any byte ≥ `0x80` (Rev4 — multi-byte UTF-8 sequences would break offset
+  math; deferred to v0.3.1+ when a proper JSON decoder lands).
+- Any literal backslash (`\`) in `text` (would slip past the sed extractor
+  via `\"` and corrupt extraction).
+
+A trooper that emits `"text":"He said \"hi\""` gets `FS=failed`. Same for
+emoji or non-Latin scripts. This narrow contract keeps the line-based
+parser exact and the byte-offset arithmetic deterministic. The directive
+decodes all four percent-encodings before answering.
 
 ### Critical-question file format
 
