@@ -16,6 +16,12 @@ fi
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 export CLONE_WARS_HOME="$TMP/cw"
 export CLAUDE_PLUGIN_ROOT="$(cd .. && pwd)"
+
+mkdir -p "$CLONE_WARS_HOME"
+cp ../config/contracts.yaml       "$CLONE_WARS_HOME/contracts.yaml"
+cp ../config/commanders.yaml      "$CLONE_WARS_HOME/commanders.yaml"
+cp ../config/identity-template.md "$CLONE_WARS_HOME/identity-template.md"
+
 source ../lib/state.sh
 source ../lib/ipc.sh
 source ../lib/consult.sh
@@ -36,7 +42,8 @@ SKILL=$(cat "$TD/_consult/skill.txt")
 if ! ../bin/spawn.sh rex codex "$TOPIC" >/dev/null 2>&1; then
   echo "  SKIP: codex spawn failed"; exit 0
 fi
-trap 'rm -rf "$TMP"; ../bin/consult-teardown.sh "$TOPIC" >/dev/null 2>&1 || true' EXIT
+# Teardown FIRST (needs $CLONE_WARS_HOME state), THEN rm -rf.
+trap '../bin/consult-teardown.sh "$TOPIC" >/dev/null 2>&1 || true; rm -rf "$TMP"' EXIT
 
 ../bin/consult-research-send.sh "$TOPIC" rex codex >/dev/null 2>&1 || true
 

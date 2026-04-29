@@ -19,7 +19,7 @@ codex:
     full:      [--dangerously-bypass-approvals-and-sandbox]
     read-only: [--sandbox, read-only]
   default_mode: full
-  ready_timeout_s: 30
+  ready_timeout_s: 90
   bootstrap_sleep_s: 8
   identity_injection: send-keys-paste
 

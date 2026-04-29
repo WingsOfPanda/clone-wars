@@ -22,3 +22,13 @@ cw_repo_hash() {
     return 1
   fi
 }
+
+# cw_repo_root — resolve trooper's working directory.
+# Uses git toplevel when inside a repo (so the trooper sees the whole project,
+# not just the subdir the conductor happens to be in). Falls back to $PWD for
+# non-git dirs. Used by lib/tmux.sh for the -c flag of tmux split-window.
+cw_repo_root() {
+  local root
+  root=$(git rev-parse --show-toplevel 2>/dev/null) && { printf '%s\n' "$root"; return 0; }
+  printf '%s\n' "$PWD"
+}

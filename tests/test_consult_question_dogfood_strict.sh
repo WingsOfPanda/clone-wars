@@ -26,6 +26,12 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 export CLONE_WARS_HOME="$TMP/cw"
 export CLAUDE_PLUGIN_ROOT="$(cd .. && pwd)"
 
+# Stage the config files spawn.sh + identity-template need.
+mkdir -p "$CLONE_WARS_HOME"
+cp ../config/contracts.yaml       "$CLONE_WARS_HOME/contracts.yaml"
+cp ../config/commanders.yaml      "$CLONE_WARS_HOME/commanders.yaml"
+cp ../config/identity-template.md "$CLONE_WARS_HOME/identity-template.md"
+
 source ../lib/state.sh
 source ../lib/ipc.sh
 source ../lib/consult.sh
@@ -50,7 +56,10 @@ if ! ../bin/spawn.sh rex codex "$TOPIC" >/dev/null 2>&1; then
   echo "  SKIP: codex spawn failed — STRICT gate NOT exercised (release requires manual run)"
   exit 0
 fi
-trap 'rm -rf "$TMP"; ../bin/consult-teardown.sh "$TOPIC" >/dev/null 2>&1 || true' EXIT
+# Teardown FIRST (needs $CLONE_WARS_HOME state to find pane), THEN rm -rf.
+# Reversing this order leaks the pane: rm -rf nukes pane.json, then teardown
+# can't find the pane_id and exits silently via `|| true`.
+trap '../bin/consult-teardown.sh "$TOPIC" >/dev/null 2>&1 || true; rm -rf "$TMP"' EXIT
 
 if ! ../bin/consult-research-send.sh "$TOPIC" rex codex >/dev/null 2>&1; then
   echo "FAIL: STRICT — consult-research-send failed despite prereqs"

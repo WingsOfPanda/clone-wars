@@ -13,9 +13,9 @@ cw_pane_spawn_right() {
   local commander="$1" model="$2" topic="$3" launch="$4" target="${5:-}"
   local pane
   if [[ -n "$target" ]]; then
-    pane=$(tmux split-window -P -F '#{pane_id}' -h -t "$target" -c "$PWD" "$launch")
+    pane=$(tmux split-window -P -F '#{pane_id}' -h -t "$target" -c "$(cw_repo_root)" "$launch")
   else
-    pane=$(tmux split-window -P -F '#{pane_id}' -h -c "$PWD" "$launch")
+    pane=$(tmux split-window -P -F '#{pane_id}' -h -c "$(cw_repo_root)" "$launch")
   fi
   cw_pane_label_set "$pane" "$commander" "$model" "$topic"
   printf '%s\n' "$pane"
@@ -27,7 +27,7 @@ cw_pane_spawn_right() {
 cw_pane_spawn_down() {
   local commander="$1" model="$2" topic="$3" launch="$4" target="$5"
   local pane
-  pane=$(tmux split-window -P -F '#{pane_id}' -v -t "$target" -c "$PWD" "$launch")
+  pane=$(tmux split-window -P -F '#{pane_id}' -v -t "$target" -c "$(cw_repo_root)" "$launch")
   cw_pane_label_set "$pane" "$commander" "$model" "$topic"
   printf '%s\n' "$pane"
 }
