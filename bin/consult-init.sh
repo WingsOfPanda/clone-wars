@@ -38,7 +38,12 @@ done
 mkdir -p "$TOPIC_DIR/_consult"
 printf '%s' "$TOPIC_TEXT" > "$TOPIC_DIR/_consult/topic.txt"
 
+# v0.3: classify topic and persist skill hint for send-scripts.
+SKILL=$(cw_consult_classify_topic "$TOPIC_TEXT")
+printf '%s' "$SKILL" > "$TOPIC_DIR/_consult/skill.txt"
+
 log_info "consultation topic: $CONSULT_TOPIC"
 log_info "  artifacts dir:    $TOPIC_DIR/_consult"
+log_info "  skill hint:       $SKILL"
 
 printf '%s\n' "$CONSULT_TOPIC"

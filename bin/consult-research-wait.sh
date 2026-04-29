@@ -32,10 +32,57 @@ source "$STATE_FILE"   # sets OFFSET
 TIMEOUT="${CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE:-$(cw_consult_timeout research)}"
 log_info "[research-wait] $COMMANDER offset=$OFFSET timeout=${TIMEOUT}s"
 
-cw_outbox_wait_since "$COMMANDER" "$MODEL" "$TOPIC" "$OFFSET" done error "$TIMEOUT" >/dev/null || true
-# rc is intentionally ignored — status comes from cw_consult_findings_status.
+# v0.3: block on done|error|question; capture nothing (re-scan tail below).
+cw_outbox_wait_since "$COMMANDER" "$MODEL" "$TOPIC" "$OFFSET" done error question "$TIMEOUT" >/dev/null || true
 
 TROOPER_DIR=$(cw_trooper_dir "$COMMANDER" "$MODEL" "$TOPIC")
-FS=$(cw_consult_findings_status "$TROOPER_DIR/findings.md")
-printf 'FS=%s\n' "$FS" >> "$STATE_FILE"
-log_info "[research-wait] $COMMANDER FS=$FS"
+OUTBOX="$TROOPER_DIR/outbox.jsonl"
+
+# v0.3 priority + race fix:
+#   1. Terminal events (done/error) WIN over in-flight question events.
+#   2. Among questions, FIRST wins (head -n1) — serialization across re-arms.
+#   3. NEW_OFFSET is the matched line's exact end-byte (NOT wc -c of outbox,
+#      which would silently consume events written after the match).
+TAIL=$(tail -c "+$(( OFFSET + 1 ))" "$OUTBOX" 2>/dev/null || true)
+MATCHED=$(printf '%s\n' "$TAIL" | grep -m1 -E '"event":"(done|error)"' || true)
+[[ -z "$MATCHED" ]] \
+  && MATCHED=$(printf '%s\n' "$TAIL" | grep -m1 '"event":"question"' || true)
+EVENT=$(printf '%s' "$MATCHED" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p')
+
+if [[ -n "$MATCHED" ]]; then
+  NEW_OFFSET=$(cw_consult_outbox_match_endbyte "$OUTBOX" "$OFFSET" "$MATCHED" 2>/dev/null) \
+    || NEW_OFFSET="$OFFSET"
+else
+  NEW_OFFSET="$OFFSET"
+fi
+
+case "$EVENT" in
+  question)
+    if cw_consult_question_extract_to_payload \
+         "$MATCHED" "$ART_DIR/question-$COMMANDER.txt" "research"; then
+      printf 'OFFSET=%s\n' "$NEW_OFFSET" >> "$STATE_FILE"
+      printf 'FS=question\n' >> "$STATE_FILE"
+      log_info "[research-wait] $COMMANDER FS=question (offset → $NEW_OFFSET)"
+    else
+      printf 'FS=failed\n' >> "$STATE_FILE"
+      log_warn "[research-wait] $COMMANDER FS=failed (malformed question payload)"
+    fi
+    ;;
+  done)
+    FS=$(cw_consult_findings_status "$TROOPER_DIR/findings.md")
+    printf 'FS=%s\n' "$FS" >> "$STATE_FILE"
+    log_info "[research-wait] $COMMANDER FS=$FS"
+    ;;
+  error)
+    printf 'FS=failed\n' >> "$STATE_FILE"
+    log_warn "[research-wait] $COMMANDER FS=failed (error event)"
+    ;;
+  '')
+    printf 'FS=timeout\n' >> "$STATE_FILE"
+    log_warn "[research-wait] $COMMANDER FS=timeout"
+    ;;
+  *)
+    printf 'FS=failed\n' >> "$STATE_FILE"
+    log_warn "[research-wait] $COMMANDER FS=failed (unknown event '$EVENT')"
+    ;;
+esac

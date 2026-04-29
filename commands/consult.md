@@ -112,7 +112,12 @@ PARALLEL Bash tool calls:
 "$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" cody claude
 ```
 
-### Step 3 — Parallel research wait
+### Step 3 — Parallel research wait (with question loop)
+
+v0.3 protocol: troopers may emit `{"event":"question","text":"...","options":["A","B"]}`
+events while running `superpowers:brainstorming` or `superpowers:systematic-debugging`.
+Master Yoda catches those, classifies critical vs non-critical, and either
+answers from topic context or escalates to the user via `AskUserQuestion`.
 
 Both calls in PARALLEL:
 
@@ -121,18 +126,55 @@ Both calls in PARALLEL:
 "$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" cody claude
 ```
 
-After both return, read each commander's state file to determine status
-(reusing `$TOPIC_DIR` from Step 0):
+After both return, read each commander's `FS=` (last line wins):
 
 ```
-grep '^FS=' "$TOPIC_DIR/_consult/research-rex.txt"
-grep '^FS=' "$TOPIC_DIR/_consult/research-cody.txt"
+grep '^FS=' "$TOPIC_DIR/_consult/research-rex.txt"  | tail -1
+grep '^FS=' "$TOPIC_DIR/_consult/research-cody.txt" | tail -1
 ```
 
-- If either is `FS=malformed` → consider Pattern 1 intervention (see
-  below) before proceeding.
-- If both are `FS=ok` (or `empty`/`missing` you accept) → set tasks
-  `1.3` and `1.4` → `completed`.
+For each commander whose `FS=question`:
+
+1. Read the question payload — `_consult/question-<commander>.txt`. Use
+   the Read tool, parse `TEXT=` and `OPTIONS=`. Decode any `%xx` you see.
+2. Read `$TOPIC_DIR/<commander>-<model>/findings.md` (if it exists) for
+   findings-so-far context. Required for non-critical answers.
+3. Classify the question as **critical** or **non-critical**:
+   - critical = answer would change topic interpretation (scope expansion,
+     contradiction with explicit user constraint, binary fork with no
+     clear default given findings-so-far).
+   - non-critical = clarifying question, defaulting choice, language
+     convention answerable from topic + findings.
+4. Get an answer:
+   - critical → `AskUserQuestion` with TEXT as question, OPTIONS as
+     multiple-choice (or free-form if OPTIONS is empty).
+   - non-critical → answer from topic + findings yourself.
+5. Send the answer (writes inbox.md + nudges trooper):
+   ```
+   /clone-wars:send <commander> "$CONSULT_TOPIC" "ANSWER: <your answer>
+
+   (end of question response — resume your skill loop)
+   END_OF_INSTRUCTION"
+   ```
+6. **Re-arm by re-running the wait-script ONLY**. Do NOT call
+   `consult-research-send.sh` — it would overwrite inbox.md (clobbering
+   ANSWER). The wait-script's `source $STATE_FILE` picks up the
+   post-question OFFSET (last-wins) the previous wait appended.
+   ```
+   "$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" \
+      <commander> <model>
+   ```
+7. Loop back to the top of Step 3 if any trooper still has `FS=question`
+   pending. Both troopers may emit questions independently — process in
+   iteration order (rex first, then cody). The user sees critical prompts
+   sequentially.
+
+Stop the loop when both are FS ∈ {ok, empty, missing, failed, timeout, malformed}.
+
+- `ok` / `empty` / `missing` → set tasks `1.3` and `1.4` → `completed`.
+- `failed` / `timeout` / `malformed` → consider Pattern 1 (re-prompt)
+  before proceeding; set tasks → `completed` if accepting the degraded
+  result.
 
 ### Step 4 — Diff
 
@@ -144,7 +186,7 @@ Set task `1.5` → `in_progress`.
 
 Set task `1.5` → `completed`.
 
-### Step 5 — Parallel verify dispatch + wait
+### Step 5 — Parallel verify dispatch + wait (with question loop)
 
 Set tasks `1.6` and `1.7` → `in_progress`.
 
@@ -158,8 +200,15 @@ Set tasks `1.6` and `1.7` → `in_progress`.
 "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" cody claude
 ```
 
-Read `verify-{rex,cody}.txt` for VS status. If all-UNCERTAIN, consider
-Pattern 3 intervention. Else set `1.6` and `1.7` → `completed`.
+Read `verify-{rex,cody}.txt` for `VS=` status (last-wins).
+
+The verify phase has the same question loop as Step 3 — if `VS=question`
+for either trooper, follow Pattern 4 (Critical-question relay) below:
+read payload + verify.md, classify, AskUserQuestion or answer, cw_send,
+re-run consult-verify-wait.sh. NO send-script re-call.
+
+If all-UNCERTAIN, consider Pattern 3 intervention. Else set `1.6` and
+`1.7` → `completed`.
 
 ### Step 6 — Adjudicate (writes draft)
 
@@ -251,3 +300,39 @@ cp "$TOPIC_DIR/_consult/adjudicated-draft.md" "$TOPIC_DIR/_consult/adjudicated.m
 # (or manually merge the new draft into adjudicated.md if you want to
 # preserve specific prior PENDING resolutions — see spec Pattern 3.)
 ```
+
+### Pattern 4: Critical-question relay (v0.3)
+
+When a wait-script reports `FS=question` (research) or `VS=question`
+(verify):
+
+1. Read `_consult/question-<commander>.txt` — note `TEXT` and `OPTIONS`.
+2. Read `$TROOPER_DIR/findings.md` (or `verify.md`) for findings-so-far.
+3. Classify:
+   - critical → `AskUserQuestion(TEXT, OPTIONS)`.
+   - non-critical → answer from topic + findings yourself.
+4. Send the answer:
+   ```
+   /clone-wars:send <commander> "$CONSULT_TOPIC" "ANSWER: <answer>
+
+   (end of question response — resume your skill loop)
+   END_OF_INSTRUCTION"
+   ```
+5. Re-run the wait-script ONLY (no send-script, no offset-reset — the
+   wait-script already advanced OFFSET past the question on first match):
+   ```
+   "$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" \
+      <commander> <model>          # research
+   # or:
+   "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" \
+      <commander> <model>          # verify
+   ```
+6. Loop until the trooper reports `FS=ok` / `VS=ok`.
+
+Both troopers may emit questions independently. Process in iteration
+order; the user sees critical prompts sequentially.
+
+**Kill switch:** if the question protocol misbehaves (storming,
+mis-classification), set `CW_CONSULT_SKILL_OVERRIDE=none` in the
+directive's environment. Send-scripts will append an empty hint
+(no autonomy contract); troopers will use their default behavior.

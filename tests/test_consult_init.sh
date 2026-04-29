@@ -21,6 +21,26 @@ saved=$(cat "$CLONE_WARS_HOME/state/$RH/$out/_consult/topic.txt")
 assert_eq "$saved" "review the authentication middleware for token-refresh edge cases" "topic.txt round-trips"
 pass "topic.txt preserves raw topic-text"
 
+# 2a. v0.3: skill.txt holds one of brainstorming|systematic-debugging|none.
+[[ -f "$CLONE_WARS_HOME/state/$RH/$out/_consult/skill.txt" ]] \
+  || { echo "FAIL: skill.txt missing" >&2; exit 1; }
+skill=$(cat "$CLONE_WARS_HOME/state/$RH/$out/_consult/skill.txt")
+[[ "$skill" =~ ^(brainstorming|systematic-debugging|none)$ ]] \
+  || { echo "FAIL: skill='$skill' not in pool" >&2; exit 1; }
+pass "skill.txt holds a valid classifier value"
+
+# 2b. brainstorming-shaped topic produces skill=brainstorming.
+out_brain=$(../bin/consult-init.sh "how should we approach the cache layer")
+skill_brain=$(cat "$CLONE_WARS_HOME/state/$RH/$out_brain/_consult/skill.txt")
+assert_eq "$skill_brain" "brainstorming" "brainstorming topic classified"
+pass "brainstorming-shaped topic auto-selects brainstorming skill"
+
+# 2c. debugging-shaped topic produces skill=systematic-debugging.
+out_dbg=$(../bin/consult-init.sh "why is the test suite failing on macOS")
+skill_dbg=$(cat "$CLONE_WARS_HOME/state/$RH/$out_dbg/_consult/skill.txt")
+assert_eq "$skill_dbg" "systematic-debugging" "debugging topic classified"
+pass "debugging-shaped topic auto-selects systematic-debugging skill"
+
 # 3. All-uppercase + punctuation normalized.
 out=$(../bin/consult-init.sh "REVIEW @ AUTH: TOKEN!?")
 [[ "$out" =~ ^consult-[a-z0-9-]+$ ]] || { echo "FAIL: bad chars: $out" >&2; exit 1; }

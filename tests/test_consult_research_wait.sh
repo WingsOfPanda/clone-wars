@@ -74,7 +74,9 @@ echo '{"event":"done","ts":"t","summary":"cody"}' >> "$TD2/cody-claude/outbox.js
 CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=1 ../bin/consult-research-wait.sh "$TOPIC2" rex codex
 
 grep -q '^FS=ok'      "$TD2/_consult/research-cody.txt" || { echo "FAIL: cody status was destroyed by rex timeout" >&2; cat "$TD2/_consult/research-cody.txt" >&2; exit 1; }
-grep -q '^FS=missing' "$TD2/_consult/research-rex.txt"  || { echo "FAIL: rex status not 'missing' after timeout" >&2; cat "$TD2/_consult/research-rex.txt" >&2; exit 1; }
+# v0.3: wait-script differentiates timeout (no event matched) from missing
+# (event matched but no findings.md). The rex side here saw no event, so FS=timeout.
+grep -q '^FS=timeout' "$TD2/_consult/research-rex.txt"  || { echo "FAIL: rex status not 'timeout' after timeout" >&2; cat "$TD2/_consult/research-rex.txt" >&2; exit 1; }
 pass "rex timeout does not destroy cody's status (Codex #2 fixture)"
 
 # 3. Refuses if state file missing.

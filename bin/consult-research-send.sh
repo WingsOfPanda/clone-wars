@@ -36,7 +36,8 @@ OUTBOX="$TROOPER_DIR/outbox.jsonl"
 
 TOPIC_TEXT=$(cat "$ART_DIR/topic.txt")
 PROMPT_FILE="$ART_DIR/${COMMANDER}_research_prompt.md"
-cw_consult_build_research_prompt "$TOPIC_TEXT" "$TROOPER_DIR/findings.md" > "$PROMPT_FILE"
+BASE_PROMPT=$(cw_consult_build_research_prompt "$TOPIC_TEXT" "$TROOPER_DIR/findings.md")
+cw_consult_skill_hint_append "$ART_DIR/skill.txt" "$BASE_PROMPT" > "$PROMPT_FILE"
 
 OFFSET=$(wc -c < "$OUTBOX" | tr -d ' ')
 printf 'OFFSET=%s\n' "$OFFSET" > "$STATE_FILE"
