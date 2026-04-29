@@ -5,10 +5,10 @@ argument-hint: <topic — what to research>
 
 # /clone-wars:consult
 
-Run a cross-verified dual-model investigation on `$ARGUMENTS`. The conductor
+Run a cross-verified dual-model investigation on `$ARGUMENTS`. Master Yoda
 orchestrates 13 steps via per-phase sub-scripts under `bin/`. Between every
-step, the conductor regains control — if a trooper produces unexpected
-output, the conductor can `cw_send` a clarifying prompt before the next
+step, Master Yoda regains control — if a trooper produces unexpected
+output, Master Yoda can `cw_send` a clarifying prompt before the next
 sub-script runs.
 
 Both panes stay attached for the entire run — `tmux select-pane` to watch.
@@ -22,19 +22,19 @@ boundaries below — do NOT print a markdown checklist in chat.
 
 | # | subject | activeForm |
 |---|---|---|
-| 0   | `0   Stage args-file [conductor]`               | `Staging args-file` |
-| 1.1 | `1.1 Spawn rex (codex) [conductor]`             | `Spawning rex` |
-| 1.2 | `1.2 Spawn cody (claude) [conductor]`           | `Spawning cody` |
+| 0   | `0   Stage args-file [yoda]`               | `Staging args-file` |
+| 1.1 | `1.1 Spawn rex (codex) [yoda]`             | `Spawning rex` |
+| 1.2 | `1.2 Spawn cody (claude) [yoda]`           | `Spawning cody` |
 | 1.3 | `1.3 Research [rex/codex]`                      | `Rex researching` |
 | 1.4 | `1.4 Research [cody/claude]`                    | `Cody researching` |
-| 1.5 | `1.5 Diff findings [conductor]`                 | `Diffing findings` |
+| 1.5 | `1.5 Diff findings [yoda]`                 | `Diffing findings` |
 | 1.6 | `1.6 Cross-verify cody-only items [rex/codex]`  | `Rex verifying` |
 | 1.7 | `1.7 Cross-verify rex-only items [cody/claude]` | `Cody verifying` |
-| 2   | `2   Resolve PENDING items [conductor]`         | `Resolving PENDING items` |
-| 3.1 | `3.1 Synthesize report [conductor]`             | `Synthesizing` |
-| 3.2 | `3.2 Teardown panes [conductor]`                | `Tearing down` |
-| 3.3 | `3.3 Archive _consult/ [conductor]`             | `Archiving` |
-| 4   | `4   Present final synthesis [conductor]`       | `Presenting synthesis` |
+| 2   | `2   Resolve PENDING items [yoda]`         | `Resolving PENDING items` |
+| 3.1 | `3.1 Synthesize report [yoda]`             | `Synthesizing` |
+| 3.2 | `3.2 Teardown panes [yoda]`                | `Tearing down` |
+| 3.3 | `3.3 Archive _consult/ [yoda]`             | `Archiving` |
+| 4   | `4   Present final synthesis [yoda]`       | `Presenting synthesis` |
 
 ## Steps
 
@@ -168,7 +168,7 @@ Pattern 3 intervention. Else set `1.6` and `1.7` → `completed`.
 ```
 
 This writes `_consult/adjudicated-draft.md`. Then copy it to the
-conductor's resolution surface:
+Master Yoda's resolution surface:
 
 ```
 cp "$TOPIC_DIR/_consult/adjudicated-draft.md" "$TOPIC_DIR/_consult/adjudicated.md"

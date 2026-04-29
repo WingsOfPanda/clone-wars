@@ -12,7 +12,7 @@ outbox.jsonl, then print the matching JSON line.
 - `commander` `topic` — same identifiers used at spawn.
 - `--timeout` — seconds to wait, default 600.
 
-Exits 0 on `{done}` and 1 on `{error}` or timeout, so the conductor can chain commands.
+Exits 0 on `{done}` and 1 on `{error}` or timeout, so Master Yoda can chain commands.
 
 ## Steps
 

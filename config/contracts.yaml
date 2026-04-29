@@ -6,7 +6,7 @@
 #   default_mode:     mode used by /clone-wars:spawn when --mode is omitted
 #   ready_timeout_s:  how long /clone-wars:spawn waits for the trooper's "ready"
 #                     event in outbox.jsonl before giving up
-#   identity_injection: how the conductor delivers identity.md to the pane
+#   identity_injection: how Master Yoda delivers identity.md to the pane
 #                       (send-keys-paste = tmux load-buffer + paste-buffer + Enter)
 #
 # Modes that have no native equivalent on a given provider are shipped as best-effort

@@ -4,7 +4,7 @@
 # Usage: bin/consult-adjudicate.sh <consult-topic>
 #
 # Writes _consult/adjudicated-draft.md (regenerable, idempotent).
-# NEVER touches _consult/adjudicated.md (the conductor's resolution surface).
+# NEVER touches _consult/adjudicated.md (Master Yoda's resolution surface).
 
 set -uo pipefail
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -44,4 +44,4 @@ cw_consult_write_adjudicated \
   "$CODY_VS_VAL"
 
 log_info "[adjudicate] wrote $ART_DIR/adjudicated-draft.md"
-log_info "  conductor: cp \"\$TOPIC_DIR/_consult/adjudicated-draft.md\" \"\$TOPIC_DIR/_consult/adjudicated.md\" then resolve PENDINGs."
+log_info "  Master Yoda: cp \"\$TOPIC_DIR/_consult/adjudicated-draft.md\" \"\$TOPIC_DIR/_consult/adjudicated.md\" then resolve PENDINGs."

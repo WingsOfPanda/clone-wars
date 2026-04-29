@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # bin/consult-research-wait.sh — per-commander wait for {done,error}.
-# The conductor invokes 2x in parallel (one per trooper).
+# Master Yoda invokes 2x in parallel (one per trooper).
 #
 # Usage: bin/consult-research-wait.sh <consult-topic> <commander> <model>
 #

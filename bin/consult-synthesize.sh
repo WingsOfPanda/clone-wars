@@ -22,7 +22,7 @@ ART_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/_consult"
 
 ADJ="$ART_DIR/adjudicated.md"
 [[ -f "$ADJ" ]] || {
-  log_error "$ADJ missing — conductor must run:"
+  log_error "$ADJ missing — Master Yoda must run:"
   log_error "  cp \"$ART_DIR/adjudicated-draft.md\" \"$ART_DIR/adjudicated.md\""
   log_error "then resolve PENDINGs."
   exit 1

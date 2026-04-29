@@ -6,7 +6,7 @@ Clone Wars is a Claude Code plugin that turns multi-model orchestration into som
 you can *watch live*. Every model becomes a clone trooper — a named tmux pane
 (`captain rex (codex)`, `commander cody (claude)`, `commander wolffe (gemini)`) running
 its native TUI, talking to your Claude Code session via inbox/outbox files. Panes survive
-conductor crashes; you can `tmux select-pane` mid-task and see exactly what each model
+Master Yoda crashes; you can `tmux select-pane` mid-task and see exactly what each model
 is doing.
 
 [Install](#install) · [Quickstart](#quickstart) · [Commands](#commands) · [Design](docs/DESIGN.md)
@@ -76,7 +76,7 @@ run concurrently.
 | `/clone-wars:medic` | Health-check: tmux + `$CLONE_WARS_HOME` + configs + provider binaries. Run before spawning. |
 | `/clone-wars:spawn <commander> <model> <topic> [--mode full\|read-only] [prompt]` | Open a tmux pane running the model's TUI. `commander` is a name from the pool, or `random`. `--mode read-only` sandboxes the trooper. Optional `prompt` is dispatched as the first task. |
 | `/clone-wars:send <commander> <topic> <msg-or-@file>` | Write a task to a trooper's inbox; the pane reads it on nudge. `@path` inlines a file. |
-| `/clone-wars:collect <commander> <topic> [--timeout s]` | Block until the trooper reports `done` or `error`, then print the summary. Exits non-zero on error/timeout so the conductor can chain commands. |
+| `/clone-wars:collect <commander> <topic> [--timeout s]` | Block until the trooper reports `done` or `error`, then print the summary. Exits non-zero on error/timeout so Master Yoda can chain commands. |
 | `/clone-wars:list [<topic>]` | Show active troopers across topics, or scope to one. Flags `[ORPHAN]` panes for cleanup. |
 | `/clone-wars:teardown <topic>` / `<commander> <topic>` / `--all` | Graceful shutdown: 8s colored banner, then kill the pane and archive state. |
 
@@ -88,7 +88,7 @@ JSONL outbox event types, status state machine) is in §File-IPC protocol.
 ## Orchestration: `/clone-wars:consult`
 
 `/clone-wars:consult <topic>` is the cross-verified dual-model
-investigation command. The slash directive walks the conductor through
+investigation command. The slash directive walks Master Yoda through
 13 step boundaries via per-phase sub-scripts under `bin/`:
 
 1. `consult-init` derives a slug + creates the consult topic dir.
@@ -100,14 +100,14 @@ investigation command. The slash directive walks the conductor through
 6. Parallel `consult-verify-send` (rex grades cody-only items, vice
    versa; either skipped if peer has no items).
 7. Parallel `consult-verify-wait` per trooper.
-8. `consult-adjudicate` writes `adjudicated-draft.md`. Conductor copies
+8. `consult-adjudicate` writes `adjudicated-draft.md`. Master Yoda copies
    to `adjudicated.md` and resolves PENDING items via Edit.
 9. `consult-synthesize` (refuses on any remaining PENDING) writes
    `synthesis.md`.
 10. `consult-teardown` + `consult-archive`.
 
-Between every step the conductor regains control: if a trooper writes
-malformed findings, the conductor can `cw_send` a clarifying prompt,
+Between every step Master Yoda regains control: if a trooper writes
+malformed findings, Master Yoda can `cw_send` a clarifying prompt,
 then `consult-offset-reset` + re-run the affected phase. The retry
 contract is fully documented in the slash directive.
 

@@ -51,8 +51,8 @@ cw_consult_findings_status() {
 # (per spec):
 #   File:  same path (after `./` strip) AND line ranges overlap (treat
 #          single-line as Lo=Hi=N; treat path-only as covering all lines).
-#   URL:   identical strings (after trim).
-#   runtime: identical strings (after trim, includes `runtime:` prefix).
+#   URL:   exact string equality (no trim).
+#   runtime: exact string equality (no trim, includes `runtime:` prefix).
 #   File vs URL/runtime: never overlap.
 cw_consult_citation_overlaps() {
   local a="$1" b="$2"
@@ -79,9 +79,11 @@ cw_consult_citation_overlaps() {
   local a1 a2 b1 b2
   if [[ "$a_lines" == *-* ]]; then a1="${a_lines%-*}"; a2="${a_lines#*-}"; else a1="$a_lines"; a2="$a_lines"; fi
   if [[ "$b_lines" == *-* ]]; then b1="${b_lines%-*}"; b2="${b_lines#*-}"; else b1="$b_lines"; b2="$b_lines"; fi
-  # Bail out on non-numeric (defensive).
-  [[ "$a1$a2$b1$b2" =~ ^[0-9]+$ ]] || return 1
-  (( a1 <= b2 && b1 <= a2 ))
+  # Each endpoint must be all-digit (defensive — empty/dash/etc. → no overlap).
+  [[ "$a1" =~ ^[0-9]+$ && "$a2" =~ ^[0-9]+$ && "$b1" =~ ^[0-9]+$ && "$b2" =~ ^[0-9]+$ ]] || return 1
+  # 10# prefix forces base-10 — without it, leading-zero numerals like `008`
+  # trigger bash's octal interpretation and abort the arithmetic.
+  (( 10#$a1 <= 10#$b2 && 10#$b1 <= 10#$a2 ))
 }
 
 # cw_consult_diff <rex-findings> <cody-findings> <out-path>
@@ -231,7 +233,7 @@ Output requirements — write to $write_to with this EXACT structure:
   ...
 
   ## Notes
-  <any free-form additions; not parsed by conductor>
+  <any free-form additions; not parsed by Master Yoda>
 
 Citation format options:
   - <file path>:<line>          e.g. src/auth/store.py:42
@@ -240,7 +242,7 @@ Citation format options:
   - runtime: <command>          e.g. runtime: pytest tests/test_auth.py
 
 Each claim must have a citation in [brackets]. Claims without citations
-will be silently dropped by the conductor — and if NO claim has a
+will be silently dropped by Master Yoda — and if NO claim has a
 citation, your findings will be flagged as malformed in the report.
 
 Then emit {"event":"done", "summary":"researched $topic", "ts":"<iso>"} to your outbox.
@@ -342,14 +344,14 @@ cw_consult_write_adjudicated() {
       | awk -F'\t' '$1 == "AGREE" { printf "- [%s] %s — REX confirmed: %s\n", $2, $3, ($4 != "" ? $4 : $3) }'
 
     printf '\n## Adjudicated\n'
-    printf '<!-- conductor: read each cited source for every "PENDING" line below; rewrite the prefix to CONFIRMED, REFUTED, or move to ## Contested. consult-synthesize.sh refuses to finalize while any PENDING remains. -->\n'
+    printf '<!-- Master Yoda: read each cited source for every "PENDING" line below; rewrite the prefix to CONFIRMED, REFUTED, or move to ## Contested. consult-synthesize.sh refuses to finalize while any PENDING remains. -->\n'
     [[ -f "$cody_v" ]] && cw_consult_parse_verdicts "$cody_v" \
       | awk -F'\t' '$1 != "AGREE" { printf "- PENDING: [%s] %s — CODY %s: %s\n", $2, $3, $1, ($4 != "" ? $4 : $3) }'
     [[ -f "$rex_v" ]] && cw_consult_parse_verdicts "$rex_v" \
       | awk -F'\t' '$1 != "AGREE" { printf "- PENDING: [%s] %s — REX %s: %s\n", $2, $3, $1, ($4 != "" ? $4 : $3) }'
 
     printf '\n## Contested\n'
-    printf '<!-- conductor: move CONTESTED items here from Adjudicated. Items in this section ship in synthesis as unresolved. -->\n'
+    printf '<!-- Master Yoda: move CONTESTED items here from Adjudicated. Items in this section ship in synthesis as unresolved. -->\n'
 
     printf '\n## Not-verified\n'
     if [[ "$rex_vs" != "ok" && "$rex_vs" != "skipped" && -s "$cody_only" ]]; then

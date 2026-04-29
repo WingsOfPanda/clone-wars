@@ -4,7 +4,7 @@ Your inbox: `{{state_dir}}/inbox.md`
 Your outbox: `{{state_dir}}/outbox.jsonl`
 Your status: `{{state_dir}}/status.json`
 
-The conductor (your commanding officer in Claude Code) will write inbox.md and nudge you with
+Master Yoda (your commanding officer in Claude Code) will write inbox.md and nudge you with
 its path. **Do not begin until the inbox ends with `END_OF_INSTRUCTION`** — that sentinel
 guarantees the message is complete and you're not reading mid-write.
 
