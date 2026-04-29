@@ -1,10 +1,21 @@
 #!/usr/bin/env bash
 # tests/run.sh — discover and run every tests/test_*.sh; non-zero on any failure.
+#
+# Skips test_consult_question_dogfood_*.sh — those are manual release gates
+# that exercise live codex and are inherently variance-prone (LLM response
+# time, network). Run them explicitly:
+#   bash tests/test_consult_question_dogfood_strict.sh
+#   bash tests/test_consult_question_dogfood_default.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 
 fail=0
 for t in test_*.sh; do
+  case "$t" in
+    test_consult_question_dogfood_*.sh)
+      echo "=== $t === (SKIP — manual release gate, run explicitly)"
+      continue ;;
+  esac
   echo "=== $t ==="
   if bash "$t"; then
     echo "  $t: ok"
