@@ -294,3 +294,69 @@ cw_consult_synthesize() {
     printf -- '- CODY verify:   %s/verify.md\n'   "$cody_dir"
   } > "$out"
 }
+
+# cw_consult_topic_validate <topic>
+# Return 0 if the topic is a safe consult topic name; 1 otherwise.
+# Rules:
+#   - Must start with `consult-`
+#   - Allowed chars: [A-Za-z0-9._-]+
+#   - No leading dot or hyphen, no slash, no `..`
+# Used at the top of every sub-script that takes a <topic> arg.
+cw_consult_topic_validate() {
+  local topic="$1"
+  [[ -n "$topic" ]] || return 1
+  [[ "$topic" == consult-* ]] || return 1
+  [[ "$topic" =~ ^[A-Za-z0-9_.-]+$ ]] || return 1
+  [[ "$topic" != .* && "$topic" != -* ]] || return 1
+  [[ "$topic" != *..* ]] || return 1
+  return 0
+}
+
+# cw_consult_status_load <file>
+# Source a per-commander state file (KEY=VAL lines) into the calling shell.
+# Missing file is a silent no-op (rc=0, no vars set). The file is written
+# exclusively by sub-scripts (research-send/wait, verify-send/wait), never by
+# troopers, so plain `source` is acceptable here — see spec Migration §
+# "cw_consult_status_load design note" for the threat-model rationale.
+cw_consult_status_load() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  # shellcheck disable=SC1090
+  source "$file"
+}
+
+# cw_consult_write_adjudicated <out> <rex-verify-md> <cody-verify-md> \
+#                              <rex-only-items> <cody-only-items> \
+#                              <rex-vs> <cody-vs>
+# Compose the adjudicated-draft.md content from the four state inputs.
+# Sections: Cross-verified, Adjudicated (PENDING list), Contested, Not-verified.
+# Extracted from v0.1.2 bin/consult.sh Phase 5 awk; matches the same output.
+cw_consult_write_adjudicated() {
+  local out="$1" rex_v="$2" cody_v="$3" rex_only="$4" cody_only="$5"
+  local rex_vs="$6" cody_vs="$7"
+  {
+    printf '## Cross-verified\n'
+    [[ -f "$cody_v" ]] && cw_consult_parse_verdicts "$cody_v" \
+      | awk -F'\t' '$1 == "AGREE" { printf "- [%s] %s — CODY confirmed: %s\n", $2, $3, ($4 != "" ? $4 : $3) }'
+    [[ -f "$rex_v" ]] && cw_consult_parse_verdicts "$rex_v" \
+      | awk -F'\t' '$1 == "AGREE" { printf "- [%s] %s — REX confirmed: %s\n", $2, $3, ($4 != "" ? $4 : $3) }'
+
+    printf '\n## Adjudicated\n'
+    printf '<!-- conductor: read each cited source for every "PENDING" line below; rewrite the prefix to CONFIRMED, REFUTED, or move to ## Contested. consult-synthesize.sh refuses to finalize while any PENDING remains. -->\n'
+    [[ -f "$cody_v" ]] && cw_consult_parse_verdicts "$cody_v" \
+      | awk -F'\t' '$1 != "AGREE" { printf "- PENDING: [%s] %s — CODY %s: %s\n", $2, $3, $1, ($4 != "" ? $4 : $3) }'
+    [[ -f "$rex_v" ]] && cw_consult_parse_verdicts "$rex_v" \
+      | awk -F'\t' '$1 != "AGREE" { printf "- PENDING: [%s] %s — REX %s: %s\n", $2, $3, $1, ($4 != "" ? $4 : $3) }'
+
+    printf '\n## Contested\n'
+    printf '<!-- conductor: move CONTESTED items here from Adjudicated. Items in this section ship in synthesis as unresolved. -->\n'
+
+    printf '\n## Not-verified\n'
+    if [[ "$rex_vs" != "ok" && "$rex_vs" != "skipped" && -s "$cody_only" ]]; then
+      awk -v vs="$rex_vs" '{ printf "- %s — REX verify dispatch %s\n", $0, vs }' "$cody_only"
+    fi
+    if [[ "$cody_vs" != "ok" && "$cody_vs" != "skipped" && -s "$rex_only" ]]; then
+      awk -v vs="$cody_vs" '{ printf "- %s — CODY verify dispatch %s\n", $0, vs }' "$rex_only"
+    fi
+  } > "$out"
+}
