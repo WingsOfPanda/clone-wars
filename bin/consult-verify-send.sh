@@ -49,7 +49,8 @@ OUTBOX="$TROOPER_DIR/outbox.jsonl"
 [[ -f "$OUTBOX" ]] || { log_error "outbox not found at $OUTBOX"; exit 1; }
 
 PROMPT_FILE="$ART_DIR/${COMMANDER}_verify_prompt.md"
-cw_consult_build_verify_prompt "$PEER_ITEMS" "$TROOPER_DIR/verify.md" > "$PROMPT_FILE"
+BASE_PROMPT=$(cw_consult_build_verify_prompt "$PEER_ITEMS" "$TROOPER_DIR/verify.md")
+cw_consult_skill_hint_append "$ART_DIR/skill.txt" "$BASE_PROMPT" > "$PROMPT_FILE"
 
 OFFSET=$(wc -c < "$OUTBOX" | tr -d ' ')
 printf 'OFFSET=%s\n' "$OFFSET" > "$STATE_FILE"

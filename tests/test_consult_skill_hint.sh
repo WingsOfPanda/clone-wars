@@ -60,3 +60,52 @@ if resolve_skill systematic-debugging; then
 else
   echo "  SKIP: superpowers:systematic-debugging not installed in this env"
 fi
+
+# === T4 helper integration ===
+TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+export CLONE_WARS_HOME="$TMP/cw"
+export CLAUDE_PLUGIN_ROOT="$(cd .. && pwd)"
+
+source ../lib/state.sh
+RH=$(cw_repo_hash)
+TOPIC=$(../bin/consult-init.sh "design pattern for the cache" 2>/dev/null)
+TD="$CLONE_WARS_HOME/state/$RH/$TOPIC/_consult"
+assert_eq "$(cat "$TD/skill.txt")" "brainstorming" "init wrote brainstorming skill"
+
+source ../lib/consult.sh
+PROMPT=$(cw_consult_skill_hint_append "$TD/skill.txt" "BASE PROMPT")
+
+echo "$PROMPT" | grep -q "^BASE PROMPT$" || { echo "FAIL: base prompt preserved"     >&2; exit 1; }
+echo "$PROMPT" | grep -q "AUTONOMY CONTRACT" || { echo "FAIL: hint appended"          >&2; exit 1; }
+pass "skill-hint append wires brainstorming hint after base prompt"
+
+# none case: no append.
+echo none > "$TD/skill.txt"
+PROMPT_NONE=$(cw_consult_skill_hint_append "$TD/skill.txt" "BASE PROMPT")
+[[ "$PROMPT_NONE" == "BASE PROMPT" ]] \
+  || { echo "FAIL: none should not append; got: $PROMPT_NONE" >&2; exit 1; }
+pass "skill=none produces no append"
+
+# missing skill.txt case: defaults to none (no append).
+rm -f "$TD/skill.txt"
+PROMPT_MISSING=$(cw_consult_skill_hint_append "$TD/skill.txt" "BASE PROMPT")
+[[ "$PROMPT_MISSING" == "BASE PROMPT" ]] \
+  || { echo "FAIL: missing skill.txt should default to none" >&2; exit 1; }
+pass "missing skill.txt defaults to no append"
+
+# CW_CONSULT_SKILL_OVERRIDE=none forces no append.
+echo brainstorming > "$TD/skill.txt"
+PROMPT_OVR=$(CW_CONSULT_SKILL_OVERRIDE=none cw_consult_skill_hint_append "$TD/skill.txt" "BASE PROMPT")
+[[ "$PROMPT_OVR" == "BASE PROMPT" ]] \
+  || { echo "FAIL: CW_CONSULT_SKILL_OVERRIDE=none kill-switch broken; got: $PROMPT_OVR" >&2; exit 1; }
+pass "CW_CONSULT_SKILL_OVERRIDE=none kill-switch works"
+
+# PLUGIN_ROOT unset → loud failure (rc=2), not silent no-append.
+unset PLUGIN_ROOT
+unset CLAUDE_PLUGIN_ROOT
+echo brainstorming > "$TD/skill.txt"
+err=$(cw_consult_skill_hint_append "$TD/skill.txt" "BASE PROMPT" 2>&1) && rc=0 || rc=$?
+export CLAUDE_PLUGIN_ROOT="$(cd .. && pwd)"
+[[ "$rc" -eq 2 ]] && echo "$err" | grep -q "PLUGIN_ROOT" \
+  || { echo "FAIL: missing PLUGIN_ROOT should rc=2 + error msg; got rc=$rc, err='$err'" >&2; exit 1; }
+pass "missing PLUGIN_ROOT/CLAUDE_PLUGIN_ROOT fails loud"

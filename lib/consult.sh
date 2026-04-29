@@ -389,3 +389,30 @@ cw_consult_classify_topic() {
     printf 'none\n'
   fi
 }
+
+# cw_consult_skill_hint_append <skill-txt-path> <base-prompt>  (v0.3.0)
+# Echo base-prompt followed by the skill-hint content (if any).
+# Missing skill.txt or skill=none → base-prompt unchanged.
+# CW_CONSULT_SKILL_OVERRIDE=none in env forces 'none' (kill-switch).
+# PLUGIN_ROOT (or CLAUDE_PLUGIN_ROOT) MUST be set — fail loud, not silent.
+cw_consult_skill_hint_append() {
+  local skill_path="$1"
+  local base="$2"
+  local plugin_root="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+  [[ -n "$plugin_root" ]] \
+    || { echo "cw_consult_skill_hint_append: PLUGIN_ROOT/CLAUDE_PLUGIN_ROOT unset" >&2; return 2; }
+
+  local skill="none"
+  [[ -f "$skill_path" ]] && skill=$(tr -d '[:space:]' < "$skill_path")
+  # Env-var kill-switch.
+  [[ "${CW_CONSULT_SKILL_OVERRIDE:-}" == "none" ]] && skill="none"
+
+  case "$skill" in
+    brainstorming|systematic-debugging) : ;;
+    *) printf '%s' "$base"; return 0 ;;
+  esac
+  local hint_file="$plugin_root/config/skill-hints/$skill.md"
+  [[ -f "$hint_file" ]] || { printf '%s' "$base"; return 0; }
+  printf '%s\n\n---\n\n' "$base"
+  cat "$hint_file"
+}
