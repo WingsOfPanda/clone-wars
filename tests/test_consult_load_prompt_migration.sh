@@ -36,4 +36,19 @@ actual=$(cw_consult_build_verify_prompt /tmp/items.txt /tmp/verify.md)
 }
 pass "verify prompt byte-equal to v0.4.2 baseline"
 
+# Case 3: drilldown prompt regression.
+expected="$(cat fixtures/v0.4.2-drilldown-prompt.txt)"
+actual=$(cw_consult_design_doc_drilldown_prompt \
+  "Architecture" \
+  "/path/to/synthesis.md" \
+  "rex" \
+  "/path/to/dd-dir" \
+  "Add more depth on the IPC contract.")
+[[ "$actual" == "$expected" ]] || {
+  diff <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") | head -20
+  echo "FAIL c3: drilldown prompt diverged from v0.4.2 baseline"
+  exit 1
+}
+pass "drilldown prompt byte-equal to v0.4.2 baseline"
+
 echo "ALL PASS"

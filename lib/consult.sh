@@ -611,22 +611,12 @@ cw_consult_design_doc_drilldown_prompt() {
   local section_slug
   section_slug=$(printf '%s' "$section" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
   local out_path="$dd_dir/drilldown-${section_slug}-${commander}.md"
-
-  cat <<EOF
-You are drilling deeper into the **$section** section of a design doc derived
-from the consultation you just completed.
-
-Read the synthesis you produced: $syn
-
-Focus: ${focus:-Provide more depth, citations, and concrete trade-offs for the $section section.}
-
-Write your expanded notes (with [citation] anchors) to:
-  $out_path
-
-When done, append a {"event":"done"} line to your outbox as usual.
-
-END_OF_INSTRUCTION
-EOF
+  local resolved_focus="${focus:-Provide more depth, citations, and concrete trade-offs for the $section section.}"
+  cw_consult_load_prompt consult/drilldown.md \
+    "SECTION=$section" \
+    "SYN=$syn" \
+    "FOCUS=$resolved_focus" \
+    "OUT_PATH=$out_path"
 }
 
 # cw_consult_design_doc_resume_state <design-doc-dir>

@@ -3,6 +3,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 source lib/assert.sh
+# v0.5.0: drilldown prompt now loads from config/prompt-templates/ via
+# cw_consult_load_prompt, which requires CLAUDE_PLUGIN_ROOT to resolve the
+# template path. Point at the repo root so the loader finds drilldown.md.
+export CLAUDE_PLUGIN_ROOT="$(cd .. && pwd)"
+PLUGIN_ROOT="$CLAUDE_PLUGIN_ROOT"
 source ../lib/consult.sh
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
