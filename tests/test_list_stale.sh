@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # tests/test_list_stale.sh — v0.5.0 stale-state classifier in bin/list.sh.
 #
-# We test the threshold logic by invoking the helper directly. The full
-# bin/list.sh CLI is exercised end-to-end in case 7 (env override).
+# We test the threshold logic by invoking the helper directly; the live
+# bin/list.sh wiring is covered indirectly by the existing list-test fixtures
+# and a manual dogfood pass in v0.5.0 Task 11.
 set -euo pipefail
 cd "$(dirname "$0")"
 source lib/assert.sh

@@ -16,6 +16,7 @@ from the last outbox event:
 | `spawning` | pane created but trooper hasn't emitted any event yet |
 | `ready` | trooper read identity, idle waiting for inbox |
 | `working` | trooper acked an inbox; task in progress |
+| `stale` | trooper was `working` but its `outbox.jsonl` hasn't been written to in more than `CW_STALE_THRESHOLD_S` seconds (default `180`). Display-only; the trooper may still be doing useful work, just silently. Override the threshold via `CW_STALE_THRESHOLD_S=<seconds>`. |
 | `idle (done)` | last task completed cleanly |
 | `idle (error)` | last task failed; trooper still alive |
 | `[ORPHAN]` | state dir exists but the recorded pane is dead — run teardown |
