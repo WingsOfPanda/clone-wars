@@ -295,4 +295,6 @@ This repo follows Conventional Commits loosely: `feat:`, `fix:`, `docs:`, `test:
 - [x] v0.3.0: trooper question protocol + skill routing (brainstorming/systematic-debugging)
 - [ ] v0.3.0 strict-dogfood pass on a real machine (release gate)
 - [x] v0.4.0: design-doc mode — opt-in brainstorming-style spec output (Step 8.5)
-- [ ] Submit to claude-plugins-official (post v0.4.0 dogfood)
+- [x] v0.4.1: design-doc mode — header-extraction polish (title, goal, arch-line)
+- [x] v0.4.2: design-doc mode — codex adversarial-review fixes (atomic write, hash filename, teardown order, always-offer prompt, drill-both, token-flag parse)
+- [ ] Submit to claude-plugins-official (post v0.4.x dogfood)
