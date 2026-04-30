@@ -141,6 +141,15 @@ content is rejected. Full JSON decoding deferred to v0.3.1+.
 
 Spec: `docs/superpowers/specs/2026-04-29-clone-wars-consult-question-protocol-design.md`.
 
+### What's new in v0.5.0 — "Octogent Steals"
+
+- 🦑 **Yoda stays interactive during consult waits.** Background-await pattern means you can chat with Master Yoda or run `/clone-wars:list` while troopers are working.
+- 👁 **`/clone-wars:list` flags stale troopers.** Working troopers whose outbox has been silent for >180s render as `stale`. Override via `CW_STALE_THRESHOLD_S`.
+- ✉️ **`cw_send --from <sender>`** lets messages carry sender attribution (default `master-yoda`); paves the way for v0.6+ trooper-to-trooper messaging.
+- 🧱 **Prompts are versioned templates.** Per-phase markdown under `config/prompt-templates/consult/` makes them grep-able, diff-able, and easier to evolve.
+
+Inspired by [octogent](https://github.com/hesamsheikh/octogent)'s orchestration patterns, adapted for clone-wars' pure-shell + tmux + file-IPC model.
+
 ### v0.4 — design-doc mode
 
 Consult can produce a brainstorming-style design doc at the end of an

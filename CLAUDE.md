@@ -297,4 +297,5 @@ This repo follows Conventional Commits loosely: `feat:`, `fix:`, `docs:`, `test:
 - [x] v0.4.0: design-doc mode — opt-in brainstorming-style spec output (Step 8.5)
 - [x] v0.4.1: design-doc mode — header-extraction polish (title, goal, arch-line)
 - [x] v0.4.2: design-doc mode — codex adversarial-review fixes (atomic write, hash filename, teardown order, always-offer prompt, drill-both, token-flag parse)
-- [ ] Submit to claude-plugins-official (post v0.4.x dogfood)
+- [x] v0.5.0: octogent-steals — prompt-template registry, stale state, cw_send --from, background-await pattern
+- [ ] Submit to claude-plugins-official (post v0.5.x dogfood)
