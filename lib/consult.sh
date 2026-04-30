@@ -545,19 +545,31 @@ cw_consult_outbox_match_endbyte() {
 # v0.4.0 — design-doc mode helpers
 # ============================================================================
 
-# cw_consult_design_doc_filename <topic-slug>
-# Emits docs/clone-wars/specs/YYYY-MM-DD-<slug>-design.md.
+# cw_consult_design_doc_filename <topic-slug> [<hash6>]
+# Emits docs/clone-wars/specs/YYYY-MM-DD-<slug>[-<hash6>]-design.md.
 # Uses ${CW_TEST_DATE:-$(date +%Y-%m-%d)} for testability.
 # Rejects empty slug or slug outside [a-z0-9-] with rc=2.
+# v0.4.2: optional <hash6> (6 lowercase hex chars) disambiguates topics whose
+# first 20 slug chars collide; reject malformed hash with rc=2.
 cw_consult_design_doc_filename() {
-  local slug="${1:-}"
+  local slug="${1:-}" hash="${2:-}"
   [[ -n "$slug" ]] || { echo "cw_consult_design_doc_filename: empty slug" >&2; return 2; }
   [[ "$slug" =~ ^[a-z0-9-]+$ ]] || {
     echo "cw_consult_design_doc_filename: slug '$slug' has invalid chars (need [a-z0-9-])" >&2
     return 2
   }
+  if [[ -n "$hash" ]]; then
+    [[ "$hash" =~ ^[0-9a-f]{6}$ ]] || {
+      echo "cw_consult_design_doc_filename: hash '$hash' must be exactly 6 lowercase hex chars" >&2
+      return 2
+    }
+  fi
   local date_str="${CW_TEST_DATE:-$(date +%Y-%m-%d)}"
-  printf 'docs/clone-wars/specs/%s-%s-design.md\n' "$date_str" "$slug"
+  if [[ -n "$hash" ]]; then
+    printf 'docs/clone-wars/specs/%s-%s-%s-design.md\n' "$date_str" "$slug" "$hash"
+  else
+    printf 'docs/clone-wars/specs/%s-%s-design.md\n' "$date_str" "$slug"
+  fi
 }
 
 # cw_consult_design_doc_assemble <section-dir> <output-path> <title> [<topic-text>] [<synthesis-path>]
