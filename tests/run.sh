@@ -15,6 +15,9 @@ for t in test_*.sh; do
     test_consult_question_dogfood_*.sh)
       echo "=== $t === (SKIP — manual release gate, run explicitly)"
       continue ;;
+    test_consult_design_doc_walkthrough.sh)
+      echo "=== $t === (SKIP — manual interactive dogfood, run via slash command)"
+      continue ;;
   esac
   echo "=== $t ==="
   if bash "$t"; then
