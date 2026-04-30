@@ -1,6 +1,6 @@
 ---
 description: Write a task to a trooper's inbox and nudge the pane to read it
-argument-hint: <commander> <topic> <message-or-@file>
+argument-hint: [--from <sender>] <commander> <topic> <message-or-@file>
 allowed-tools: Bash, Write
 ---
 
@@ -13,6 +13,7 @@ Write a task to a trooper's inbox and nudge the pane to read it.
 - `message-or-@file` — literal text (multi-word OK; the rest of the line is one task) OR
   `@<path>` to inline a file as the task body. The script appends the
   `END_OF_INSTRUCTION` sentinel automatically.
+- `--from <sender>` (optional, default `master-yoda`) — sets the sender attribution. Recipients see `From: <sender>` as the first line of the inbox message. Use this when relaying messages between troopers (e.g., `--from cody`) to make the source clear in the trooper's identity-template-aware parsing. Sender names must match `^[a-zA-Z0-9_-]+$`.
 
 The trooper's pane is identified by `pane.json` (written at spawn time). If the recorded
 pane has died, send fails with an [ORPHAN] message and a hint to teardown.

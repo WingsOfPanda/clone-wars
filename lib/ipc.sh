@@ -64,6 +64,7 @@ cw_identity_write() {
   identity="$dir/identity.md"
   outbox="$dir/outbox.jsonl"
   tmpl="$(cw_state_root)/identity-template.md"
+  [[ -f "$tmpl" ]] || tmpl="$PLUGIN_ROOT/config/prompt-templates/identity.md"
   [[ -f "$tmpl" ]] || tmpl="$PLUGIN_ROOT/config/identity-template.md"
 
   sed \
@@ -93,9 +94,15 @@ Then stop and wait. I will send another instruction asking you to read your inbo
 EOF
 }
 
-# cw_inbox_write <commander> <model> <topic> <task_text>
+# cw_inbox_write [--from <sender>] <commander> <model> <topic> <task_text>
 # Overwrite inbox.md with the task, terminating with the END_OF_INSTRUCTION
-# sentinel so the trooper knows the message is complete.
+# sentinel so the trooper knows the message is complete. Every message starts
+# with a `From: <sender>` line followed by a blank line so the trooper knows
+# who issued it. Sender defaults to "master-yoda" (the conductor); pass
+# `--from <name>` to attribute the message to another trooper or operator.
+# Sender names are restricted to `[a-zA-Z0-9_-]+` to keep the header
+# parser-friendly and to prevent shell-metacharacter injection into the
+# heredoc.
 #
 # Atomic via per-call mktemp + rename: each invocation gets its OWN tmp file
 # at "${inbox}.tmp.XXXXXX" (so concurrent callers can't truncate each other's
@@ -105,6 +112,14 @@ EOF
 # abnormal exit (e.g. shell signal mid-write) so we don't leak in the
 # trooper's state dir.
 cw_inbox_write() {
+  local sender="master-yoda"
+  if [[ "${1:-}" == "--from" ]]; then
+    [[ -n "${2:-}" ]] || { echo "cw_inbox_write: --from requires a sender name" >&2; return 2; }
+    sender="$2"
+    shift 2
+    [[ "$sender" =~ ^[a-zA-Z0-9_-]+$ ]] \
+      || { echo "cw_inbox_write: invalid sender name '$sender' (allowed: [a-zA-Z0-9_-])" >&2; return 2; }
+  fi
   local commander="$1" model="$2" topic="$3" task="$4"
   local inbox outbox tmp
   inbox=$(cw_inbox_path "$commander" "$model" "$topic")
@@ -112,6 +127,8 @@ cw_inbox_write() {
   tmp=$(mktemp "${inbox}.tmp.XXXXXX")
   trap 'rm -f "$tmp"' EXIT
   cat > "$tmp" <<EOF
+From: $sender
+
 $task
 
 When done, append a single JSONL line to $outbox:

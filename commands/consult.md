@@ -131,62 +131,81 @@ PARALLEL Bash tool calls:
 
 ### Step 3 — Parallel research wait (with question loop)
 
-v0.3 protocol: troopers may emit `{"event":"question","text":"...","options":["A","B"]}`
-events while running `superpowers:brainstorming` or `superpowers:systematic-debugging`.
-Master Yoda catches those, classifies critical vs non-critical, and either
-answers from topic context or escalates to the user via `AskUserQuestion`.
+v0.5 protocol: wait-scripts run as background tasks so Master Yoda's pane
+stays interactive while troopers work. Each wait-script writes
+`FS=<state>` to its per-commander state file before exit and touches a
+`.done` sentinel; the controller reads both on the harness's completion
+notification.
 
-Both calls in PARALLEL:
-
-```
-"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" rex  codex
-"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" cody claude
-```
-
-After both return, read each commander's `FS=` (last line wins):
+Dispatch BOTH waits as parallel background Bash calls:
 
 ```
-grep '^FS=' "$TOPIC_DIR/_consult/research-rex.txt"  | tail -1
-grep '^FS=' "$TOPIC_DIR/_consult/research-cody.txt" | tail -1
+Bash(
+  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" rex  codex',
+  run_in_background: true,
+  description='research-wait rex (background)'
+)
+
+Bash(
+  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" cody claude',
+  run_in_background: true,
+  description='research-wait cody (background)'
+)
 ```
+
+While the background tasks run, **Yoda's pane remains free** — the user can
+chat, run `/clone-wars:list`, or interrupt with new instructions. You will
+receive one harness completion notification per task.
+
+On EACH notification, do:
+
+1. Identify which commander finished (the bash task description names them).
+2. Read the per-commander state file:
+   ```
+   STATE_FILE="$TOPIC_DIR/_consult/research-<commander>.txt"
+   DONE_SENTINEL="${STATE_FILE%.txt}.done"
+   ```
+3. If `$DONE_SENTINEL` is missing, treat it as `FS=failed` (the wait-script
+   crashed before writing terminal state). Surface the error to the user
+   and consider Pattern 1 (re-prompt) before proceeding.
+4. Otherwise, parse the last `FS=` line:
+   ```
+   FS=$(grep '^FS=' "$STATE_FILE" | tail -1 | cut -d= -f2)
+   ```
 
 For each commander whose `FS=question`:
 
-1. Read the question payload — `_consult/question-<commander>.txt`. Use
+a. Read the question payload — `_consult/question-<commander>.txt`. Use
    the Read tool, parse `TEXT=` and `OPTIONS=`. Decode any `%xx` you see.
-2. Read `$TOPIC_DIR/<commander>-<model>/findings.md` (if it exists) for
-   findings-so-far context. Required for non-critical answers.
-3. Classify the question as **critical** or **non-critical**:
-   - critical = answer would change topic interpretation (scope expansion,
-     contradiction with explicit user constraint, binary fork with no
-     clear default given findings-so-far).
-   - non-critical = clarifying question, defaulting choice, language
-     convention answerable from topic + findings.
-4. Get an answer:
-   - critical → `AskUserQuestion` with TEXT as question, OPTIONS as
-     multiple-choice (or free-form if OPTIONS is empty).
+b. Read `$TOPIC_DIR/<commander>-<model>/findings.md` (if it exists) for
+   findings-so-far context.
+c. Classify as critical / non-critical (same rules as v0.3).
+d. Get an answer:
+   - critical → `AskUserQuestion` with TEXT + OPTIONS.
    - non-critical → answer from topic + findings yourself.
-5. Send the answer (writes inbox.md + nudges trooper):
+e. Send the answer:
    ```
-   /clone-wars:send <commander> "$CONSULT_TOPIC" "ANSWER: <your answer>
+   /clone-wars:send --from master-yoda <commander> "$CONSULT_TOPIC" "ANSWER: <your answer>
 
    (end of question response — resume your skill loop)
    END_OF_INSTRUCTION"
    ```
-6. **Re-arm by re-running the wait-script ONLY**. Do NOT call
-   `consult-research-send.sh` — it would overwrite inbox.md (clobbering
-   ANSWER). The wait-script's `source $STATE_FILE` picks up the
-   post-question OFFSET (last-wins) the previous wait appended.
+f. **Re-arm by removing the `.done` sentinel and re-running the wait-script
+   in BACKGROUND.** Do NOT call `consult-research-send.sh` and do NOT run
+   the wait-script in foreground:
    ```
-   "$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" \
-      <commander> <model>
+   rm -f "$DONE_SENTINEL"
+   Bash(
+     command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" <commander> <model>',
+     run_in_background: true,
+     description='research-wait <commander> re-arm (background)'
+   )
    ```
-7. Loop back to the top of Step 3 if any trooper still has `FS=question`
-   pending. Both troopers may emit questions independently — process in
-   iteration order (rex first, then cody). The user sees critical prompts
-   sequentially.
+   The new task will fire its own completion notification.
 
-Stop the loop when both are FS ∈ {ok, empty, missing, failed, timeout, malformed}.
+Continue handling notifications until both commanders' state files show
+`FS ∈ {ok, empty, missing, failed, timeout, malformed}`. `FS=question` is a
+transient state — only proceed to Step 4 when both have a terminal value.
 
 - `ok` / `empty` / `missing` → set tasks `1.3` and `1.4` → `completed`.
 - `failed` / `timeout` / `malformed` → consider Pattern 1 (re-prompt)
@@ -207,22 +226,41 @@ Set task `1.5` → `completed`.
 
 Set tasks `1.6` and `1.7` → `in_progress`.
 
+Send phase — keep parallel sends as foreground (sends complete in <1s):
+
 ```
-# Parallel send
 "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" rex  codex
 "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" cody claude
-
-# Parallel wait
-"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" rex  codex
-"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" cody claude
 ```
 
-Read `verify-{rex,cody}.txt` for `VS=` status (last-wins).
+Wait phase — both wait-scripts run as background tasks (Yoda stays
+interactive):
 
-The verify phase has the same question loop as Step 3 — if `VS=question`
-for either trooper, follow Pattern 4 (Critical-question relay) below:
-read payload + verify.md, classify, AskUserQuestion or answer, cw_send,
-re-run consult-verify-wait.sh. NO send-script re-call.
+```
+Bash(
+  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" rex  codex',
+  run_in_background: true,
+  description='verify-wait rex (background)'
+)
+
+Bash(
+  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" cody claude',
+  run_in_background: true,
+  description='verify-wait cody (background)'
+)
+```
+
+On EACH completion notification, read the per-commander verify state file:
+
+```
+STATE_FILE="$TOPIC_DIR/_consult/verify-<commander>.txt"
+DONE_SENTINEL="${STATE_FILE%.txt}.done"
+```
+
+Same 4-step parse as Step 3 (sentinel check + grep `^VS=`). Note that
+verify uses `VS=` (not `FS=` — that's research). The verify phase's
+question-loop semantics match Step 3's exactly — see Pattern 4 (updated
+below) for the re-arm recipe.
 
 If all-UNCERTAIN, consider Pattern 3 intervention. Else set `1.6` and
 `1.7` → `completed`.
@@ -520,6 +558,9 @@ Show the user the final synthesis (already printed by step 8). Set task
 
 ### Pattern 1: Malformed findings re-prompt
 
+> **v0.5+ note:** the wait-script runs in background; read state file +
+> `.done` sentinel from the controller's notification handler (see Step 3).
+
 If `research-<commander>.txt` shows `FS=malformed`:
 
 ```
@@ -528,11 +569,21 @@ If `research-<commander>.txt` shows `FS=malformed`:
    END_OF_INSTRUCTION"
 "$CLAUDE_PLUGIN_ROOT/bin/consult-offset-reset.sh" "$CONSULT_TOPIC" <commander> research
 "$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" <commander> <model>
-"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" <commander> <model>
+
+Bash(
+  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" <commander> <model>',
+  run_in_background: true,
+  description='research-wait <commander> re-prompt (background)'
+)
+# Wait for completion notification, then read state file as in Step 3.
+
 "$CLAUDE_PLUGIN_ROOT/bin/consult-diff.sh" "$CONSULT_TOPIC"
 ```
 
 ### Pattern 3: All-UNCERTAIN verify re-prompt
+
+> **v0.5+ note:** the wait-script runs in background; read state file +
+> `.done` sentinel from the controller's notification handler (see Step 3).
 
 If `verify-<commander>.txt` verdicts are all UNCERTAIN:
 
@@ -542,7 +593,14 @@ If `verify-<commander>.txt` verdicts are all UNCERTAIN:
    <state-dir>/verify.md. END_OF_INSTRUCTION"
 "$CLAUDE_PLUGIN_ROOT/bin/consult-offset-reset.sh" "$CONSULT_TOPIC" <commander> verify
 "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" <commander> <model>
-"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" <commander> <model>
+
+Bash(
+  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" <commander> <model>',
+  run_in_background: true,
+  description='verify-wait <commander> re-prompt (background)'
+)
+# Wait for completion notification, then read state file as in Step 3.
+
 "$CLAUDE_PLUGIN_ROOT/bin/consult-adjudicate.sh" "$CONSULT_TOPIC"
 cp "$TOPIC_DIR/_consult/adjudicated-draft.md" "$TOPIC_DIR/_consult/adjudicated.md"
 # (or manually merge the new draft into adjudicated.md if you want to
@@ -559,26 +617,34 @@ When a wait-script reports `FS=question` (research) or `VS=question`
 3. Classify:
    - critical → `AskUserQuestion(TEXT, OPTIONS)`.
    - non-critical → answer from topic + findings yourself.
-4. Send the answer:
+4. Send the answer (the new `--from` flag carries Yoda's identity):
    ```
-   /clone-wars:send <commander> "$CONSULT_TOPIC" "ANSWER: <answer>
+   /clone-wars:send --from master-yoda <commander> "$CONSULT_TOPIC" "ANSWER: <answer>
 
    (end of question response — resume your skill loop)
    END_OF_INSTRUCTION"
    ```
-5. Re-run the wait-script ONLY (no send-script, no offset-reset — the
-   wait-script already advanced OFFSET past the question on first match):
+5. Re-arm by removing the `.done` sentinel and re-running the wait-script
+   in BACKGROUND (no send-script, no offset-reset — the wait-script's
+   prior pass already advanced OFFSET past the question):
    ```
-   "$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" \
-      <commander> <model>          # research
+   rm -f "$TOPIC_DIR/_consult/research-<commander>.done"   # research
    # or:
-   "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" \
-      <commander> <model>          # verify
-   ```
-6. Loop until the trooper reports `FS=ok` / `VS=ok`.
+   rm -f "$TOPIC_DIR/_consult/verify-<commander>.done"     # verify
 
-Both troopers may emit questions independently. Process in iteration
-order; the user sees critical prompts sequentially.
+   Bash(
+     command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" <commander> <model>',
+     run_in_background: true,
+     description='research-wait <commander> re-arm (background)'
+   )
+   # or the verify-wait equivalent.
+   ```
+6. The new background task will fire a completion notification when the
+   trooper either re-emits FS=question (loop), produces a terminal event,
+   or times out.
+
+Both troopers may emit questions independently. Notifications can arrive
+in any order; process each as it lands.
 
 **Kill switch:** if the question protocol misbehaves (storming,
 mis-classification), set `CW_CONSULT_SKILL_OVERRIDE=none` in the

@@ -44,7 +44,9 @@ shopt -s nullglob
 LEAKS2=("$DIR"/inbox.md.tmp*)
 (( ${#LEAKS2[@]} == 0 )) || { echo "FAIL: tmp leaks after sequential writes: ${LEAKS2[*]}" >&2; exit 1; }
 shopt -u nullglob
-head -n1 "$INBOX" | grep -q 'second task' || {
+# Body now starts at line 3 (line 1 is `From: <sender>`, line 2 blank); use a
+# position-agnostic grep so the assertion tolerates the v0.5.0 inbox header.
+grep -q '^second task$' "$INBOX" || {
   echo "FAIL: second write didn't replace inbox content" >&2; exit 1; }
 pass "sequential overwrites land cleanly"
 
@@ -73,9 +75,10 @@ tail -n1 "$INBOX" | grep -q '^END_OF_INSTRUCTION$' || {
   exit 1; }
 pass "final inbox.md ends with sentinel after $N concurrent writers"
 # (c) Final content is one of the N writers' messages exactly (no interleaving).
-HEAD_LINE=$(head -n1 "$INBOX")
-[[ "$HEAD_LINE" =~ ^writer-[0-9]+: ]] || {
-  echo "FAIL: concurrent-write head looks interleaved/corrupted: '$HEAD_LINE'" >&2; exit 1; }
+# v0.5.0: body now starts at line 3 (line 1 is `From: <sender>`, line 2 blank).
+BODY_LINE=$(sed -n '3p' "$INBOX")
+[[ "$BODY_LINE" =~ ^writer-[0-9]+: ]] || {
+  echo "FAIL: concurrent-write body looks interleaved/corrupted: '$BODY_LINE'" >&2; exit 1; }
 pass "final content is one writer's message verbatim (no interleaving)"
 
 echo "  ALL: ok"

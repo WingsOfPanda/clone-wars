@@ -86,3 +86,9 @@ case "$EVENT" in
     log_warn "[research-wait] $COMMANDER FS=failed (unknown event '$EVENT')"
     ;;
 esac
+
+# v0.5.0 background-await pattern: signal terminal completion to the
+# directive's notification handler. The .done sentinel lets the controller
+# distinguish a clean exit from a notification-arrived-before-write race.
+touch "${STATE_FILE%.txt}.done"
+exit 0

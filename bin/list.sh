@@ -18,6 +18,7 @@ source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/ipc.sh"
 source "$PLUGIN_ROOT/lib/tmux.sh"
 source "$PLUGIN_ROOT/lib/argsfile.sh"
+source "$PLUGIN_ROOT/lib/list_stale.sh"
 
 # --args-file <path> — read tokens from <path> and replace positional args.
 # Used by commands/*.md to fence off shell injection from $ARGUMENTS.
@@ -75,6 +76,7 @@ for topic_dir in "$REPO_DIR"/*/; do
         '')    state='spawning'      ;;
         *)     state="$last_event"   ;;
       esac
+      state=$(cw_list_classify_stale "$state" "$outbox" "${CW_STALE_THRESHOLD_S:-180}")
     fi
     printf '%-32s %-8s %-12s %-9s %s\n' "$commander" "$model" "$topic" "$pane" "$state"
   done

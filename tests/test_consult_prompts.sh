@@ -5,6 +5,11 @@ cd "$(dirname "$0")"
 source lib/assert.sh
 source ../lib/state.sh
 source ../lib/ipc.sh
+# v0.5.0: research prompt now loads from config/prompt-templates/ via
+# cw_consult_load_prompt, which requires CLAUDE_PLUGIN_ROOT to resolve the
+# template path. Point at the repo root so the loader finds research.md.
+export CLAUDE_PLUGIN_ROOT="$(cd .. && pwd)"
+PLUGIN_ROOT="$CLAUDE_PLUGIN_ROOT"
 source ../lib/consult.sh
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT

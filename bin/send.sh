@@ -29,8 +29,17 @@ if [[ "${1:-}" == "--args-file" ]]; then
   set -- "${_TOKENS[@]}" "$@"
 fi
 
+# --from <sender> — pass-through to cw_inbox_write so messages are attributed.
+# Default sender (when --from is omitted) is "master-yoda" (the conductor).
+SENDER_ARGS=()
+if [[ "${1:-}" == "--from" ]]; then
+  [[ -n "${2:-}" ]] || { echo "--from requires a sender name" >&2; exit 2; }
+  SENDER_ARGS=(--from "$2")
+  shift 2
+fi
+
 usage() {
-  echo "Usage: $0 <commander> <topic> <message-or-@file>" >&2
+  echo "Usage: $0 [--from <sender>] <commander> <topic> <message-or-@file>" >&2
 }
 
 [[ $# -ge 3 ]] || { usage; exit 2; }
@@ -82,7 +91,7 @@ fi
 
 # ------------------------------------------------------------ Write + nudge
 
-cw_inbox_write "$COMMANDER" "$MODEL" "$TOPIC" "$TASK"
+cw_inbox_write "${SENDER_ARGS[@]+"${SENDER_ARGS[@]}"}" "$COMMANDER" "$MODEL" "$TOPIC" "$TASK"
 INBOX=$(cw_inbox_path "$COMMANDER" "$MODEL" "$TOPIC")
 log_info "wrote inbox at $INBOX; nudging pane $PANE"
 cw_pane_send "$PANE" "Read $INBOX and execute the task. Reply when done."

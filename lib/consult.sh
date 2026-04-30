@@ -143,41 +143,9 @@ cw_consult_diff() {
 # line) and emits a self-contained instruction, terminated by END_OF_INSTRUCTION.
 cw_consult_build_verify_prompt() {
   local items_file="$1" write_to="$2"
-  cat <<EOF
-You researched a topic in your previous turn. Below are claims the OTHER researcher raised that you did not. For EACH item, do ONE of:
-
-  AGREE     — confirm with your own evidence (cite a file/line/source)
-  DISPUTE   — explain why it's wrong, with counter-evidence
-  UNCERTAIN — you cannot tell from available evidence; say so
-
-Items to verify:
-$(cat "$items_file" | nl -ba -w1 -s'. ')
-
-Write your verdicts to $write_to in this exact format:
-
-  # Verify
-  ## Verdicts
-  1. <TAG> <original [citation] and text>
-     <one-line evidence>
-  2. ...
-
-Where <TAG> is one of: AGREE / DISPUTE / UNCERTAIN.
-
-Verification methods (v0.3.2):
-You may use any tool in your environment to verify these claims —
-WebSearch / WebFetch are explicitly authorized when an item cites a
-URL, references external standards/docs, or makes a claim that local
-repo evidence cannot resolve. For URL-cited items, fetching the source
-is the default verification step. For file-cited items, prefer reading
-the local file but reach for web tools when the file references an
-external behavior (e.g., HTTP semantics, library APIs). If a tool is
-unavailable in your environment, mark the item UNCERTAIN and note the
-gap rather than fabricating evidence.
-
-Then emit {"event":"done", "summary":"verified N items", "ts":"<iso>"} to your outbox.
-
-END_OF_INSTRUCTION
-EOF
+  local items
+  items=$(nl -ba -w1 -s'. ' "$items_file")
+  cw_consult_load_prompt consult/verify.md "ITEMS=$items" "WRITE_TO=$write_to"
 }
 
 # cw_consult_parse_verdicts <verify.md>
@@ -226,52 +194,7 @@ cw_consult_parse_verdicts() {
 # END_OF_INSTRUCTION.
 cw_consult_build_research_prompt() {
   local topic="$1" write_to="$2"
-  cat <<EOF
-Investigate the following topic and produce structured findings.
-
-Topic: $topic
-
-Output requirements — write to $write_to with this EXACT structure:
-
-  # Findings: $topic
-
-  ## Summary
-  <2-3 sentence overview, free-form prose>
-
-  ## Claims
-  1. [<source citation>] <one-sentence claim>
-  2. [<source citation>] <one-sentence claim>
-  ...
-
-  ## Notes
-  <any free-form additions; not parsed by Master Yoda>
-
-Citation format options:
-  - <file path>:<line>          e.g. src/auth/store.py:42
-  - <file path>:<line-range>    e.g. src/auth/refresh.py:15-30
-  - <URL>                       e.g. https://datatracker.ietf.org/doc/html/rfc6749
-  - runtime: <command>          e.g. runtime: pytest tests/test_auth.py
-
-Each claim must have a citation in [brackets]. Claims without citations
-will be silently dropped by Master Yoda — and if NO claim has a
-citation, your findings will be flagged as malformed in the report.
-
-Research methods (v0.3.2):
-You may use any tool available in your environment to investigate this
-topic. When local repository evidence is insufficient or the topic
-references external knowledge (RFCs, standards, library docs, vendor
-APIs, recent CVEs, design patterns), you SHOULD use WebSearch / WebFetch
-(or the equivalent in your TUI) to find authoritative sources and cite
-them as URL citations. The citation parser already handles \`https://...\`
-strings — see the URL row in the citation-format list above. Prefer
-primary sources (specifications, official docs, source repos) over blog
-posts. If a tool is not available in your environment, fall back to
-local-only investigation and note the gap as an [unverified] claim.
-
-Then emit {"event":"done", "summary":"researched $topic", "ts":"<iso>"} to your outbox.
-
-END_OF_INSTRUCTION
-EOF
+  cw_consult_load_prompt consult/research.md "TOPIC=$topic" "WRITE_TO=$write_to"
 }
 
 # cw_consult_synthesize <topic> <diff.md> <adjudicated.md> \
@@ -688,22 +611,12 @@ cw_consult_design_doc_drilldown_prompt() {
   local section_slug
   section_slug=$(printf '%s' "$section" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
   local out_path="$dd_dir/drilldown-${section_slug}-${commander}.md"
-
-  cat <<EOF
-You are drilling deeper into the **$section** section of a design doc derived
-from the consultation you just completed.
-
-Read the synthesis you produced: $syn
-
-Focus: ${focus:-Provide more depth, citations, and concrete trade-offs for the $section section.}
-
-Write your expanded notes (with [citation] anchors) to:
-  $out_path
-
-When done, append a {"event":"done"} line to your outbox as usual.
-
-END_OF_INSTRUCTION
-EOF
+  local resolved_focus="${focus:-Provide more depth, citations, and concrete trade-offs for the $section section.}"
+  cw_consult_load_prompt consult/drilldown.md \
+    "SECTION=$section" \
+    "SYN=$syn" \
+    "FOCUS=$resolved_focus" \
+    "OUT_PATH=$out_path"
 }
 
 # cw_consult_design_doc_resume_state <design-doc-dir>
@@ -742,4 +655,51 @@ cw_consult_parse_design_doc_flag() {
     fi
   done
   printf '%s\t%s\n' "$flag" "${kept[*]}"
+}
+
+# cw_consult_load_prompt <relpath> [VAR=value ...]  (v0.5.0)
+# Reads $CLAUDE_PLUGIN_ROOT/config/prompt-templates/<relpath> and substitutes
+# every {{VAR}} placeholder using single-pass sed. Returns:
+#   rc=0 — rendered prompt printed to stdout
+#   rc=1 — template not found (path printed to stderr)
+#   rc=2 — bad call (no CLAUDE_PLUGIN_ROOT, surviving {{VAR}}, or no relpath)
+#
+# Single-pass: a value containing {{...}} is NOT recursively expanded; if a
+# user-supplied value reintroduces a placeholder the surviving-token guard
+# fires. This is the safer behavior — recursion would amplify mistakes.
+cw_consult_load_prompt() {
+  local relpath="${1:-}"
+  [[ -n "$relpath" ]] || { echo "cw_consult_load_prompt: relpath required" >&2; return 2; }
+  shift
+  local plugin_root="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"
+  [[ -n "$plugin_root" ]] || { echo "cw_consult_load_prompt: CLAUDE_PLUGIN_ROOT not set" >&2; return 2; }
+  local tmpl="$plugin_root/config/prompt-templates/$relpath"
+  [[ -f "$tmpl" ]] || { echo "cw_consult_load_prompt: template not found: $tmpl" >&2; return 1; }
+
+  # Build a sed script: one s|{{KEY}}|escaped-value|g per VAR=value pair.
+  # Pipe delimiter so / in values stays literal; escape \, &, and | in value.
+  local script="" pair key val esc
+  for pair in "$@"; do
+    key="${pair%%=*}"
+    val="${pair#*=}"
+    [[ "$pair" == *=* && -n "$key" ]] || { echo "cw_consult_load_prompt: bad VAR=value '$pair'" >&2; return 2; }
+    esc=${val//\\/\\\\}    # \  → \\
+    esc=${esc//&/\\&}      # &  → \&
+    esc=${esc//|/\\|}      # |  → \|
+    esc=${esc//$'\n'/\\$'\n'}   # newlines: sed `s` needs a literal newline escape
+    script+="s|{{${key}}}|${esc}|g;"
+  done
+
+  local rendered
+  rendered=$(sed -e "$script" "$tmpl") || return 1
+
+  if printf '%s\n' "$rendered" | grep -qE '\{\{[A-Z_][A-Z0-9_]*\}\}'; then
+    {
+      echo "cw_consult_load_prompt: unresolved placeholders in $relpath:"
+      printf '%s\n' "$rendered" | grep -oE '\{\{[A-Z_][A-Z0-9_]*\}\}' | sort -u | sed 's/^/  /'
+    } >&2
+    return 2
+  fi
+
+  printf '%s\n' "$rendered"
 }

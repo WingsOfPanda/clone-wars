@@ -1,0 +1,13 @@
+You are drilling deeper into the **Architecture** section of a design doc derived
+from the consultation you just completed.
+
+Read the synthesis you produced: /path/to/synthesis.md
+
+Focus: Add more depth on the IPC contract.
+
+Write your expanded notes (with [citation] anchors) to:
+  /path/to/dd-dir/drilldown-architecture-rex.md
+
+When done, append a {"event":"done"} line to your outbox as usual.
+
+END_OF_INSTRUCTION
