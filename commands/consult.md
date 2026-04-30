@@ -226,22 +226,41 @@ Set task `1.5` → `completed`.
 
 Set tasks `1.6` and `1.7` → `in_progress`.
 
+Send phase — keep parallel sends as foreground (sends complete in <1s):
+
 ```
-# Parallel send
 "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" rex  codex
 "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" cody claude
-
-# Parallel wait
-"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" rex  codex
-"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" cody claude
 ```
 
-Read `verify-{rex,cody}.txt` for `VS=` status (last-wins).
+Wait phase — both wait-scripts run as background tasks (Yoda stays
+interactive):
 
-The verify phase has the same question loop as Step 3 — if `VS=question`
-for either trooper, follow Pattern 4 (Critical-question relay) below:
-read payload + verify.md, classify, AskUserQuestion or answer, cw_send,
-re-run consult-verify-wait.sh. NO send-script re-call.
+```
+Bash(
+  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" rex  codex',
+  run_in_background: true,
+  description='verify-wait rex (background)'
+) → task_id_rex
+
+Bash(
+  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" cody claude',
+  run_in_background: true,
+  description='verify-wait cody (background)'
+) → task_id_cody
+```
+
+On EACH completion notification, read the per-commander verify state file:
+
+```
+STATE_FILE="$TOPIC_DIR/_consult/verify-<commander>.txt"
+DONE_SENTINEL="${STATE_FILE%.txt}.done"
+```
+
+Same 4-step parse as Step 3 (sentinel check + grep `^VS=`). Note that
+verify uses `VS=` (not `FS=` — that's research). The verify phase's
+question-loop semantics match Step 3's exactly — see Pattern 4 (updated
+below) for the re-arm recipe.
 
 If all-UNCERTAIN, consider Pattern 3 intervention. Else set `1.6` and
 `1.7` → `completed`.
@@ -539,6 +558,9 @@ Show the user the final synthesis (already printed by step 8). Set task
 
 ### Pattern 1: Malformed findings re-prompt
 
+> **v0.5+ note:** the wait-script runs in background; read state file +
+> `.done` sentinel from the controller's notification handler (see Step 3).
+
 If `research-<commander>.txt` shows `FS=malformed`:
 
 ```
@@ -547,11 +569,21 @@ If `research-<commander>.txt` shows `FS=malformed`:
    END_OF_INSTRUCTION"
 "$CLAUDE_PLUGIN_ROOT/bin/consult-offset-reset.sh" "$CONSULT_TOPIC" <commander> research
 "$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" <commander> <model>
-"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" <commander> <model>
+
+Bash(
+  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" <commander> <model>',
+  run_in_background: true,
+  description='research-wait <commander> re-prompt (background)'
+)
+# Wait for completion notification, then read state file as in Step 3.
+
 "$CLAUDE_PLUGIN_ROOT/bin/consult-diff.sh" "$CONSULT_TOPIC"
 ```
 
 ### Pattern 3: All-UNCERTAIN verify re-prompt
+
+> **v0.5+ note:** the wait-script runs in background; read state file +
+> `.done` sentinel from the controller's notification handler (see Step 3).
 
 If `verify-<commander>.txt` verdicts are all UNCERTAIN:
 
@@ -561,7 +593,14 @@ If `verify-<commander>.txt` verdicts are all UNCERTAIN:
    <state-dir>/verify.md. END_OF_INSTRUCTION"
 "$CLAUDE_PLUGIN_ROOT/bin/consult-offset-reset.sh" "$CONSULT_TOPIC" <commander> verify
 "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" <commander> <model>
-"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" <commander> <model>
+
+Bash(
+  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" <commander> <model>',
+  run_in_background: true,
+  description='verify-wait <commander> re-prompt (background)'
+)
+# Wait for completion notification, then read state file as in Step 3.
+
 "$CLAUDE_PLUGIN_ROOT/bin/consult-adjudicate.sh" "$CONSULT_TOPIC"
 cp "$TOPIC_DIR/_consult/adjudicated-draft.md" "$TOPIC_DIR/_consult/adjudicated.md"
 # (or manually merge the new draft into adjudicated.md if you want to
@@ -578,26 +617,34 @@ When a wait-script reports `FS=question` (research) or `VS=question`
 3. Classify:
    - critical → `AskUserQuestion(TEXT, OPTIONS)`.
    - non-critical → answer from topic + findings yourself.
-4. Send the answer:
+4. Send the answer (the new `--from` flag carries Yoda's identity):
    ```
-   /clone-wars:send <commander> "$CONSULT_TOPIC" "ANSWER: <answer>
+   /clone-wars:send --from master-yoda <commander> "$CONSULT_TOPIC" "ANSWER: <answer>
 
    (end of question response — resume your skill loop)
    END_OF_INSTRUCTION"
    ```
-5. Re-run the wait-script ONLY (no send-script, no offset-reset — the
-   wait-script already advanced OFFSET past the question on first match):
+5. Re-arm by removing the `.done` sentinel and re-running the wait-script
+   in BACKGROUND (no send-script, no offset-reset — the wait-script's
+   prior pass already advanced OFFSET past the question):
    ```
-   "$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" \
-      <commander> <model>          # research
+   rm -f "$TOPIC_DIR/_consult/research-<commander>.done"   # research
    # or:
-   "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" \
-      <commander> <model>          # verify
-   ```
-6. Loop until the trooper reports `FS=ok` / `VS=ok`.
+   rm -f "$TOPIC_DIR/_consult/verify-<commander>.done"     # verify
 
-Both troopers may emit questions independently. Process in iteration
-order; the user sees critical prompts sequentially.
+   Bash(
+     command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" <commander> <model>',
+     run_in_background: true,
+     description='research-wait <commander> re-arm'
+   )
+   # or the verify-wait equivalent.
+   ```
+6. The new background task will fire a completion notification when the
+   trooper either re-emits FS=question (loop), produces a terminal event,
+   or times out.
+
+Both troopers may emit questions independently. Notifications can arrive
+in any order; process each as it lands.
 
 **Kill switch:** if the question protocol misbehaves (storming,
 mis-classification), set `CW_CONSULT_SKILL_OVERRIDE=none` in the
