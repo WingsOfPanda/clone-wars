@@ -585,8 +585,29 @@ cw_consult_design_doc_assemble() {
 
   # Header — pull goal/arch/tech-stack from architecture.md if present.
   local goal="(see Architecture section)" arch_line="(see Architecture section)" tech_block=""
+
+  # v0.4.1: prefer first non-empty line under "## Agreed findings" then
+  # "## Cross-verified" in synthesis.md when caller supplied a path.
+  if [[ -n "$synthesis_path" && -f "$synthesis_path" ]]; then
+    local syn_goal
+    syn_goal=$(awk '
+      /^## Agreed findings/ {flag=1; next}
+      flag && /^## / {exit}
+      flag && NF>0 {sub(/^[[:space:]]*-[[:space:]]*/, ""); print; exit}
+    ' "$synthesis_path")
+    if [[ -z "$syn_goal" ]]; then
+      syn_goal=$(awk '
+        /^## Cross-verified/ {flag=1; next}
+        flag && /^## / {exit}
+        flag && NF>0 {sub(/^[[:space:]]*-[[:space:]]*/, ""); print; exit}
+      ' "$synthesis_path")
+    fi
+    [[ -n "$syn_goal" ]] && goal="${syn_goal:0:200}"
+  fi
+
   if [[ -f "$section_dir/architecture.md" ]]; then
-    goal=$(head -n1 "$section_dir/architecture.md")
+    # Only fall back to architecture.md head if synthesis didn't set goal.
+    [[ "$goal" == "(see Architecture section)" ]] && goal=$(head -n1 "$section_dir/architecture.md")
     # Architecture paragraph: lines >=3, until first blank line or "## Tech Stack".
     arch_line=$(awk '
       NR<3 {next}

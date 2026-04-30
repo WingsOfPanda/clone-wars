@@ -77,3 +77,43 @@ cw_consult_design_doc_assemble "$SECTIONS" "$OUT_A2" "Test Topic" ""
 grep -q '^# Test Topic Design$' "$OUT_A2" \
   || { echo "FAIL: empty topic-text should fall back to title arg"; exit 1; }
 pass "v0.4.1: empty topic-text falls back to title arg"
+
+# v0.4.1 — Case B: 5th arg supplies a synthesis.md whose ## Agreed findings
+# first line becomes the **Goal:** field.
+SYN="$TMP/synthesis.md"
+cat > "$SYN" <<'MD'
+# Consultation: foo
+
+## Agreed findings (both raised independently)
+- LRU works best when recent accesses predict near-future use, per Python and Redis docs.
+- LFU benefits from logarithmic decay to avoid stale popularity pollution.
+
+## Cross-verified
+- something else
+MD
+OUT_B="$TMP/case_b.md"
+cw_consult_design_doc_assemble "$SECTIONS" "$OUT_B" "Test Topic" "" "$SYN"
+grep -q '^\*\*Goal:\*\* .*recent accesses predict' "$OUT_B" \
+  || { echo "FAIL: goal should come from synthesis ## Agreed findings"; grep '^\*\*Goal' "$OUT_B" >&2; exit 1; }
+pass "v0.4.1: goal from synthesis Agreed findings"
+
+# v0.4.1 — Case B.2: synthesis missing Agreed findings, falls through to Cross-verified.
+SYN2="$TMP/synthesis2.md"
+cat > "$SYN2" <<'MD'
+# Consultation: bar
+
+## Cross-verified
+- The cross-verified anchor line should win when Agreed findings is absent.
+MD
+OUT_B2="$TMP/case_b2.md"
+cw_consult_design_doc_assemble "$SECTIONS" "$OUT_B2" "Test Topic" "" "$SYN2"
+grep -q '^\*\*Goal:\*\* .*cross-verified anchor' "$OUT_B2" \
+  || { echo "FAIL: goal should fall through to Cross-verified"; grep '^\*\*Goal' "$OUT_B2" >&2; exit 1; }
+pass "v0.4.1: goal falls through to Cross-verified"
+
+# v0.4.1 — Case B.3: empty synthesis-path falls back to head -n1 architecture.md.
+OUT_B3="$TMP/case_b3.md"
+cw_consult_design_doc_assemble "$SECTIONS" "$OUT_B3" "Test Topic" "" ""
+grep -q '^\*\*Goal:\*\* The system uses pane-based file IPC' "$OUT_B3" \
+  || { echo "FAIL: goal should fall back to architecture.md head"; grep '^\*\*Goal' "$OUT_B3" >&2; exit 1; }
+pass "v0.4.1: empty synthesis-path falls back to architecture head"
