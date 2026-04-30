@@ -560,22 +560,60 @@ cw_consult_design_doc_filename() {
   printf 'docs/clone-wars/specs/%s-%s-design.md\n' "$date_str" "$slug"
 }
 
-# cw_consult_design_doc_assemble <section-dir> <output-path> <title>
+# cw_consult_design_doc_assemble <section-dir> <output-path> <title> [<topic-text>] [<synthesis-path>]
 # Concatenates 5 section files into a single design doc with a standard
 # header. Missing sections get a _(skipped)_ placeholder body.
+#
+# v0.4.1 — optional 4th and 5th args override title and goal sources:
+#   <topic-text>      — full user topic from _consult/topic.txt; if non-empty,
+#                       Title-Cased and used as H1 in preference to <title>
+#                       (which is derived from the 20-char-truncated slug).
+#   <synthesis-path>  — path to _consult/synthesis.md; first non-empty line
+#                       under "## Agreed findings" (then "## Cross-verified")
+#                       becomes **Goal:** (200-char trunc); falls back to
+#                       architecture.md head -n1.
 cw_consult_design_doc_assemble() {
   local section_dir="$1" out="$2" title="$3"
+  local topic_text="${4:-}" synthesis_path="${5:-}"
   [[ -d "$section_dir" ]] || { echo "cw_consult_design_doc_assemble: missing $section_dir" >&2; return 1; }
   [[ -n "$title" ]] || { echo "cw_consult_design_doc_assemble: empty title" >&2; return 2; }
 
+  # v0.4.1: prefer topic-text-derived title when provided.
+  if [[ -n "$topic_text" ]]; then
+    title=$(printf '%s' "$topic_text" | tr -s ' ' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) tolower(substr($i,2))} 1')
+  fi
+
   # Header — pull goal/arch/tech-stack from architecture.md if present.
   local goal="(see Architecture section)" arch_line="(see Architecture section)" tech_block=""
+
+  # v0.4.1: prefer first non-empty line under "## Agreed findings" then
+  # "## Cross-verified" in synthesis.md when caller supplied a path.
+  if [[ -n "$synthesis_path" && -f "$synthesis_path" ]]; then
+    local syn_goal
+    syn_goal=$(awk '
+      /^## Agreed findings/ {flag=1; next}
+      flag && /^## / {exit}
+      flag && NF>0 {sub(/^[[:space:]]*-[[:space:]]*/, ""); print; exit}
+    ' "$synthesis_path")
+    if [[ -z "$syn_goal" ]]; then
+      syn_goal=$(awk '
+        /^## Cross-verified/ {flag=1; next}
+        flag && /^## / {exit}
+        flag && NF>0 {sub(/^[[:space:]]*-[[:space:]]*/, ""); print; exit}
+      ' "$synthesis_path")
+    fi
+    [[ -n "$syn_goal" ]] && goal="${syn_goal:0:200}"
+  fi
+
   if [[ -f "$section_dir/architecture.md" ]]; then
-    goal=$(head -n1 "$section_dir/architecture.md")
-    # Architecture paragraph: lines >=3, until first blank line or "## Tech Stack".
+    # Only fall back to architecture.md head if synthesis didn't set goal.
+    [[ "$goal" == "(see Architecture section)" ]] && goal=$(head -n1 "$section_dir/architecture.md")
+    # Architecture paragraph: lines >=3, until any H2 heading or blank line.
+    # v0.4.1: changed from "/^## Tech Stack$/" to "/^## /" so an architecture.md
+    # whose third line is the next H2 (no body paragraph) falls back cleanly.
     arch_line=$(awk '
       NR<3 {next}
-      /^## Tech Stack$/ {exit}
+      /^## / {exit}
       NF==0 {exit}
       {print}
     ' "$section_dir/architecture.md" | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//')
@@ -592,7 +630,7 @@ cw_consult_design_doc_assemble() {
     if [[ -n "$tech_block" ]]; then
       printf '%s\n' "$tech_block"
     else
-      printf '- (see Components section)\n'
+      printf '%s\n' '- (see Components section)'
     fi
     printf '\n---\n\n'
 

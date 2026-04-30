@@ -44,7 +44,17 @@ if [[ -e "$OUT_ABS" ]]; then
 fi
 
 mkdir -p "$(dirname "$OUT_ABS")"
-cw_consult_design_doc_assemble "$DD_DIR" "$OUT_ABS" "$TITLE" || {
+
+# v0.4.1: pass topic.txt and synthesis.md when present so the assemble helper
+# uses the full topic for the title and the agreed-findings line for the goal.
+TOPIC_TEXT_FILE="$TOPIC_DIR/_consult/topic.txt"
+SYNTHESIS_FILE="$TOPIC_DIR/_consult/synthesis.md"
+TOPIC_TEXT=""
+[[ -f "$TOPIC_TEXT_FILE" ]] && TOPIC_TEXT=$(cat "$TOPIC_TEXT_FILE")
+SYNTH_PATH=""
+[[ -f "$SYNTHESIS_FILE" ]] && SYNTH_PATH="$SYNTHESIS_FILE"
+
+cw_consult_design_doc_assemble "$DD_DIR" "$OUT_ABS" "$TITLE" "$TOPIC_TEXT" "$SYNTH_PATH" || {
   log_error "assemble failed"
   exit 1
 }
