@@ -32,6 +32,7 @@ boundaries below — do NOT print a markdown checklist in chat.
 | 1.7 | `1.7 Cross-verify rex-only items [cody/claude]` | `Cody verifying` |
 | 2   | `2   Resolve PENDING items [yoda]`         | `Resolving PENDING items` |
 | 3.1 | `3.1 Synthesize report [yoda]`             | `Synthesizing` |
+| 3.1.5 | `3.1.5 Design-doc walk (optional) [yoda]` | `Walking design-doc sections` |
 | 3.2 | `3.2 Teardown panes [yoda]`                | `Tearing down` |
 | 3.3 | `3.3 Archive _consult/ [yoda]`             | `Archiving` |
 | 4   | `4   Present final synthesis [yoda]`       | `Presenting synthesis` |
@@ -45,6 +46,24 @@ Write tool, then invoke sub-scripts with the resolved topic.
 
 Set task `0` → `in_progress`.
 
+**v0.4.0 — `--design-doc` flag parsing (BEFORE init):**
+
+Scan `$ARGUMENTS` for the literal token `--design-doc`. If present, set
+`DESIGN_DOC=1` and strip the flag from the argument string before writing
+the args-file. Otherwise `DESIGN_DOC=0`.
+
+```
+ARG_RAW="$ARGUMENTS"
+DESIGN_DOC=0
+if [[ "$ARG_RAW" == *"--design-doc"* ]]; then
+  DESIGN_DOC=1
+  ARG_RAW=$(printf '%s' "$ARG_RAW" | sed 's/--design-doc//' | sed 's/  */ /g; s/^ //; s/ $//')
+fi
+```
+
+Use `$ARG_RAW` (not `$ARGUMENTS`) for the topic text from this point.
+Persist `$DESIGN_DOC` for Step 8.5.
+
 1. Resolve args path:
 
    ```
@@ -52,7 +71,7 @@ Set task `0` → `in_progress`.
    mkdir -p "$ARGS_DIR"; echo "$ARGS_DIR/consult.txt"
    ```
 
-2. Write tool: `file_path` = the path printed; `content` = `$ARGUMENTS`.
+2. Write tool: `file_path` = the path printed; `content` = `$ARG_RAW`.
 
 3. Initialize the consult topic AND compute the repo hash once:
 
@@ -248,6 +267,160 @@ When no `^- PENDING:` remains, set task `2` → `completed` and task `3.1` →
 
 Refuses if PENDING remains. On success, prints synthesis.md. Set task
 `3.1` → `completed`.
+
+### Step 8.5 — Design-doc walk (v0.4.0, optional)
+
+**Entry conditions** (skip Step 8.5 entirely if neither holds):
+
+1. **Explicit flag.** `$DESIGN_DOC=1` (the user invoked
+   `/clone-wars:consult --design-doc <topic>` — parsed at Step 0).
+2. **Implicit prompt.** `$DESIGN_DOC=0` AND
+   `cat "$TOPIC_DIR/_consult/skill.txt"` is `brainstorming`. Yoda calls
+   `AskUserQuestion`:
+
+   > "This consult topic looks design-shaped. Want me to walk through a
+   > design doc (Architecture / Components / Data flow / Error handling /
+   > Testing) and write it to
+   > `docs/clone-wars/specs/YYYY-MM-DD-<slug>-design.md`?"
+   > Options: `Yes — walk through design doc` / `No — synthesis is enough`.
+
+   Yes sets `DESIGN_DOC=1`; No falls through to Step 9.
+
+If `DESIGN_DOC=0` after the prompt, skip to Step 9.
+
+Set task `3.1.5` → `in_progress`.
+
+**Setup:**
+
+```
+DD_DIR="$TOPIC_DIR/_consult/design-doc"
+mkdir -p "$DD_DIR"
+SECTIONS=(architecture components data-flow error-handling testing)
+SECTION_TITLES=(Architecture Components "Data Flow" "Error Handling" Testing)
+mapfile -t APPROVED < <(
+  source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
+  cw_consult_design_doc_resume_state "$DD_DIR"
+)
+```
+
+**Per-section loop** (5 iterations — one per section):
+
+For each `i` in `0..4`:
+
+1. `key=${SECTIONS[$i]}; title=${SECTION_TITLES[$i]}`.
+2. **Resume check.** If `$key` appears in `${APPROVED[@]}`:
+   `AskUserQuestion`: "Section '$title' already approved on a prior run.
+   Reuse / Redo / Skip?"
+   - Reuse → continue to next `i`.
+   - Redo → `rm "$DD_DIR/$key.md"`, fall through to draft loop.
+   - Skip → `printf '_(skipped on resume)_\n' > "$DD_DIR/$key.md"`, next `i`.
+3. **Draft loop:**
+   - Yoda reads `$TOPIC_DIR/_consult/synthesis.md`,
+     `$TOPIC_DIR/_consult/adjudicated.md`, both troopers'
+     `findings.md` and `verify.md`. Drafts the section text inline,
+     scaled to complexity.
+   - Yoda presents the draft in chat (markdown formatting preserved).
+   - `AskUserQuestion`:
+     "Section '$title' — Approve / Revise / Drill deeper / Skip?"
+     - **Approve** →
+       ```
+       printf '%s\n' "<approved-draft-text>" > "$DD_DIR/$key.md"
+       ```
+       break draft loop, next `i`.
+     - **Revise** → `AskUserQuestion`: "What should change?" (free-form).
+       Fold response into draft. Re-loop to present.
+     - **Drill deeper** → enter drill-down sub-loop (below). Fold
+       drilldown content into draft. Re-loop to present.
+     - **Skip** →
+       ```
+       printf '_(skipped)_\n' > "$DD_DIR/$key.md"
+       ```
+       break draft loop, next `i`.
+
+**Drill-down sub-loop:**
+
+```
+# AskUserQuestion: "Which trooper to drill into '$title'?"
+#   options: rex (codex) / cody (claude)
+COMMANDER=<chosen>
+case "$COMMANDER" in rex) MODEL=codex ;; cody) MODEL=claude ;; esac
+
+# AskUserQuestion: "What's the focus? (e.g., 'trade-offs feel hand-wavy')"
+FOCUS=<free-form>
+
+# Build payload + record outbox cursor BEFORE send.
+source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
+PROMPT=$(cw_consult_design_doc_drilldown_prompt \
+  "$title" "$TOPIC_DIR/_consult/synthesis.md" \
+  "$COMMANDER" "$DD_DIR" "$FOCUS")
+
+TROOPER_DIR=$(cw_trooper_dir "$COMMANDER" "$MODEL" "$CONSULT_TOPIC")
+OFFSET=$(wc -c < "$TROOPER_DIR/outbox.jsonl" 2>/dev/null || echo 0)
+
+# Dispatch via send.sh (stages prompt + nudges pane).
+"$CLAUDE_PLUGIN_ROOT/bin/send.sh" "$COMMANDER" "$CONSULT_TOPIC" "$PROMPT"
+
+# Wait for done|error. Reuse findings_timeout_s from contracts.yaml.
+TIMEOUT=$(awk -F: '/findings_timeout_s/{gsub(/[^0-9]/,"",$2); print $2; exit}' \
+  "${CLONE_WARS_HOME:-$HOME/.clone-wars}/contracts.yaml")
+TIMEOUT=${TIMEOUT:-90}
+
+# Events are passed as separate positional args (not pipe-joined).
+if cw_outbox_wait_since "$COMMANDER" "$MODEL" "$CONSULT_TOPIC" \
+     "$OFFSET" done error "$TIMEOUT" >/dev/null; then
+  SECTION_SLUG=$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+  DRILL="$DD_DIR/drilldown-${SECTION_SLUG}-${COMMANDER}.md"
+  if [[ -s "$DRILL" ]]; then
+    # Yoda reads $DRILL and incorporates into the section draft.
+    log_info "[design-doc] folded $DRILL into $title draft"
+  else
+    # AskUserQuestion: "Drill-down completed but $DRILL is empty.
+    #   Continue / Retry / Other trooper / Skip?"
+    : # branch on user choice
+  fi
+else
+  # AskUserQuestion: "Drill-down on $title timed out. Retry / Other
+  #   trooper / Skip drill / Continue with current draft?"
+  :
+fi
+```
+
+**Finalize** (after all 5 sections processed):
+
+```
+"$CLAUDE_PLUGIN_ROOT/bin/consult-design-doc.sh" "$CONSULT_TOPIC"
+```
+
+The script assembles, self-reviews, and commits. Failure modes:
+
+- **Output collision** (`docs/clone-wars/specs/<filename>` exists):
+  script exits 1. Yoda asks via `AskUserQuestion`: "<path> exists.
+  Overwrite (delete and rerun) / Append `-2` suffix / Abort?" Branch:
+  - Overwrite → `rm` the file, re-invoke script.
+  - Suffix → `mv` the assembled file (after re-run with patched
+    helper, or use a manual `cp $DD_DIR + assemble + commit`); for v1
+    keep it simple: re-run with `CW_TEST_DATE` containing a `-2` suffix
+    workaround is NOT supported — instruct user to clean up manually.
+  - Abort → leave artifacts, skip commit, fall through to Step 9.
+- **Self-review found placeholders**: script's stderr lists
+  `<file>:<lineno>: <line>`. Yoda parses, identifies which section
+  contains the placeholder (by comparing against the assembled doc's
+  section boundaries), and re-enters the per-section walk for the
+  offending section ONLY. After fix, re-invoke `consult-design-doc.sh`.
+  Loop until clean or user aborts.
+- **Git commit failed**: script exits 1, design.md exists uncommitted.
+  Yoda surfaces the git error verbatim and asks user to resolve.
+
+**User-review gate** (verbatim from `superpowers:brainstorming` SKILL):
+
+> "Spec written and committed to `<path>`. Please review it and let me
+> know if you want to make any changes before we start writing out the
+> implementation plan."
+
+Wait for user response. If they request changes, edit the file and amend
+the commit. Only proceed to Step 9 once user approves.
+
+Set task `3.1.5` → `completed`.
 
 ### Step 9 — Teardown + archive
 
