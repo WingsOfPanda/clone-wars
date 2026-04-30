@@ -64,6 +64,7 @@ cw_identity_write() {
   identity="$dir/identity.md"
   outbox="$dir/outbox.jsonl"
   tmpl="$(cw_state_root)/identity-template.md"
+  [[ -f "$tmpl" ]] || tmpl="$PLUGIN_ROOT/config/prompt-templates/identity.md"
   [[ -f "$tmpl" ]] || tmpl="$PLUGIN_ROOT/config/identity-template.md"
 
   sed \
