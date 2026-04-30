@@ -743,3 +743,50 @@ cw_consult_parse_design_doc_flag() {
   done
   printf '%s\t%s\n' "$flag" "${kept[*]}"
 }
+
+# cw_consult_load_prompt <relpath> [VAR=value ...]  (v0.5.0)
+# Reads $CLAUDE_PLUGIN_ROOT/config/prompt-templates/<relpath> and substitutes
+# every {{VAR}} placeholder using single-pass sed. Returns:
+#   rc=0 — rendered prompt printed to stdout
+#   rc=1 — template not found (path printed to stderr)
+#   rc=2 — bad call (no CLAUDE_PLUGIN_ROOT, surviving {{VAR}}, or no relpath)
+#
+# Single-pass: a value containing {{...}} is NOT recursively expanded; if a
+# user-supplied value reintroduces a placeholder the surviving-token guard
+# fires. This is the safer behavior — recursion would amplify mistakes.
+cw_consult_load_prompt() {
+  local relpath="${1:-}"
+  [[ -n "$relpath" ]] || { echo "cw_consult_load_prompt: relpath required" >&2; return 2; }
+  shift
+  local plugin_root="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"
+  [[ -n "$plugin_root" ]] || { echo "cw_consult_load_prompt: CLAUDE_PLUGIN_ROOT not set" >&2; return 2; }
+  local tmpl="$plugin_root/config/prompt-templates/$relpath"
+  [[ -f "$tmpl" ]] || { echo "cw_consult_load_prompt: template not found: $tmpl" >&2; return 1; }
+
+  # Build a sed script: one s|{{KEY}}|escaped-value|g per VAR=value pair.
+  # Pipe delimiter so / in values stays literal; escape \, &, and | in value.
+  local script="" pair key val esc
+  for pair in "$@"; do
+    key="${pair%%=*}"
+    val="${pair#*=}"
+    [[ "$pair" == *=* && -n "$key" ]] || { echo "cw_consult_load_prompt: bad VAR=value '$pair'" >&2; return 2; }
+    esc=${val//\\/\\\\}    # \  → \\
+    esc=${esc//&/\\&}      # &  → \&
+    esc=${esc//|/\\|}      # |  → \|
+    esc=${esc//$'\n'/\\$'\n'}   # newlines: sed `s` needs a literal newline escape
+    script+="s|{{${key}}}|${esc}|g;"
+  done
+
+  local rendered
+  rendered=$(sed -e "$script" "$tmpl") || return 1
+
+  if printf '%s\n' "$rendered" | grep -qE '\{\{[A-Z_][A-Z0-9_]*\}\}'; then
+    {
+      echo "cw_consult_load_prompt: unresolved placeholders in $relpath:"
+      printf '%s\n' "$rendered" | grep -oE '\{\{[A-Z_][A-Z0-9_]*\}\}' | sort -u | sed 's/^/  /'
+    } >&2
+    return 2
+  fi
+
+  printf '%s\n' "$rendered"
+}
