@@ -655,3 +655,20 @@ When done, append a {"event":"done"} line to your outbox as usual.
 END_OF_INSTRUCTION
 EOF
 }
+
+# cw_consult_design_doc_resume_state <design-doc-dir>
+# Lists approved section keys (one per line, basename without .md) on stdout.
+# Excludes drilldown-* and zero-byte files. Missing dir → empty stdout, rc=0.
+cw_consult_design_doc_resume_state() {
+  local dd="$1"
+  [[ -d "$dd" ]] || return 0
+  local f base
+  shopt -s nullglob
+  for f in "$dd"/*.md; do
+    [[ -s "$f" ]] || continue
+    base=$(basename "$f" .md)
+    [[ "$base" == drilldown-* ]] && continue
+    printf '%s\n' "$base"
+  done
+  shopt -u nullglob
+}
