@@ -559,3 +559,54 @@ cw_consult_design_doc_filename() {
   local date_str="${CW_TEST_DATE:-$(date +%Y-%m-%d)}"
   printf 'docs/clone-wars/specs/%s-%s-design.md\n' "$date_str" "$slug"
 }
+
+# cw_consult_design_doc_assemble <section-dir> <output-path> <title>
+# Concatenates 5 section files into a single design doc with a standard
+# header. Missing sections get a _(skipped)_ placeholder body.
+cw_consult_design_doc_assemble() {
+  local section_dir="$1" out="$2" title="$3"
+  [[ -d "$section_dir" ]] || { echo "cw_consult_design_doc_assemble: missing $section_dir" >&2; return 1; }
+  [[ -n "$title" ]] || { echo "cw_consult_design_doc_assemble: empty title" >&2; return 2; }
+
+  # Header — pull goal/arch/tech-stack from architecture.md if present.
+  local goal="(see Architecture section)" arch_line="(see Architecture section)" tech_block=""
+  if [[ -f "$section_dir/architecture.md" ]]; then
+    goal=$(head -n1 "$section_dir/architecture.md")
+    # Architecture paragraph: lines >=3, until first blank line or "## Tech Stack".
+    arch_line=$(awk '
+      NR<3 {next}
+      /^## Tech Stack$/ {exit}
+      NF==0 {exit}
+      {print}
+    ' "$section_dir/architecture.md" | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//')
+    [[ -n "$arch_line" ]] || arch_line="(see Architecture section)"
+    # Tech Stack block: lines under "## Tech Stack" until next ## heading or EOF.
+    tech_block=$(awk '/^## Tech Stack$/{flag=1; next} /^## /{flag=0} flag' "$section_dir/architecture.md")
+  fi
+
+  {
+    printf '# %s Design\n\n' "$title"
+    printf '**Goal:** %s\n\n' "$goal"
+    printf '**Architecture:** %s\n\n' "$arch_line"
+    printf '**Tech Stack:**\n'
+    if [[ -n "$tech_block" ]]; then
+      printf '%s\n' "$tech_block"
+    else
+      printf '- (see Components section)\n'
+    fi
+    printf '\n---\n\n'
+
+    local pair key heading
+    for pair in 'architecture|Architecture' 'components|Components' 'data-flow|Data Flow' 'error-handling|Error Handling' 'testing|Testing'; do
+      key="${pair%%|*}"
+      heading="${pair##*|}"
+      printf '## %s\n\n' "$heading"
+      if [[ -f "$section_dir/$key.md" ]]; then
+        cat "$section_dir/$key.md"
+        printf '\n'
+      else
+        printf '_(skipped)_\n\n'
+      fi
+    done
+  } > "$out"
+}
