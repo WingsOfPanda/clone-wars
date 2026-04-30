@@ -24,9 +24,12 @@ ART_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/_consult"
 STATE_FILE="$ART_DIR/verify-$COMMANDER.txt"
 [[ -f "$STATE_FILE" ]] || { log_error "$STATE_FILE missing — run consult-verify-send first"; exit 1; }
 
-# Short-circuit if already skipped.
+# Short-circuit if already skipped (state file already has VS=skipped).
 if grep -q '^VS=skipped' "$STATE_FILE"; then
   log_info "[verify-wait] $COMMANDER skipped (already)"
+  # v0.5.0 background-await: still touch .done so the controller knows
+  # this exit was clean, not a crash.
+  touch "${STATE_FILE%.txt}.done"
   exit 0
 fi
 

@@ -125,4 +125,16 @@ assert_done_sentinel "$VERIFY_STATE"
 grep -q '^VS=' "$VERIFY_STATE"
 pass "verify-wait done → VS= written + .done touched"
 
+# Case 7: verify-wait skipped short-circuit → .done still touched.
+TOPIC=consult-topic-7 COMMANDER=rex MODEL=codex
+mkdir -p "$SANDBOX/state/$(cw_repo_hash)/$TOPIC/_consult"
+mkdir -p "$SANDBOX/state/$(cw_repo_hash)/$TOPIC/${COMMANDER}-${MODEL}"
+SKIP_STATE="$SANDBOX/state/$(cw_repo_hash)/$TOPIC/_consult/verify-${COMMANDER}.txt"
+printf 'VS=skipped\n' > "$SKIP_STATE"
+"$PLUGIN_ROOT/bin/consult-verify-wait.sh" "$TOPIC" "$COMMANDER" "$MODEL"
+SKIP_DONE="${SKIP_STATE%.txt}.done"
+[[ -f "$SKIP_DONE" ]] || { echo "FAIL c7: missing .done sentinel after VS=skipped short-circuit"; exit 1; }
+[[ "$(tail -1 "$SKIP_STATE")" == "VS=skipped" ]] || { echo "FAIL c7: state file content drifted: $(tail -1 "$SKIP_STATE")"; exit 1; }
+pass "verify-wait VS=skipped short-circuit → .done touched, state preserved"
+
 echo "ALL PASS"
