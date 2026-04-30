@@ -144,13 +144,13 @@ Bash(
   command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" rex  codex',
   run_in_background: true,
   description='research-wait rex (background)'
-) → task_id_rex
+)
 
 Bash(
   command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" cody claude',
   run_in_background: true,
   description='research-wait cody (background)'
-) → task_id_cody
+)
 ```
 
 While the background tasks run, **Yoda's pane remains free** — the user can
@@ -199,7 +199,7 @@ f. **Re-arm by removing the `.done` sentinel and re-running the wait-script
      command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" <commander> <model>',
      run_in_background: true,
      description='research-wait <commander> re-arm (background)'
-   ) → new task_id
+   )
    ```
    The new task will fire its own completion notification.
 
@@ -241,13 +241,13 @@ Bash(
   command='"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" rex  codex',
   run_in_background: true,
   description='verify-wait rex (background)'
-) → task_id_rex
+)
 
 Bash(
   command='"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" cody claude',
   run_in_background: true,
   description='verify-wait cody (background)'
-) → task_id_cody
+)
 ```
 
 On EACH completion notification, read the per-commander verify state file:
@@ -635,7 +635,7 @@ When a wait-script reports `FS=question` (research) or `VS=question`
    Bash(
      command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" <commander> <model>',
      run_in_background: true,
-     description='research-wait <commander> re-arm'
+     description='research-wait <commander> re-arm (background)'
    )
    # or the verify-wait equivalent.
    ```

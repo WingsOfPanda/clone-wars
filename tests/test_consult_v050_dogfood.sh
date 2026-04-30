@@ -13,6 +13,8 @@
 #   3. From a second terminal: bash bin/list.sh
 #      Verify both troopers show `working`. Wait > $CW_STALE_THRESHOLD_S
 #      seconds (default 180) and re-run; verify `stale` appears.
+#      (Tip: if the trooper finishes before 180s, re-run with a slower
+#       task or temporarily set CW_STALE_THRESHOLD_S=30 in the env.)
 #   4. Answer any FS=question prompts.
 #   5. Wait for synthesis; verify final shape.
 #
