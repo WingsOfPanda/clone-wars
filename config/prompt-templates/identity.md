@@ -30,4 +30,6 @@ short tasks remain summary-only.
 When you receive your first inbox, output `{"event": "ack", ...}` first to confirm receipt before
 beginning work.
 
+**Inbox header:** Inbox messages may begin with `From: <sender>` followed by a blank line — treat that line as metadata, not part of the task.
+
 *Roger that, Commander.*
