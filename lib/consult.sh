@@ -608,10 +608,12 @@ cw_consult_design_doc_assemble() {
   if [[ -f "$section_dir/architecture.md" ]]; then
     # Only fall back to architecture.md head if synthesis didn't set goal.
     [[ "$goal" == "(see Architecture section)" ]] && goal=$(head -n1 "$section_dir/architecture.md")
-    # Architecture paragraph: lines >=3, until first blank line or "## Tech Stack".
+    # Architecture paragraph: lines >=3, until any H2 heading or blank line.
+    # v0.4.1: changed from "/^## Tech Stack$/" to "/^## /" so an architecture.md
+    # whose third line is the next H2 (no body paragraph) falls back cleanly.
     arch_line=$(awk '
       NR<3 {next}
-      /^## Tech Stack$/ {exit}
+      /^## / {exit}
       NF==0 {exit}
       {print}
     ' "$section_dir/architecture.md" | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//')
@@ -628,7 +630,7 @@ cw_consult_design_doc_assemble() {
     if [[ -n "$tech_block" ]]; then
       printf '%s\n' "$tech_block"
     else
-      printf '- (see Components section)\n'
+      printf '%s\n' '- (see Components section)'
     fi
     printf '\n---\n\n'
 

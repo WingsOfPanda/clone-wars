@@ -117,3 +117,24 @@ cw_consult_design_doc_assemble "$SECTIONS" "$OUT_B3" "Test Topic" "" ""
 grep -q '^\*\*Goal:\*\* The system uses pane-based file IPC' "$OUT_B3" \
   || { echo "FAIL: goal should fall back to architecture.md head"; grep '^\*\*Goal' "$OUT_B3" >&2; exit 1; }
 pass "v0.4.1: empty synthesis-path falls back to architecture head"
+
+# v0.4.1 — Case C: arch-line awk halts at any H2, not just "## Tech Stack".
+SECTIONS_C="$TMP/sections_c"; mkdir -p "$SECTIONS_C"
+cat > "$SECTIONS_C/architecture.md" <<'MD'
+The single-paragraph opener.
+
+## Per-policy fixed properties
+body of next section
+MD
+cat > "$SECTIONS_C/components.md" <<'MD'
+- thing
+MD
+OUT_C="$TMP/case_c.md"
+cw_consult_design_doc_assemble "$SECTIONS_C" "$OUT_C" "Test"
+grep -q '^\*\*Architecture:\*\* (see Architecture section)' "$OUT_C" \
+  || { echo "FAIL: arch line should be fallback when no body paragraph"; grep '^\*\*Architecture' "$OUT_C" >&2; exit 1; }
+# Confirm the H2 heading text did NOT bleed into the Architecture line.
+if grep -q '^\*\*Architecture:\*\* ## Per-policy' "$OUT_C"; then
+  echo "FAIL: H2 heading bled into Architecture line"; exit 1
+fi
+pass "v0.4.1: arch-line awk halts at any H2, not just Tech Stack"
