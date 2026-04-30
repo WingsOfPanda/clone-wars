@@ -141,6 +141,31 @@ content is rejected. Full JSON decoding deferred to v0.3.1+.
 
 Spec: `docs/superpowers/specs/2026-04-29-clone-wars-consult-question-protocol-design.md`.
 
+### v0.4 — design-doc mode
+
+Consult can produce a brainstorming-style design doc at the end of an
+investigation. Two ways in:
+
+- **Implicit:** `/clone-wars:consult <topic>` — after synthesis, if the
+  topic classifier returned `brainstorming`, Master Yoda asks whether to
+  walk through a design doc. Decline → run ends at synthesis.md as before.
+- **Explicit:** `/clone-wars:consult --design-doc <topic>` — skips the
+  prompt; Step 8.5 always runs.
+
+Step 8.5 walks the user through five sections — Architecture, Components,
+Data Flow, Error Handling, Testing — with `AskUserQuestion` per section
+(Approve / Revise / Drill deeper / Skip). "Drill deeper" sends a focused
+follow-up to one trooper before tearing down. The approved sections are
+assembled with a standard header into
+`docs/clone-wars/specs/YYYY-MM-DD-<slug>-design.md`, self-reviewed for
+placeholders, and committed.
+
+Investigation topics (bug hunts, audits) skip the prompt entirely — the
+classifier marks them `systematic-debugging` or `none` and consult ends
+at synthesis.md.
+
+Spec: `docs/superpowers/specs/2026-04-29-clone-wars-consult-design-doc-mode-design.md`.
+
 ---
 
 ## Visual identity
