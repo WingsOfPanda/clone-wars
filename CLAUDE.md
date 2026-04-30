@@ -298,4 +298,5 @@ This repo follows Conventional Commits loosely: `feat:`, `fix:`, `docs:`, `test:
 - [x] v0.4.1: design-doc mode — header-extraction polish (title, goal, arch-line)
 - [x] v0.4.2: design-doc mode — codex adversarial-review fixes (atomic write, hash filename, teardown order, always-offer prompt, drill-both, token-flag parse)
 - [x] v0.5.0: octogent-steals — prompt-template registry, stale state, cw_send --from, background-await pattern
+- [ ] v0.6: drop config/identity-template.md back-compat symlink + sweep tracer/*.sh + README.md legacy refs
 - [ ] Submit to claude-plugins-official (post v0.5.x dogfood)
