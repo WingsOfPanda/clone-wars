@@ -22,4 +22,18 @@ actual=$(cw_consult_build_research_prompt "decide between LRU and LFU" "/tmp/fin
 }
 pass "research prompt byte-equal to v0.4.2 baseline"
 
+# Case 2: verify prompt regression.
+cat > /tmp/items.txt <<'EOF'
+[src/auth/store.py:42] sessions are stored as plaintext
+[https://example.com/rfc] RFC says X
+EOF
+expected="$(cat fixtures/v0.4.2-verify-prompt.txt)"
+actual=$(cw_consult_build_verify_prompt /tmp/items.txt /tmp/verify.md)
+[[ "$actual" == "$expected" ]] || {
+  diff <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") | head -20
+  echo "FAIL c2: verify prompt diverged from v0.4.2 baseline"
+  exit 1
+}
+pass "verify prompt byte-equal to v0.4.2 baseline"
+
 echo "ALL PASS"

@@ -143,41 +143,9 @@ cw_consult_diff() {
 # line) and emits a self-contained instruction, terminated by END_OF_INSTRUCTION.
 cw_consult_build_verify_prompt() {
   local items_file="$1" write_to="$2"
-  cat <<EOF
-You researched a topic in your previous turn. Below are claims the OTHER researcher raised that you did not. For EACH item, do ONE of:
-
-  AGREE     — confirm with your own evidence (cite a file/line/source)
-  DISPUTE   — explain why it's wrong, with counter-evidence
-  UNCERTAIN — you cannot tell from available evidence; say so
-
-Items to verify:
-$(cat "$items_file" | nl -ba -w1 -s'. ')
-
-Write your verdicts to $write_to in this exact format:
-
-  # Verify
-  ## Verdicts
-  1. <TAG> <original [citation] and text>
-     <one-line evidence>
-  2. ...
-
-Where <TAG> is one of: AGREE / DISPUTE / UNCERTAIN.
-
-Verification methods (v0.3.2):
-You may use any tool in your environment to verify these claims —
-WebSearch / WebFetch are explicitly authorized when an item cites a
-URL, references external standards/docs, or makes a claim that local
-repo evidence cannot resolve. For URL-cited items, fetching the source
-is the default verification step. For file-cited items, prefer reading
-the local file but reach for web tools when the file references an
-external behavior (e.g., HTTP semantics, library APIs). If a tool is
-unavailable in your environment, mark the item UNCERTAIN and note the
-gap rather than fabricating evidence.
-
-Then emit {"event":"done", "summary":"verified N items", "ts":"<iso>"} to your outbox.
-
-END_OF_INSTRUCTION
-EOF
+  local items
+  items=$(nl -ba -w1 -s'. ' "$items_file")
+  cw_consult_load_prompt consult/verify.md "ITEMS=$items" "WRITE_TO=$write_to"
 }
 
 # cw_consult_parse_verdicts <verify.md>
