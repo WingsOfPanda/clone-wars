@@ -46,19 +46,17 @@ Write tool, then invoke sub-scripts with the resolved topic.
 
 Set task `0` → `in_progress`.
 
-**v0.4.0 — `--design-doc` flag parsing (BEFORE init):**
+**v0.4.2 — `--design-doc` token-aware flag parsing (BEFORE init):**
 
-Scan `$ARGUMENTS` for the literal token `--design-doc`. If present, set
-`DESIGN_DOC=1` and strip the flag from the argument string before writing
-the args-file. Otherwise `DESIGN_DOC=0`.
+Use `cw_consult_parse_design_doc_flag` to remove ONLY exact `--design-doc`
+tokens (not substrings like `--design-documentation` or
+`--design-doc-please`).
 
 ```
-ARG_RAW="$ARGUMENTS"
-DESIGN_DOC=0
-if [[ "$ARG_RAW" == *"--design-doc"* ]]; then
-  DESIGN_DOC=1
-  ARG_RAW=$(printf '%s' "$ARG_RAW" | sed 's/--design-doc//' | sed 's/  */ /g; s/^ //; s/ $//')
-fi
+source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
+PARSE=$(cw_consult_parse_design_doc_flag "$ARGUMENTS")
+DESIGN_DOC="${PARSE%%	*}"
+ARG_RAW="${PARSE#*	}"
 ```
 
 Use `$ARG_RAW` (not `$ARGUMENTS`) for the topic text from this point.
@@ -270,23 +268,34 @@ Refuses if PENDING remains. On success, prints synthesis.md. Set task
 
 ### Step 8.5 — Design-doc walk (v0.4.0, optional)
 
-**Entry conditions** (skip Step 8.5 entirely if neither holds):
+**Entry conditions** (v0.4.2 — classifier no longer the strict gate):
 
-1. **Explicit flag.** `$DESIGN_DOC=1` (the user invoked
-   `/clone-wars:consult --design-doc <topic>` — parsed at Step 0).
-2. **Implicit prompt.** `$DESIGN_DOC=0` AND
-   `cat "$TOPIC_DIR/_consult/skill.txt"` is `brainstorming`. Yoda calls
+1. **Explicit flag.** `$DESIGN_DOC=1` → enter Step 8.5 with no prompt.
+2. **Skip path.** Classifier returned `systematic-debugging` (clear non-design
+   intent — auditing/triage). Skip Step 8.5 entirely.
+3. **Default — always offer.** For `brainstorming` OR `none`, Yoda calls
    `AskUserQuestion`:
 
-   > "This consult topic looks design-shaped. Want me to walk through a
-   > design doc (Architecture / Components / Data flow / Error handling /
-   > Testing) and write it to
-   > `docs/clone-wars/specs/YYYY-MM-DD-<slug>-design.md`?"
+   > "Want me to walk through a design doc (Architecture / Components /
+   > Data flow / Error handling / Testing) and write it to
+   > `docs/clone-wars/specs/YYYY-MM-DD-<slug>-<hash>-design.md`?"
    > Options: `Yes — walk through design doc` / `No — synthesis is enough`.
 
    Yes sets `DESIGN_DOC=1`; No falls through to Step 9.
 
-If `DESIGN_DOC=0` after the prompt, skip to Step 9.
+```
+SKILL_TXT=$(cat "$TOPIC_DIR/_consult/skill.txt" 2>/dev/null || echo "none")
+if [[ "$DESIGN_DOC" == "1" ]]; then
+  : # explicit flag wins
+elif [[ "$SKILL_TXT" == "systematic-debugging" ]]; then
+  DESIGN_DOC=0  # skip — non-design intent
+else
+  # AskUserQuestion → set DESIGN_DOC based on user response
+  :
+fi
+```
+
+If `DESIGN_DOC=0` after the gate, skip to Step 9.
 
 Set task `3.1.5` → `in_progress`.
 
@@ -339,45 +348,89 @@ For each `i` in `0..4`:
 
 **Drill-down sub-loop:**
 
+v0.4.2: drill-down accepts `rex` / `cody` / `both`. For `both`, Yoda dispatches
+the same focused prompt to BOTH troopers in parallel; outputs land at
+`drilldown-<section>-rex.md` and `drilldown-<section>-cody.md`; both fold into
+the section draft, attributing each finding by commander.
+
 ```
 # AskUserQuestion: "Which trooper to drill into '$title'?"
-#   options: rex (codex) / cody (claude)
-COMMANDER=<chosen>
-case "$COMMANDER" in rex) MODEL=codex ;; cody) MODEL=claude ;; esac
+#   options: rex (codex) / cody (claude) / both (parallel)
+TROOPER_CHOICE=<chosen>
 
 # AskUserQuestion: "What's the focus? (e.g., 'trade-offs feel hand-wavy')"
 FOCUS=<free-form>
 
-# Build payload + record outbox cursor BEFORE send.
 source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
-PROMPT=$(cw_consult_design_doc_drilldown_prompt \
-  "$title" "$TOPIC_DIR/_consult/synthesis.md" \
-  "$COMMANDER" "$DD_DIR" "$FOCUS")
-
-TROOPER_DIR=$(cw_trooper_dir "$COMMANDER" "$MODEL" "$CONSULT_TOPIC")
-OFFSET=$(wc -c < "$TROOPER_DIR/outbox.jsonl" 2>/dev/null || echo 0)
-
-# Dispatch via send.sh (stages prompt + nudges pane).
-"$CLAUDE_PLUGIN_ROOT/bin/send.sh" "$COMMANDER" "$CONSULT_TOPIC" "$PROMPT"
-
-# Wait for done|error. Reuse findings_timeout_s from contracts.yaml.
 TIMEOUT=$(awk -F: '/findings_timeout_s/{gsub(/[^0-9]/,"",$2); print $2; exit}' \
   "${CLONE_WARS_HOME:-$HOME/.clone-wars}/contracts.yaml")
 TIMEOUT=${TIMEOUT:-90}
 
-# Events are passed as separate positional args (not pipe-joined).
-if cw_outbox_wait_since "$COMMANDER" "$MODEL" "$CONSULT_TOPIC" \
-     "$OFFSET" done error "$TIMEOUT" >/dev/null; then
-  SECTION_SLUG=$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
-  DRILL="$DD_DIR/drilldown-${SECTION_SLUG}-${COMMANDER}.md"
-  if [[ -s "$DRILL" ]]; then
-    # Yoda reads $DRILL and incorporates into the section draft.
-    log_info "[design-doc] folded $DRILL into $title draft"
-  else
-    # AskUserQuestion: "Drill-down completed but $DRILL is empty.
-    #   Continue / Retry / Other trooper / Skip?"
-    : # branch on user choice
-  fi
+dispatch_drill() {
+  local commander="$1" model="$2"
+  local trooper_dir offset prompt
+  trooper_dir=$(cw_trooper_dir "$commander" "$model" "$CONSULT_TOPIC")
+  offset=$(wc -c < "$trooper_dir/outbox.jsonl" 2>/dev/null || echo 0)
+  prompt=$(cw_consult_design_doc_drilldown_prompt \
+    "$title" "$TOPIC_DIR/_consult/synthesis.md" "$commander" "$DD_DIR" "$FOCUS")
+  "$CLAUDE_PLUGIN_ROOT/bin/send.sh" "$commander" "$CONSULT_TOPIC" "$prompt"
+  printf '%s\n' "$offset"  # caller captures pre-send offset
+}
+
+await_drill() {
+  local commander="$1" model="$2" offset="$3"
+  cw_outbox_wait_since "$commander" "$model" "$CONSULT_TOPIC" \
+    "$offset" done error "$TIMEOUT" >/dev/null
+}
+
+SECTION_SLUG=$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+
+case "$TROOPER_CHOICE" in
+  rex)
+    OFF_REX=$(dispatch_drill rex codex)
+    if await_drill rex codex "$OFF_REX"; then
+      DRILL="$DD_DIR/drilldown-${SECTION_SLUG}-rex.md"
+      [[ -s "$DRILL" ]] && log_info "[design-doc] folded $DRILL into $title draft"
+    fi
+    ;;
+  cody)
+    OFF_CODY=$(dispatch_drill cody claude)
+    if await_drill cody claude "$OFF_CODY"; then
+      DRILL="$DD_DIR/drilldown-${SECTION_SLUG}-cody.md"
+      [[ -s "$DRILL" ]] && log_info "[design-doc] folded $DRILL into $title draft"
+    fi
+    ;;
+  both)
+    OFF_REX=$(dispatch_drill rex codex)   # parallel — these run in tmux panes
+    OFF_CODY=$(dispatch_drill cody claude)
+    REX_OK=0; CODY_OK=0
+    await_drill rex  codex  "$OFF_REX"  && REX_OK=1
+    await_drill cody claude "$OFF_CODY" && CODY_OK=1
+    DRILL_REX="$DD_DIR/drilldown-${SECTION_SLUG}-rex.md"
+    DRILL_CODY="$DD_DIR/drilldown-${SECTION_SLUG}-cody.md"
+    if (( REX_OK || CODY_OK )); then
+      [[ -s "$DRILL_REX" ]]  && log_info "[design-doc] folded $DRILL_REX into $title draft"
+      [[ -s "$DRILL_CODY" ]] && log_info "[design-doc] folded $DRILL_CODY into $title draft"
+      # Yoda reads both files (when present) and incorporates findings,
+      # attributing each by commander in the section text.
+    else
+      # AskUserQuestion: "Both drill-downs failed/timed out. Retry / Skip drill?"
+      :
+    fi
+    ;;
+  *)
+    log_error "drill-down: unknown choice '$TROOPER_CHOICE' — re-prompting"
+    # Re-enter the AskUserQuestion above; do not proceed with stale MODEL.
+    ;;
+esac
+
+# Single-trooper empty-drilldown handling (rex/cody branches above).
+DRILL_PATH="$DD_DIR/drilldown-${SECTION_SLUG}-${TROOPER_CHOICE}.md"
+if [[ "$TROOPER_CHOICE" != "both" && ! -s "$DRILL_PATH" ]]; then
+  # AskUserQuestion: "Drill-down completed but $DRILL_PATH is empty.
+  #   Continue / Retry / Other trooper / Skip?"
+  :
+fi
 else
   # AskUserQuestion: "Drill-down on $title timed out. Retry / Other
   #   trooper / Skip drill / Continue with current draft?"
@@ -411,6 +464,24 @@ The script assembles, self-reviews, and commits. Failure modes:
 - **Git commit failed**: script exits 1, design.md exists uncommitted.
   Yoda surfaces the git error verbatim and asks user to resolve.
 
+**v0.4.2 — tear down troopers BEFORE the user-review gate.**
+
+Codex's adversarial review flagged the v0.4.0 ordering (gate-then-teardown)
+as keeping two model TTYs idle through unbounded review pauses with no
+keepalive or recovery path. v0.4.2 reorders: after the design.md commits,
+run teardown + archive immediately, THEN open the user-review gate. The
+trade-off is that post-gate edits cannot drill troopers (they're gone) —
+acceptable because drill-deeper is a during-walk affordance, not a
+post-commit one. After commit, edits are git-tracked manual changes.
+
+```
+"$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC"
+"$CLAUDE_PLUGIN_ROOT/bin/consult-archive.sh"  "$CONSULT_TOPIC"
+```
+
+Set tasks `3.2` and `3.3` → `completed` (teardown + archive happened here,
+not in Step 9 below — Step 9 becomes a no-op when Step 8.5 entered).
+
 **User-review gate** (verbatim from `superpowers:brainstorming` SKILL):
 
 > "Spec written and committed to `<path>`. Please review it and let me
@@ -418,11 +489,15 @@ The script assembles, self-reviews, and commits. Failure modes:
 > implementation plan."
 
 Wait for user response. If they request changes, edit the file and amend
-the commit. Only proceed to Step 9 once user approves.
+the commit (panes are already gone — manual edit only). Only proceed to
+Step 10 (present) once user approves.
 
 Set task `3.1.5` → `completed`.
 
 ### Step 9 — Teardown + archive
+
+**v0.4.2:** if Step 8.5 ran, teardown + archive already happened before the
+user-review gate. Skip this step. Otherwise (no design-doc walk):
 
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC"
