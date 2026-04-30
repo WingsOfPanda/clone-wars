@@ -63,3 +63,17 @@ if cw_consult_design_doc_assemble "$TMP/no-such-dir" "$TMP/y.md" "T" 2>/dev/null
   echo "FAIL: missing dir should reject"; exit 1
 fi
 pass "missing dir rejects"
+
+# v0.4.1 — Case A: 4th arg overrides title with topic-text source.
+OUT_A="$TMP/case_a.md"
+cw_consult_design_doc_assemble "$SECTIONS" "$OUT_A" "Decide Between Lru A" "decide between LRU and LFU cache eviction"
+grep -q '^# Decide Between Lru And Lfu Cache Eviction Design$' "$OUT_A" \
+  || { echo "FAIL: title should be Title-Cased from topic-text 4th arg"; head -1 "$OUT_A" >&2; exit 1; }
+pass "v0.4.1: title from topic-text override"
+
+# v0.4.1 — Case A.2: empty 4th arg falls back to slug-derived title.
+OUT_A2="$TMP/case_a2.md"
+cw_consult_design_doc_assemble "$SECTIONS" "$OUT_A2" "Test Topic" ""
+grep -q '^# Test Topic Design$' "$OUT_A2" \
+  || { echo "FAIL: empty topic-text should fall back to title arg"; exit 1; }
+pass "v0.4.1: empty topic-text falls back to title arg"

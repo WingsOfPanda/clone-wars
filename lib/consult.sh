@@ -560,13 +560,28 @@ cw_consult_design_doc_filename() {
   printf 'docs/clone-wars/specs/%s-%s-design.md\n' "$date_str" "$slug"
 }
 
-# cw_consult_design_doc_assemble <section-dir> <output-path> <title>
+# cw_consult_design_doc_assemble <section-dir> <output-path> <title> [<topic-text>] [<synthesis-path>]
 # Concatenates 5 section files into a single design doc with a standard
 # header. Missing sections get a _(skipped)_ placeholder body.
+#
+# v0.4.1 — optional 4th and 5th args override title and goal sources:
+#   <topic-text>      — full user topic from _consult/topic.txt; if non-empty,
+#                       Title-Cased and used as H1 in preference to <title>
+#                       (which is derived from the 20-char-truncated slug).
+#   <synthesis-path>  — path to _consult/synthesis.md; first non-empty line
+#                       under "## Agreed findings" (then "## Cross-verified")
+#                       becomes **Goal:** (200-char trunc); falls back to
+#                       architecture.md head -n1.
 cw_consult_design_doc_assemble() {
   local section_dir="$1" out="$2" title="$3"
+  local topic_text="${4:-}" synthesis_path="${5:-}"
   [[ -d "$section_dir" ]] || { echo "cw_consult_design_doc_assemble: missing $section_dir" >&2; return 1; }
   [[ -n "$title" ]] || { echo "cw_consult_design_doc_assemble: empty title" >&2; return 2; }
+
+  # v0.4.1: prefer topic-text-derived title when provided.
+  if [[ -n "$topic_text" ]]; then
+    title=$(printf '%s' "$topic_text" | tr -s ' ' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) tolower(substr($i,2))} 1')
+  fi
 
   # Header — pull goal/arch/tech-stack from architecture.md if present.
   local goal="(see Architecture section)" arch_line="(see Architecture section)" tech_block=""
