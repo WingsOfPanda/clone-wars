@@ -294,4 +294,5 @@ This repo follows Conventional Commits loosely: `feat:`, `fix:`, `docs:`, `test:
 - [x] v0.2.1: citation-overlap robustness + Master Yoda role rename
 - [x] v0.3.0: trooper question protocol + skill routing (brainstorming/systematic-debugging)
 - [ ] v0.3.0 strict-dogfood pass on a real machine (release gate)
-- [ ] Submit to claude-plugins-official (post v0.3.0 dogfood)
+- [x] v0.4.0: design-doc mode — opt-in brainstorming-style spec output (Step 8.5)
+- [ ] Submit to claude-plugins-official (post v0.4.0 dogfood)

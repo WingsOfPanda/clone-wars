@@ -540,3 +540,135 @@ cw_consult_outbox_match_endbyte() {
   done < <(tail -c "+$(( start + 1 ))" "$outbox")
   return 1
 }
+
+# ============================================================================
+# v0.4.0 — design-doc mode helpers
+# ============================================================================
+
+# cw_consult_design_doc_filename <topic-slug>
+# Emits docs/clone-wars/specs/YYYY-MM-DD-<slug>-design.md.
+# Uses ${CW_TEST_DATE:-$(date +%Y-%m-%d)} for testability.
+# Rejects empty slug or slug outside [a-z0-9-] with rc=2.
+cw_consult_design_doc_filename() {
+  local slug="${1:-}"
+  [[ -n "$slug" ]] || { echo "cw_consult_design_doc_filename: empty slug" >&2; return 2; }
+  [[ "$slug" =~ ^[a-z0-9-]+$ ]] || {
+    echo "cw_consult_design_doc_filename: slug '$slug' has invalid chars (need [a-z0-9-])" >&2
+    return 2
+  }
+  local date_str="${CW_TEST_DATE:-$(date +%Y-%m-%d)}"
+  printf 'docs/clone-wars/specs/%s-%s-design.md\n' "$date_str" "$slug"
+}
+
+# cw_consult_design_doc_assemble <section-dir> <output-path> <title>
+# Concatenates 5 section files into a single design doc with a standard
+# header. Missing sections get a _(skipped)_ placeholder body.
+cw_consult_design_doc_assemble() {
+  local section_dir="$1" out="$2" title="$3"
+  [[ -d "$section_dir" ]] || { echo "cw_consult_design_doc_assemble: missing $section_dir" >&2; return 1; }
+  [[ -n "$title" ]] || { echo "cw_consult_design_doc_assemble: empty title" >&2; return 2; }
+
+  # Header — pull goal/arch/tech-stack from architecture.md if present.
+  local goal="(see Architecture section)" arch_line="(see Architecture section)" tech_block=""
+  if [[ -f "$section_dir/architecture.md" ]]; then
+    goal=$(head -n1 "$section_dir/architecture.md")
+    # Architecture paragraph: lines >=3, until first blank line or "## Tech Stack".
+    arch_line=$(awk '
+      NR<3 {next}
+      /^## Tech Stack$/ {exit}
+      NF==0 {exit}
+      {print}
+    ' "$section_dir/architecture.md" | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//')
+    [[ -n "$arch_line" ]] || arch_line="(see Architecture section)"
+    # Tech Stack block: lines under "## Tech Stack" until next ## heading or EOF.
+    tech_block=$(awk '/^## Tech Stack$/{flag=1; next} /^## /{flag=0} flag' "$section_dir/architecture.md")
+  fi
+
+  {
+    printf '# %s Design\n\n' "$title"
+    printf '**Goal:** %s\n\n' "$goal"
+    printf '**Architecture:** %s\n\n' "$arch_line"
+    printf '**Tech Stack:**\n'
+    if [[ -n "$tech_block" ]]; then
+      printf '%s\n' "$tech_block"
+    else
+      printf '- (see Components section)\n'
+    fi
+    printf '\n---\n\n'
+
+    local pair key heading
+    for pair in 'architecture|Architecture' 'components|Components' 'data-flow|Data Flow' 'error-handling|Error Handling' 'testing|Testing'; do
+      key="${pair%%|*}"
+      heading="${pair##*|}"
+      printf '## %s\n\n' "$heading"
+      if [[ -f "$section_dir/$key.md" ]]; then
+        cat "$section_dir/$key.md"
+        printf '\n'
+      else
+        printf '_(skipped)_\n\n'
+      fi
+    done
+  } > "$out"
+}
+
+# cw_consult_design_doc_self_review <doc-path>
+# Scans for placeholder strings (TBD/TODO/FIXME word-boundaried, bare three-dot
+# ellipsis surrounded by alpha or whitespace).
+# Reports each match as <path>:<lineno>: <line> to stderr.
+# rc=0 if clean, rc=1 if any match, rc=2 if file missing.
+cw_consult_design_doc_self_review() {
+  local doc="$1"
+  [[ -f "$doc" ]] || { echo "cw_consult_design_doc_self_review: $doc not found" >&2; return 2; }
+  local found=0
+  if grep -nE '\b(TBD|TODO|FIXME)\b' "$doc" >&2; then
+    found=1
+  fi
+  if grep -nE '([[:alpha:]]|[[:space:]])\.\.\.([[:alpha:]]|[[:space:]]|$)' "$doc" >&2; then
+    found=1
+  fi
+  return $found
+}
+
+# cw_consult_design_doc_drilldown_prompt <section> <synthesis-path> <commander> <dd-dir> <focus>
+# Builds a focused inbox payload asking <commander> to drill into <section>.
+# Trooper writes to <dd-dir>/drilldown-<section-slug>-<commander>.md.
+# <focus> is optional pushback text from the user; default applies if empty.
+cw_consult_design_doc_drilldown_prompt() {
+  local section="$1" syn="$2" commander="$3" dd_dir="$4" focus="${5:-}"
+  local section_slug
+  section_slug=$(printf '%s' "$section" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+  local out_path="$dd_dir/drilldown-${section_slug}-${commander}.md"
+
+  cat <<EOF
+You are drilling deeper into the **$section** section of a design doc derived
+from the consultation you just completed.
+
+Read the synthesis you produced: $syn
+
+Focus: ${focus:-Provide more depth, citations, and concrete trade-offs for the $section section.}
+
+Write your expanded notes (with [citation] anchors) to:
+  $out_path
+
+When done, append a {"event":"done"} line to your outbox as usual.
+
+END_OF_INSTRUCTION
+EOF
+}
+
+# cw_consult_design_doc_resume_state <design-doc-dir>
+# Lists approved section keys (one per line, basename without .md) on stdout.
+# Excludes drilldown-* and zero-byte files. Missing dir → empty stdout, rc=0.
+cw_consult_design_doc_resume_state() {
+  local dd="$1"
+  [[ -d "$dd" ]] || return 0
+  local f base
+  shopt -s nullglob
+  for f in "$dd"/*.md; do
+    [[ -s "$f" ]] || continue
+    base=$(basename "$f" .md)
+    [[ "$base" == drilldown-* ]] && continue
+    printf '%s\n' "$base"
+  done
+  shopt -u nullglob
+}
