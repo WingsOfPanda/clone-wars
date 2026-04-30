@@ -540,3 +540,22 @@ cw_consult_outbox_match_endbyte() {
   done < <(tail -c "+$(( start + 1 ))" "$outbox")
   return 1
 }
+
+# ============================================================================
+# v0.4.0 — design-doc mode helpers
+# ============================================================================
+
+# cw_consult_design_doc_filename <topic-slug>
+# Emits docs/clone-wars/specs/YYYY-MM-DD-<slug>-design.md.
+# Uses ${CW_TEST_DATE:-$(date +%Y-%m-%d)} for testability.
+# Rejects empty slug or slug outside [a-z0-9-] with rc=2.
+cw_consult_design_doc_filename() {
+  local slug="${1:-}"
+  [[ -n "$slug" ]] || { echo "cw_consult_design_doc_filename: empty slug" >&2; return 2; }
+  [[ "$slug" =~ ^[a-z0-9-]+$ ]] || {
+    echo "cw_consult_design_doc_filename: slug '$slug' has invalid chars (need [a-z0-9-])" >&2
+    return 2
+  }
+  local date_str="${CW_TEST_DATE:-$(date +%Y-%m-%d)}"
+  printf 'docs/clone-wars/specs/%s-%s-design.md\n' "$date_str" "$slug"
+}
