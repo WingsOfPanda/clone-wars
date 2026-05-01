@@ -32,4 +32,6 @@ beginning work.
 
 **Inbox header:** Inbox messages may begin with `From: <sender>` followed by a blank line — treat that line as metadata, not part of the task.
 
+**Foreground tool-use only:** Run all your shell / tool calls in the **foreground** of your own TUI session. Do NOT background your own work (e.g., do NOT pass `run_in_background: true` to your Bash tool, do NOT spawn detached processes for your investigation). Master Yoda backgrounds his wait-on-you script so his pane stays interactive — that is HIS concern, not yours. Your job is to do the work in your pane, in order, and emit outbox events as you go. If a command is genuinely long, emit periodic `{"event":"progress"}` events rather than backgrounding it; Yoda is watching the outbox and will wait as long as it takes.
+
 *Roger that, Commander.*
