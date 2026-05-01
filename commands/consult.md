@@ -143,13 +143,13 @@ Dispatch BOTH waits as parallel background Bash calls:
 Bash(
   command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" rex  codex',
   run_in_background: true,
-  description='research-wait rex (background)'
+  description='master yoda await captain rex research (background)'
 )
 
 Bash(
   command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" cody claude',
   run_in_background: true,
-  description='research-wait cody (background)'
+  description='master yoda await commander cody research (background)'
 )
 ```
 
@@ -198,7 +198,7 @@ f. **Re-arm by removing the `.done` sentinel and re-running the wait-script
    Bash(
      command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" <commander> <model>',
      run_in_background: true,
-     description='research-wait <commander> re-arm (background)'
+     description='master yoda await <commander> research re-arm (background)'
    )
    ```
    The new task will fire its own completion notification.
@@ -240,13 +240,13 @@ interactive):
 Bash(
   command='"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" rex  codex',
   run_in_background: true,
-  description='verify-wait rex (background)'
+  description='master yoda await captain rex verify (background)'
 )
 
 Bash(
   command='"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" cody claude',
   run_in_background: true,
-  description='verify-wait cody (background)'
+  description='master yoda await commander cody verify (background)'
 )
 ```
 
@@ -573,7 +573,7 @@ If `research-<commander>.txt` shows `FS=malformed`:
 Bash(
   command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" <commander> <model>',
   run_in_background: true,
-  description='research-wait <commander> re-prompt (background)'
+  description='master yoda await <commander> research re-prompt (background)'
 )
 # Wait for completion notification, then read state file as in Step 3.
 
@@ -597,7 +597,7 @@ If `verify-<commander>.txt` verdicts are all UNCERTAIN:
 Bash(
   command='"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" <commander> <model>',
   run_in_background: true,
-  description='verify-wait <commander> re-prompt (background)'
+  description='master yoda await <commander> verify re-prompt (background)'
 )
 # Wait for completion notification, then read state file as in Step 3.
 
@@ -635,7 +635,7 @@ When a wait-script reports `FS=question` (research) or `VS=question`
    Bash(
      command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" <commander> <model>',
      run_in_background: true,
-     description='research-wait <commander> re-arm (background)'
+     description='master yoda await <commander> research re-arm (background)'
    )
    # or the verify-wait equivalent.
    ```
