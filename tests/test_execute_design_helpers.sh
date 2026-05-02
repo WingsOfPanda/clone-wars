@@ -135,6 +135,41 @@ out=$(cw_execute_design_branch_create some-topic custom-branch-name) && rc=0 || 
 got=$(git rev-parse --abbrev-ref HEAD); assert_eq "$got" "custom-branch-name" "override branch checked out"
 pass "branch_create override honored"
 
+# 9. plan-prompt builder names the writing-plans skill + the design path.
+out=$(cw_execute_design_build_plan_prompt /abs/_execute/design.md /abs/_execute/plan.md)
+echo "$out" | grep -q 'superpowers:writing-plans'    || { echo "FAIL: skill missing" >&2; exit 1; }
+echo "$out" | grep -q '/abs/_execute/design.md'      || { echo "FAIL: design path missing" >&2; exit 1; }
+echo "$out" | grep -q '/abs/_execute/plan.md'        || { echo "FAIL: plan path missing" >&2; exit 1; }
+echo "$out" | grep -q 'END_OF_INSTRUCTION'           || { echo "FAIL: sentinel missing" >&2; exit 1; }
+pass "plan-prompt builder"
+
+# 10. implement-prompt names subagent-driven-development + plan path.
+out=$(cw_execute_design_build_implement_prompt /abs/_execute/plan.md)
+echo "$out" | grep -q 'superpowers:subagent-driven-development' \
+  || { echo "FAIL: skill missing" >&2; exit 1; }
+echo "$out" | grep -q '/abs/_execute/plan.md'        || { echo "FAIL: plan path missing" >&2; exit 1; }
+echo "$out" | grep -q 'commit per task'              || { echo "FAIL: commit guidance missing" >&2; exit 1; }
+echo "$out" | grep -q 'END_OF_INSTRUCTION'           || { echo "FAIL: sentinel missing" >&2; exit 1; }
+pass "implement-prompt builder"
+
+# 11. verify-prompt names verification-before-completion + per-round paths.
+out=$(cw_execute_design_build_verify_prompt /abs/_execute/design.md 1 /abs/_execute/verify-report-1.md /abs/_execute/test-output-1.log)
+echo "$out" | grep -q 'superpowers:verification-before-completion' \
+  || { echo "FAIL: skill missing" >&2; exit 1; }
+echo "$out" | grep -q '/abs/_execute/design.md'             || { echo "FAIL: design path missing" >&2; exit 1; }
+echo "$out" | grep -q '/abs/_execute/verify-report-1.md'    || { echo "FAIL: report path missing" >&2; exit 1; }
+echo "$out" | grep -q '/abs/_execute/test-output-1.log'     || { echo "FAIL: test-output path missing" >&2; exit 1; }
+echo "$out" | grep -q 'END_OF_INSTRUCTION'                  || { echo "FAIL: sentinel missing" >&2; exit 1; }
+pass "verify-prompt builder"
+
+# 12. fix-prompt names the fix-prompt path; the directive selects the skill.
+out=$(cw_execute_design_build_fix_prompt /abs/_execute/fix-prompt-1.md)
+echo "$out" | grep -q '/abs/_execute/fix-prompt-1.md'       || { echo "FAIL: fix-prompt path missing" >&2; exit 1; }
+echo "$out" | grep -q 'preamble'                            || { echo "FAIL: preamble guidance missing" >&2; exit 1; }
+echo "$out" | grep -q 'commit per fix'                      || { echo "FAIL: commit guidance missing" >&2; exit 1; }
+echo "$out" | grep -q 'END_OF_INSTRUCTION'                  || { echo "FAIL: sentinel missing" >&2; exit 1; }
+pass "fix-prompt builder"
+
 # Cleanup test cwd
 cd "$TMP"
 rm -rf "$REPO"
