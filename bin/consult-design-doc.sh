@@ -30,7 +30,7 @@ source "$PLUGIN_ROOT/lib/consult.sh"
 TOPIC="$1"
 cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 2; }
 
-TOPIC_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC"
+TOPIC_DIR="$(cw_consult_topic_dir "$TOPIC")"
 DD_DIR="$TOPIC_DIR/_consult/design-doc"
 [[ -d "$DD_DIR" ]] || { log_error "design-doc dir not found: $DD_DIR — run Step 8.5 walk first"; exit 1; }
 

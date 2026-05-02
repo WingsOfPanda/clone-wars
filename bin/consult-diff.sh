@@ -17,7 +17,7 @@ source "$PLUGIN_ROOT/lib/consult.sh"
 TOPIC="$1"
 cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 2; }
 
-ART_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/_consult"
+ART_DIR="$(cw_consult_art_dir "$TOPIC")"
 [[ -d "$ART_DIR" ]] || { log_error "$ART_DIR not found"; exit 1; }
 [[ ! -e "$ART_DIR/diff.md" ]] || { log_error "diff.md exists; reset to retry"; exit 1; }
 

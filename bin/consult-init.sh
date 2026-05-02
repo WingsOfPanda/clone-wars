@@ -23,7 +23,7 @@ SLUG_BASE=$(printf '%s' "$TOPIC_TEXT" \
 [[ -n "$SLUG_BASE" ]] || { log_error "topic produced empty slug; provide alphanumerics"; exit 2; }
 
 CONSULT_TOPIC="consult-$SLUG_BASE"
-TOPIC_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$CONSULT_TOPIC"
+TOPIC_DIR="$(cw_consult_topic_dir "$CONSULT_TOPIC")"
 n=2
 while [[ -d "$TOPIC_DIR" ]]; do
   if (( n > 999 )); then
@@ -31,7 +31,7 @@ while [[ -d "$TOPIC_DIR" ]]; do
     exit 1
   fi
   CONSULT_TOPIC="consult-$SLUG_BASE-$n"
-  TOPIC_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$CONSULT_TOPIC"
+  TOPIC_DIR="$(cw_consult_topic_dir "$CONSULT_TOPIC")"
   n=$((n + 1))
 done
 

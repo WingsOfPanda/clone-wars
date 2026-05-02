@@ -47,7 +47,7 @@ MODEL2="${8:-}"
 cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 2; }
 [[ -d "$DD_DIR" ]] || { log_error "dd_dir not found: $DD_DIR"; exit 2; }
 
-TOPIC_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC"
+TOPIC_DIR="$(cw_consult_topic_dir "$TOPIC")"
 SYNTHESIS="$TOPIC_DIR/_consult/synthesis.md"
 [[ -f "$SYNTHESIS" ]] || { log_error "synthesis.md not found: $SYNTHESIS"; exit 2; }
 

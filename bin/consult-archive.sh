@@ -13,7 +13,7 @@ source "$PLUGIN_ROOT/lib/consult.sh"
 TOPIC="$1"
 cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 2; }
 
-TOPIC_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC"
+TOPIC_DIR="$(cw_consult_topic_dir "$TOPIC")"
 ART_DIR="$TOPIC_DIR/_consult"
 [[ -d "$ART_DIR" ]] || { log_error "$ART_DIR missing — already archived?"; exit 1; }
 

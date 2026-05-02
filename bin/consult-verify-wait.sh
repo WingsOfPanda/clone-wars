@@ -20,7 +20,7 @@ TOPIC="$1"; COMMANDER="$2"; MODEL="$3"
 cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 2; }
 [[ "$COMMANDER" =~ ^[a-z0-9_-]+$ ]] || { log_error "invalid commander: $COMMANDER"; exit 2; }
 
-ART_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/_consult"
+ART_DIR="$(cw_consult_art_dir "$TOPIC")"
 STATE_FILE="$ART_DIR/verify-$COMMANDER.txt"
 [[ -f "$STATE_FILE" ]] || { log_error "$STATE_FILE missing — run consult-verify-send first"; exit 1; }
 

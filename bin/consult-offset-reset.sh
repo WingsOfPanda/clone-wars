@@ -40,7 +40,7 @@ cw_consult_topic_validate "$TOPIC" \
 [[ "$PHASE" == research || "$PHASE" == verify ]] \
   || { log_error "phase must be 'research' or 'verify'; got '$PHASE'"; exit 2; }
 
-ART_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/_consult"
+ART_DIR="$(cw_consult_art_dir "$TOPIC")"
 [[ -d "$ART_DIR" ]] || { log_error "$ART_DIR not found"; exit 1; }
 
 rm -f "$ART_DIR/$PHASE-$COMMANDER.txt"
@@ -54,7 +54,7 @@ if (( ! KEEP_FINDINGS )); then
   # timed out. Find the trooper dir by listing
   # state/<repo-hash>/<topic>/<commander>-<model>/ — model is unknown to
   # this script, so glob it.
-  TROOPER_DIR_GLOB=$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/$COMMANDER-*
+  TROOPER_DIR_GLOB=$(cw_consult_topic_dir "$TOPIC")/$COMMANDER-*
   shopt -s nullglob
   for td in $TROOPER_DIR_GLOB; do
     if [[ "$PHASE" == research ]]; then

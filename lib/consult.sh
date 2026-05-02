@@ -1,6 +1,11 @@
 # lib/consult.sh — /clone-wars:consult helpers.
 # Sourced. Depends on lib/state.sh, lib/ipc.sh, lib/contracts.sh.
 
+# cw_consult_topic_dir <topic> — absolute path to the consult topic dir.
+# cw_consult_art_dir   <topic> — same, plus /_consult (where artifacts live).
+cw_consult_topic_dir() { printf '%s/state/%s/%s\n'          "$(cw_state_root)" "$(cw_repo_hash)" "$1"; }
+cw_consult_art_dir()   { printf '%s/state/%s/%s/_consult\n' "$(cw_state_root)" "$(cw_repo_hash)" "$1"; }
+
 cw_consult_findings_path() { printf '%s/findings.md\n' "$(cw_trooper_dir "$1" "$2" "$3")"; }
 cw_consult_verify_path()   { printf '%s/verify.md\n'   "$(cw_trooper_dir "$1" "$2" "$3")"; }
 

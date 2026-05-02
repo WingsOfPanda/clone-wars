@@ -21,7 +21,7 @@ cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 
 [[ "$COMMANDER" =~ ^[a-z0-9_-]+$ ]] || { log_error "invalid commander: $COMMANDER"; exit 2; }
 [[ "$MODEL" =~ ^[a-z0-9_-]+$ ]]    || { log_error "invalid model: $MODEL"; exit 2; }
 
-ART_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/_consult"
+ART_DIR="$(cw_consult_art_dir "$TOPIC")"
 [[ -d "$ART_DIR" ]] || { log_error "$ART_DIR not found"; exit 1; }
 
 STATE_FILE="$ART_DIR/verify-$COMMANDER.txt"
