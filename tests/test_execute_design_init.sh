@@ -76,3 +76,27 @@ out=$( cd "$REPO" && bash "$BIN" --no-branch --topic explicit-slug "$DDOC" 2>&1 
 [[ "$rc" -ne 0 ]] || { echo "FAIL: dup topic accepted" >&2; exit 1; }
 echo "$out" | grep -q 'already exists' || { echo "FAIL: error msg missing 'already exists': $out" >&2; exit 1; }
 pass "init refuses duplicate topic"
+
+# 6. --branch without an arg is rejected with exit 2 + clean error.
+out=$( cd "$REPO" && bash "$BIN" --no-branch --branch 2>&1 ) && rc=0 || rc=$?
+assert_eq "$rc" "2" "--branch without arg exits 2"
+echo "$out" | grep -q '\-\-branch requires a value' \
+  || { echo "FAIL: --branch error msg missing: $out" >&2; exit 1; }
+pass "--branch requires a value"
+
+# 7. --topic without an arg is rejected with exit 2 + clean error.
+out=$( cd "$REPO" && bash "$BIN" --no-branch --topic 2>&1 ) && rc=0 || rc=$?
+assert_eq "$rc" "2" "--topic without arg exits 2"
+echo "$out" | grep -q '\-\-topic requires a value' \
+  || { echo "FAIL: --topic error msg missing: $out" >&2; exit 1; }
+pass "--topic requires a value"
+
+# 8. Branch-creation failure auto-rollbacks _execute/.
+# Stage a dirty tree to make branch_create refuse, then confirm _execute/ is gone after exit.
+( cd "$REPO" && git checkout --quiet main && echo dirt > scratch.txt )   # dirty tree
+( cd "$REPO" && bash "$BIN" --topic rollback-test "$DDOC" 2>"$TMP/rb.err" ) && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] || { echo "FAIL: dirty-tree should refuse" >&2; exit 1; }
+[[ ! -d "$CLONE_WARS_HOME/state/$RH/rollback-test/_execute" ]] \
+  || { echo "FAIL: _execute/ not rolled back after branch failure" >&2; exit 1; }
+pass "branch failure auto-rollbacks _execute/"
+( cd "$REPO" && rm -f scratch.txt )   # clean up the dirty marker
