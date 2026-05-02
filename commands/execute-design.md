@@ -18,9 +18,10 @@ Spec: `docs/superpowers/specs/2026-05-02-clone-wars-execute-design.md`
 ## Source defaulting
 
 If `$ARGUMENTS` does not include a `.md` path, look for the most recent
-`state/<repo-hash>/consult-*/synthesis.md` under `$CLONE_WARS_HOME` and prompt
-the user via `AskUserQuestion` to confirm. If no synthesis.md is found and no
-explicit path was given, refuse with a usage hint.
+`state/<repo-hash>/<topic>/_consult/synthesis.md` under `$CLONE_WARS_HOME`
+(consult writes synthesis.md INSIDE `_consult/`, not at the topic root) and
+prompt the user via `AskUserQuestion` to confirm. If no synthesis.md is found
+and no explicit path was given, refuse with a usage hint.
 
 ## Task list (TaskCreate × 8 BEFORE step 0)
 
@@ -50,33 +51,57 @@ Set task `0` → `in_progress`.
    mkdir -p "$ARGS_DIR"; echo "$ARGS_DIR/execute-design.txt"
    ```
 2. Write tool: `file_path` = the path printed; `content` = `$ARGUMENTS` exactly.
-3. Parse `--source <path>`, `--topic <slug>`, `--no-branch`, `--branch <name>`,
-   `--max-rounds <n>` (default 5) from the args file. The remaining positional
-   token (if any) is the design-doc path.
-4. If no design-doc path is given, find the most recent
-   `state/$REPO_HASH/consult-*/synthesis.md` and offer it via
-   `AskUserQuestion` (options: "Use this", "Cancel"). Cancel → exit 0.
-5. Init:
+3. Inspect the args file to detect "no positional .md arg given". If so,
+   apply source defaulting:
+   - Find the most recent consult synthesis under this repo's state root:
+     ```
+     source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+     REPO_HASH=$(cw_repo_hash)
+     STATE_ROOT="${CLONE_WARS_HOME:-$HOME/.clone-wars}"
+     CANDIDATE=$(find "$STATE_ROOT/state/$REPO_HASH" \
+                   -path '*/_consult/synthesis.md' -type f \
+                   -printf '%T@ %p\n' 2>/dev/null \
+                   | sort -n | tail -1 | cut -d' ' -f2-)
+     ```
+   - If `CANDIDATE` is non-empty, `AskUserQuestion` (options: "Use this",
+     "Cancel"). On "Use this", append the path to the args file (so init.sh
+     receives it as the positional argument). On "Cancel", exit 0.
+   - If `CANDIDATE` is empty and no `.md` path is in the args file, refuse
+     with a usage hint and exit 1.
+4. Init (init.sh consumes the args file directly — its argv parser handles
+   `--no-branch` / `--branch` / `--topic` / `<design-path>`):
    ```
    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
    REPO_HASH=$(cw_repo_hash)
    TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/execute-design-init.sh" \
-              ${NO_BRANCH:+--no-branch} \
-              ${BRANCH_OVERRIDE:+--branch "$BRANCH_OVERRIDE"} \
-              ${TOPIC_OVERRIDE:+--topic "$TOPIC_OVERRIDE"} \
-              "$DESIGN_PATH")
+              --args-file "$ARGS_DIR/execute-design.txt")
    TOPIC_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$TOPIC"
    ART_DIR="$TOPIC_DIR/_execute"
+   # Record branch base for cross-verify diff range (used in Step 2.2 + Step 4)
+   git merge-base HEAD main 2>/dev/null > "$ART_DIR/branch-base.sha" \
+     || git rev-parse HEAD > "$ART_DIR/branch-base.sha"
+   BRANCH_BASE=$(cat "$ART_DIR/branch-base.sha")
    ```
-6. Run audit and persist verdict:
+5. Run audit and persist verdict:
    ```
    source "$CLAUDE_PLUGIN_ROOT/lib/execute_design.sh"
    AUDIT=$(cw_execute_design_audit_doc "$ART_DIR/design.md" 2>&1) && AUDIT_RC=0 || AUDIT_RC=$?
    printf '%s\n' "$AUDIT" > "$ART_DIR/design-audit.md"
    ```
-7. If `AUDIT_RC != 0`: read the design doc yourself, weigh the flagged issues,
-   and use `AskUserQuestion` (options: "Proceed anyway", "Abort and edit doc").
-   Abort → run `bin/execute-design-archive.sh` and exit. Proceed → continue.
+6. Branch on `AUDIT_RC` — distinguish unreadable doc from FAIL verdict:
+   ```
+   if (( AUDIT_RC == 2 )); then
+     log_error "design-doc unreadable; aborting."
+     "$CLAUDE_PLUGIN_ROOT/bin/execute-design-archive.sh" "$TOPIC"
+     exit 1
+   elif (( AUDIT_RC == 1 )); then
+     # Audit FAIL — read the design doc yourself, weigh the flagged issues, then:
+     # AskUserQuestion (options: "Proceed anyway", "Abort and edit doc").
+     # Abort → bin/execute-design-archive.sh "$TOPIC" + exit 1
+     # Proceed → continue.
+     :
+   fi
+   ```
 
 Set task `0` → `completed`.
 
@@ -97,9 +122,14 @@ Set task `1.2` → `in_progress`.
 ```
 Read the last `PS=` line from `$ART_DIR/plan-cody.txt`:
 - `PS=ok` → set task `1.2` → `completed`.
-- `PS=failed`/`PS=timeout` → AskUserQuestion (Retry / Abort). Retry: `rm
-  $ART_DIR/plan-cody.txt $ART_DIR/plan-cody.done` then re-run the two
-  scripts. Abort: teardown + archive + exit.
+- `PS=failed`/`PS=timeout` → AskUserQuestion (Retry / Abort).
+  - Retry recipe (clear sentinel + state file, then re-run send + wait):
+    ```
+    rm -f "$ART_DIR/plan-cody.txt" "$ART_DIR/plan-cody.done"
+    "$CLAUDE_PLUGIN_ROOT/bin/execute-design-plan-send.sh" "$TOPIC"
+    "$CLAUDE_PLUGIN_ROOT/bin/execute-design-plan-wait.sh" "$TOPIC"
+    ```
+  - Abort: teardown + archive + exit.
 
 **Yoda does not read `plan.md`.**
 
@@ -116,7 +146,17 @@ Set task `1.3` → `in_progress`.
 Read `IS=` from `implement-cody.txt`:
 - `IS=ok` → set task `1.3` → `completed`.
 - `IS=failed`/`IS=timeout` → read last 30 lines of cody outbox; AskUserQuestion
-  (Retry / Hand-off / Abort). Retry: same pattern as plan.
+  (Retry / Hand-off / Abort).
+  - Retry recipe:
+    ```
+    rm -f "$ART_DIR/implement-cody.txt" "$ART_DIR/implement-cody.done"
+    "$CLAUDE_PLUGIN_ROOT/bin/execute-design-implement-send.sh" "$TOPIC"
+    "$CLAUDE_PLUGIN_ROOT/bin/execute-design-implement-wait.sh" "$TOPIC"
+    ```
+
+Note: codex's question protocol is NOT wired in v0.6. If codex emits a question
+event, the wait-script will time out (only matches `done|error`). Surfaces as
+`IS=timeout` — handle via the Retry recipe above.
 
 ### Step 2 — Verify-fix loop
 
@@ -128,6 +168,9 @@ MAX_ROUNDS="${MAX_ROUNDS_OVERRIDE:-5}"
 
 Loop while `ROUND <= MAX_ROUNDS + 1`:
 
+<!-- +1 means round 6 hits the "exhaustion" AskUserQuestion branch; without +1, round 5's FAIL would silently exit the loop without asking. -->
+
+
 #### Step 2.1 — Self-verify (per round)
 
 Set task `2.1` → `in_progress` (use the same task across rounds; only the
@@ -137,7 +180,17 @@ activeForm reflects round number).
 "$CLAUDE_PLUGIN_ROOT/bin/execute-design-verify-wait.sh" "$TOPIC" "$ROUND"
 ```
 Read `VS=` from `verify-cody-$ROUND.txt`. On non-`ok` status, AskUserQuestion
-the same way as the implement phase.
+(Retry / Hand-off / Abort).
+- Retry recipe (round N):
+  ```
+  rm -f "$ART_DIR/verify-cody-$ROUND.txt" "$ART_DIR/verify-cody-$ROUND.done"
+  "$CLAUDE_PLUGIN_ROOT/bin/execute-design-verify-send.sh" "$TOPIC" "$ROUND"
+  "$CLAUDE_PLUGIN_ROOT/bin/execute-design-verify-wait.sh" "$TOPIC" "$ROUND"
+  ```
+
+Note: codex's question protocol is NOT wired in v0.6. If codex emits a question
+event, the wait-script will time out (only matches `done|error`). Surfaces as
+`VS=timeout` — handle via the Retry recipe above.
 
 Set task `2.1` → `completed` for this round.
 
@@ -150,10 +203,12 @@ Set task `2.2` → `in_progress`.
 Yoda's reads (capped):
 - `$ART_DIR/verify-report-$ROUND.md`
 - `$ART_DIR/test-output-$ROUND.log` (grep tail for pass/fail counts)
-- `git log --oneline <branch-base>..HEAD`
-- `git diff --stat <branch-base>..HEAD`
+- `git log --oneline "$BRANCH_BASE"..HEAD`
+- `git diff --stat "$BRANCH_BASE"..HEAD`
 - Up to 3 spot-checks: pick the highest-stakes diff hunk per critical
   requirement and Read just that hunk.
+
+(`$BRANCH_BASE` was captured into `$ART_DIR/branch-base.sha` in Step 0.)
 
 Write the verdict to `$ART_DIR/cross-verify-$ROUND.md`:
 - Top-line `VERDICT: PASS` or `VERDICT: FAIL`.
@@ -198,21 +253,40 @@ Each file's preamble (one short paragraph at the top) must:
 - Tell codex to commit per fix and re-run the full test suite after each.
 - Forbid skipping any listed issue.
 
-Then dispatch (in order — debug first if both):
-```
-# debug bundle (if any)
-"$CLAUDE_PLUGIN_ROOT/bin/execute-design-fix-send.sh" "$TOPIC" "$ROUND" debug
-# wait for done by re-running the verify-wait — but verify-wait
-# expects its own state file. The fix-send doesn't update VS=; instead,
-# we wait by polling the outbox for the next done event past the current
-# OFFSET. Simplest path: re-run the verify cycle for round N+1.
+Then dispatch sequentially. **If both bundles exist, you MUST wait for the
+debug bundle's `done` event in the outbox before dispatching the gap bundle**
+— otherwise gap's inbox.md write races with debug consumption and codex
+silently drops the bug-fix prompt.
 
-# gap bundle (if any)
+Source the IPC helpers inline (the wait function is already defined there):
+```
+source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+source "$CLAUDE_PLUGIN_ROOT/lib/ipc.sh"
+OUTBOX="$(cw_trooper_dir cody codex "$TOPIC")/outbox.jsonl"
+```
+
+Dispatch debug bundle (if any):
+```
+# Capture pre-send byte offset so the wait matches THIS dispatch's done event,
+# not a stale prior event.
+OFFSET=$( [[ -f "$OUTBOX" ]] && wc -c < "$OUTBOX" || echo 0 )
+"$CLAUDE_PLUGIN_ROOT/bin/execute-design-fix-send.sh" "$TOPIC" "$ROUND" debug
+
+# Wait for codex to finish the debug bundle before sending gap.
+# Timeout 1200s mirrors the implement-wait default; tune if your suite is slow.
+cw_outbox_wait_since cody codex "$TOPIC" "$OFFSET" done error 1200 || true
+# Read the matched event from the outbox (line at $OFFSET-onwards). If it's
+# 'error' or the wait timed out, AskUserQuestion (Continue with gap / Abort).
+# If 'done', proceed to gap.
+```
+
+Dispatch gap bundle (if any):
+```
 "$CLAUDE_PLUGIN_ROOT/bin/execute-design-fix-send.sh" "$TOPIC" "$ROUND" gap
 ```
 
 Increment `ROUND`. Loop back to Step 2.1 (which dispatches verify-send for
-the new round; codex's done event from the fix is consumed by the next
+the new round; codex's done event from the gap fix is consumed by the next
 verify-wait).
 
 ### Step 4 — Teardown + archive
@@ -224,7 +298,7 @@ Set task `4` → `in_progress`.
 ```
 
 Print final summary to the user:
-- Branch name (with commit count from `git log --oneline <base>..HEAD`).
+- Branch name (with commit count from `git log --oneline "$BRANCH_BASE"..HEAD`).
 - Final cross-verify verdict (PASS or hand-off note).
 - Archive path.
 
