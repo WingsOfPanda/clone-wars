@@ -113,6 +113,28 @@ out=$(cw_execute_design_branch_create other-topic 2>&1) && rc=0 || rc=$?
 echo "$out" | grep -q 'dirty\|uncommitted' || { echo "FAIL: error msg missing 'dirty': $out" >&2; exit 1; }
 pass "branch_create refuses dirty tree"
 
+# 8a. Refuses outside a git repo.
+cd "$TMP"
+export GIT_CEILING_DIRECTORIES="$TMP"
+mkdir -p "$TMP/no-git" && cd "$TMP/no-git"
+out=$(cw_execute_design_branch_create some-topic 2>&1) && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] || { echo "FAIL: no-git accepted" >&2; exit 1; }
+echo "$out" | grep -q 'not inside a git repository' \
+  || { echo "FAIL: error msg missing 'not inside a git repository': $out" >&2; exit 1; }
+pass "branch_create refuses outside git repo"
+
+# 8b. Branch override is honored.
+cd "$TMP"
+git -C "$TMP" init --quiet --initial-branch=main "$TMP/repo2" >/dev/null
+cd "$TMP/repo2"
+git config user.email t@t; git config user.name t
+echo seed > a.txt; git add a.txt; git commit --quiet -m init
+out=$(cw_execute_design_branch_create some-topic custom-branch-name) && rc=0 || rc=$?
+[[ "$rc" -eq 0 ]] || { echo "FAIL: override happy-path rc=$rc" >&2; exit 1; }
+[[ "$out" == "custom-branch-name" ]] || { echo "FAIL: override not honored: $out" >&2; exit 1; }
+got=$(git rev-parse --abbrev-ref HEAD); assert_eq "$got" "custom-branch-name" "override branch checked out"
+pass "branch_create override honored"
+
 # Cleanup test cwd
 cd "$TMP"
 rm -rf "$REPO"
