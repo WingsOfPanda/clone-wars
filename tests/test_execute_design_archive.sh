@@ -26,3 +26,19 @@ pass "archive moves _execute → archive/_execute-<ts>"
 err=$(../bin/execute-design-archive.sh "$TOPIC" 2>&1) && rc=0 || rc=$?
 [[ "$rc" -ne 0 ]] || { echo "FAIL: should refuse already-archived" >&2; exit 1; }
 pass "archive refuses already-archived"
+
+# 3. Same-second collision: invoke twice within one second using fixed TS via mocked date.
+# (We can't mock `date` cleanly without a wrapper, so instead we exercise the counter
+# by pre-creating the conflict target.)
+mkdir -p "$TD/_execute"
+echo "rerun" > "$TD/_execute/design.md"
+# Pre-create today's expected target so the first archive will collide.
+TS=$(date -u +'%Y%m%dT%H%M%SZ')
+mkdir -p "$ARCHIVE_BASE/_execute-$TS"
+../bin/execute-design-archive.sh "$TOPIC"
+# Now there should be at least 2 _execute-* dirs (the pre-created one + the -2 suffix).
+n2=$(ls "$ARCHIVE_BASE" | grep -c '^_execute-' || true)
+[[ "$n2" -ge 2 ]] || { echo "FAIL: collision counter didn't fire; got $n2 dirs" >&2; exit 1; }
+ls "$ARCHIVE_BASE" | grep -q '^_execute-.*-2$' \
+  || { echo "FAIL: counter-suffix dir missing" >&2; exit 1; }
+pass "archive same-second collision uses counter suffix"
