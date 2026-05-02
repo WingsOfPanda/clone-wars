@@ -21,6 +21,9 @@ for t in test_*.sh; do
     test_consult_v050_dogfood.sh)
       echo "=== $t === (SKIP — manual v0.5.0 dogfood, run explicitly)"
       continue ;;
+    test_execute_design_v060_dogfood.sh)
+      echo "=== $t === (SKIP — manual v0.6.0 dogfood, run explicitly)"
+      continue ;;
   esac
   echo "=== $t ==="
   if bash "$t"; then

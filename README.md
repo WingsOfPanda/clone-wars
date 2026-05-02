@@ -79,6 +79,7 @@ run concurrently.
 | `/clone-wars:collect <commander> <topic> [--timeout s]` | Block until the trooper reports `done` or `error`, then print the summary. Exits non-zero on error/timeout so Master Yoda can chain commands. |
 | `/clone-wars:list [<topic>]` | Show active troopers across topics, or scope to one. Flags `[ORPHAN]` panes for cleanup. |
 | `/clone-wars:teardown <topic>` / `<commander> <topic>` / `--all` | Graceful shutdown: 8s colored banner, then kill the pane and archive state. |
+| `/clone-wars:execute-design [<design-path>]` | Codex implements + Yoda verifies a design doc. |
 
 Full spec: `docs/DESIGN.md` §Slash commands. Runtime IPC (the `END_OF_INSTRUCTION` sentinel,
 JSONL outbox event types, status state machine) is in §File-IPC protocol.
@@ -116,6 +117,13 @@ contract is fully documented in the slash directive.
 ```
 
 The full v0.2 spec is at `docs/superpowers/specs/2026-04-29-clone-wars-consult-v2-design.md`.
+
+**Implementing a design doc.** After `/clone-wars:consult` produces a
+synthesis, run `/clone-wars:execute-design` to hand the doc to a Codex
+trooper for plan-writing, implementation, and self-verification. Master
+Yoda audits the doc up front and cross-verifies after every codex pass,
+sending bundled fix prompts back until cross-verify reports PASS or 5
+rounds elapse (then prompts for hand-off).
 
 ### v0.3 — trooper question protocol + skill routing
 

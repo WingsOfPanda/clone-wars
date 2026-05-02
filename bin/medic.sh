@@ -126,6 +126,18 @@ if [[ -f "$state_root/identity-template.md" ]]; then
   log_warn "stale: $state_root/identity-template.md is no longer consulted; safe to delete"
 fi
 
+# 4d. execute_design helpers source-load sanity (v0.6.0).
+if ( source "$PLUGIN_ROOT/lib/state.sh" \
+     && source "$PLUGIN_ROOT/lib/log.sh" \
+     && source "$PLUGIN_ROOT/lib/consult.sh" \
+     && source "$PLUGIN_ROOT/lib/execute_design.sh" \
+     && cw_execute_design_topic_dir test-topic >/dev/null ) 2>/dev/null; then
+  log_ok "execute_design helpers load clean"
+else
+  log_warn "execute_design helpers FAILED to load"
+  warn=1
+fi
+
 # 5. providers in contracts.yaml — WARN on missing, FAIL only when zero are healthy
 echo
 echo "Providers:"
