@@ -33,10 +33,8 @@ done
   || { echo "Usage: $0 <consult-topic> <commander> <phase> [--keep-findings]" >&2; exit 2; }
 TOPIC="${ARGS[0]}"; COMMANDER="${ARGS[1]}"; PHASE="${ARGS[2]}"
 
-cw_consult_topic_validate "$TOPIC" \
-  || { log_error "invalid topic: $TOPIC"; exit 2; }
-[[ "$COMMANDER" =~ ^[a-z0-9_-]+$ ]] \
-  || { log_error "invalid commander: $COMMANDER"; exit 2; }
+cw_consult_assert_topic "$TOPIC"
+cw_consult_assert_commander "$COMMANDER"
 [[ "$PHASE" == research || "$PHASE" == verify ]] \
   || { log_error "phase must be 'research' or 'verify'; got '$PHASE'"; exit 2; }
 

@@ -28,7 +28,7 @@ source "$PLUGIN_ROOT/lib/consult.sh"
 
 [[ $# -eq 1 ]] || { echo "Usage: $0 <consult-topic>" >&2; exit 2; }
 TOPIC="$1"
-cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 2; }
+cw_consult_assert_topic "$TOPIC"
 
 TOPIC_DIR="$(cw_consult_topic_dir "$TOPIC")"
 DD_DIR="$TOPIC_DIR/_consult/design-doc"

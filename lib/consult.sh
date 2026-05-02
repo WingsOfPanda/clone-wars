@@ -265,6 +265,17 @@ cw_consult_topic_validate() {
   return 0
 }
 
+# cw_consult_assert_topic <topic>      — log_error + exit 2 on invalid topic.
+# cw_consult_assert_commander <name>   — log_error + exit 2 on invalid commander.
+# Each is the one-line standard prelude in every bin/consult-*.sh; centralising
+# them keeps the regex / error wording in a single place.
+cw_consult_assert_topic() {
+  cw_consult_topic_validate "$1" || { log_error "invalid topic: $1"; exit 2; }
+}
+cw_consult_assert_commander() {
+  [[ "$1" =~ ^[a-z0-9_-]+$ ]] || { log_error "invalid commander: $1"; exit 2; }
+}
+
 # cw_consult_status_load <file>
 # Source a per-commander state file (KEY=VAL lines) into the calling shell.
 # Missing file is a silent no-op (rc=0, no vars set). The file is written

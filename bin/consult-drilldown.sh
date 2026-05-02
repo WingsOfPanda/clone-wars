@@ -44,7 +44,7 @@ MODEL1="$6"
 COMMANDER2="${7:-}"
 MODEL2="${8:-}"
 
-cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 2; }
+cw_consult_assert_topic "$TOPIC"
 [[ -d "$DD_DIR" ]] || { log_error "dd_dir not found: $DD_DIR"; exit 2; }
 
 TOPIC_DIR="$(cw_consult_topic_dir "$TOPIC")"

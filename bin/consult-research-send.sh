@@ -17,8 +17,8 @@ source "$PLUGIN_ROOT/lib/consult.sh"
 [[ $# -eq 3 ]] || { echo "Usage: $0 <consult-topic> <commander> <model>" >&2; exit 2; }
 TOPIC="$1"; COMMANDER="$2"; MODEL="$3"
 
-cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 2; }
-[[ "$COMMANDER" =~ ^[a-z0-9_-]+$ ]] || { log_error "invalid commander: $COMMANDER"; exit 2; }
+cw_consult_assert_topic "$TOPIC"
+cw_consult_assert_commander "$COMMANDER"
 [[ "$MODEL" =~ ^[a-z0-9_-]+$ ]] || { log_error "invalid model: $MODEL"; exit 2; }
 
 ART_DIR="$(cw_consult_art_dir "$TOPIC")"
