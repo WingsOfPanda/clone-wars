@@ -8,11 +8,13 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 export CLONE_WARS_HOME="$TMP/cw"
 
-# Seed the state dir with shipped config so medic finds the files it needs.
+# Seed the state dir with shipped user-editable config so medic finds them.
+# v0.5.2: identity-template.md is no longer copied to state-root — it's
+# plugin-side-only now (medic validates $PLUGIN_ROOT/config/prompt-templates/
+# directly).
 mkdir -p "$CLONE_WARS_HOME"
 cp ../config/contracts.yaml         "$CLONE_WARS_HOME/contracts.yaml"
 cp ../config/commanders.yaml        "$CLONE_WARS_HOME/commanders.yaml"
-cp ../config/identity-template.md   "$CLONE_WARS_HOME/identity-template.md"
 
 # Run medic. Capture combined stdout+stderr; the exit code reflects medic's verdict.
 out=$(bash ../bin/medic.sh 2>&1) || rc=$?
