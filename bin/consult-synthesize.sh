@@ -15,9 +15,9 @@ source "$PLUGIN_ROOT/lib/consult.sh"
 
 [[ $# -eq 1 ]] || { echo "Usage: $0 <consult-topic>" >&2; exit 2; }
 TOPIC="$1"
-cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 2; }
+cw_consult_assert_topic "$TOPIC"
 
-ART_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/_consult"
+ART_DIR="$(cw_consult_art_dir "$TOPIC")"
 [[ -d "$ART_DIR" ]] || { log_error "$ART_DIR not found"; exit 1; }
 
 ADJ="$ART_DIR/adjudicated.md"

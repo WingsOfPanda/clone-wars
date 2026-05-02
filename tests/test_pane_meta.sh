@@ -59,7 +59,7 @@ unset _CW_PANE_META_FALLBACK_WARNED
 out=$(cw_pane_meta_model cody codex demo 2>&1 1>/tmp/cw-meta-out)
 val=$(cat /tmp/cw-meta-out); rm -f /tmp/cw-meta-out
 assert_eq "$val" "codex" "fallback returns dir-parsed model"
-assert_contains "$out" "predates v0.0.4" "fallback emits deprecation warning"
+assert_contains "$out" "missing 'commander'/'model' fields" "fallback emits deprecation warning"
 pass "backward-compat fallback (model)"
 
 # 7. Warning fires only ONCE per shell invocation across both readers.

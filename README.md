@@ -205,13 +205,14 @@ Override for CI, sandboxes, or shared dev hosts:
 export CLONE_WARS_HOME=/path/to/wherever
 ```
 
-Four config files (medic auto-copies the shipped defaults on first run):
+User-editable config (medic auto-copies the shipped defaults on first run):
 
 - `contracts.yaml` — provider binaries, mode args (`full` / `read-only`), ready timeouts.
 - `commanders.yaml` — the clone-trooper name pool that `/clone-wars:spawn random ...` draws from.
-- `identity-template.md` — system prompt every trooper receives at spawn. `{{commander}}`,
-  `{{model}}`, `{{topic}}`, `{{state_dir}}` are substituted.
 - `config.yaml` — split direction, pane layout, default ready/collect timeouts.
+
+The trooper system prompt (`identity.md` with `{{commander}}` / `{{model}}` / `{{topic}}` /
+`{{state_dir}}` substitutions) is shipped plugin-side only; not user-editable.
 
 ### Suppress tmux permission prompts
 

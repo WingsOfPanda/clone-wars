@@ -1,6 +1,11 @@
 # lib/consult.sh — /clone-wars:consult helpers.
 # Sourced. Depends on lib/state.sh, lib/ipc.sh, lib/contracts.sh.
 
+# cw_consult_topic_dir <topic> — absolute path to the consult topic dir.
+# cw_consult_art_dir   <topic> — same, plus /_consult (where artifacts live).
+cw_consult_topic_dir() { printf '%s/state/%s/%s\n'          "$(cw_state_root)" "$(cw_repo_hash)" "$1"; }
+cw_consult_art_dir()   { printf '%s/state/%s/%s/_consult\n' "$(cw_state_root)" "$(cw_repo_hash)" "$1"; }
+
 cw_consult_findings_path() { printf '%s/findings.md\n' "$(cw_trooper_dir "$1" "$2" "$3")"; }
 cw_consult_verify_path()   { printf '%s/verify.md\n'   "$(cw_trooper_dir "$1" "$2" "$3")"; }
 
@@ -260,6 +265,17 @@ cw_consult_topic_validate() {
   return 0
 }
 
+# cw_consult_assert_topic <topic>      — log_error + exit 2 on invalid topic.
+# cw_consult_assert_commander <name>   — log_error + exit 2 on invalid commander.
+# Each is the one-line standard prelude in every bin/consult-*.sh; centralising
+# them keeps the regex / error wording in a single place.
+cw_consult_assert_topic() {
+  cw_consult_topic_validate "$1" || { log_error "invalid topic: $1"; exit 2; }
+}
+cw_consult_assert_commander() {
+  [[ "$1" =~ ^[a-z0-9_-]+$ ]] || { log_error "invalid commander: $1"; exit 2; }
+}
+
 # cw_consult_status_load <file>
 # Source a per-commander state file (KEY=VAL lines) into the calling shell.
 # Missing file is a silent no-op (rc=0, no vars set). The file is written
@@ -278,7 +294,6 @@ cw_consult_status_load() {
 #                              <rex-vs> <cody-vs>
 # Compose the adjudicated-draft.md content from the four state inputs.
 # Sections: Cross-verified, Adjudicated (PENDING list), Contested, Not-verified.
-# Extracted from v0.1.2 bin/consult.sh Phase 5 awk; matches the same output.
 cw_consult_write_adjudicated() {
   local out="$1" rex_v="$2" cody_v="$3" rex_only="$4" cody_only="$5"
   local rex_vs="$6" cody_vs="$7"
@@ -309,10 +324,10 @@ cw_consult_write_adjudicated() {
   } > "$out"
 }
 
-# cw_consult_classify_topic <topic-text>  (v0.3.0)
+# cw_consult_classify_topic <topic-text>
 # Echo one of: brainstorming | systematic-debugging | none.
 # Brainstorming wins ties. Triggers case-insensitive, word-boundary anchored.
-# "design"/"structure"/"approach" alone do NOT trigger (Codex Rev1 M-tier).
+# "design"/"structure"/"approach" alone do NOT trigger.
 cw_consult_classify_topic() {
   local topic="$1"
   local lower
@@ -336,7 +351,7 @@ cw_consult_classify_topic() {
   fi
 }
 
-# cw_consult_skill_hint_append <skill-txt-path> <base-prompt>  (v0.3.0)
+# cw_consult_skill_hint_append <skill-txt-path> <base-prompt>
 # Echo base-prompt followed by the skill-hint content (if any).
 # Missing skill.txt or skill=none → base-prompt unchanged.
 # CW_CONSULT_SKILL_OVERRIDE=none in env forces 'none' (kill-switch).
@@ -465,15 +480,15 @@ cw_consult_outbox_match_endbyte() {
 }
 
 # ============================================================================
-# v0.4.0 — design-doc mode helpers
+# Design-doc mode helpers
 # ============================================================================
 
 # cw_consult_design_doc_filename <topic-slug> [<hash6>]
 # Emits docs/clone-wars/specs/YYYY-MM-DD-<slug>[-<hash6>]-design.md.
 # Uses ${CW_TEST_DATE:-$(date +%Y-%m-%d)} for testability.
 # Rejects empty slug or slug outside [a-z0-9-] with rc=2.
-# v0.4.2: optional <hash6> (6 lowercase hex chars) disambiguates topics whose
-# first 20 slug chars collide; reject malformed hash with rc=2.
+# Optional <hash6> (6 lowercase hex chars) disambiguates topics whose first
+# 20 slug chars collide; reject malformed hash with rc=2.
 cw_consult_design_doc_filename() {
   local slug="${1:-}" hash="${2:-}"
   [[ -n "$slug" ]] || { echo "cw_consult_design_doc_filename: empty slug" >&2; return 2; }
@@ -499,7 +514,7 @@ cw_consult_design_doc_filename() {
 # Concatenates 5 section files into a single design doc with a standard
 # header. Missing sections get a _(skipped)_ placeholder body.
 #
-# v0.4.1 — optional 4th and 5th args override title and goal sources:
+# Optional 4th and 5th args override title and goal sources:
 #   <topic-text>      — full user topic from _consult/topic.txt; if non-empty,
 #                       Title-Cased and used as H1 in preference to <title>
 #                       (which is derived from the 20-char-truncated slug).
@@ -513,7 +528,7 @@ cw_consult_design_doc_assemble() {
   [[ -d "$section_dir" ]] || { echo "cw_consult_design_doc_assemble: missing $section_dir" >&2; return 1; }
   [[ -n "$title" ]] || { echo "cw_consult_design_doc_assemble: empty title" >&2; return 2; }
 
-  # v0.4.1: prefer topic-text-derived title when provided.
+  # Prefer topic-text-derived title when provided.
   if [[ -n "$topic_text" ]]; then
     title=$(printf '%s' "$topic_text" | tr -s ' ' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) tolower(substr($i,2))} 1')
   fi
@@ -521,7 +536,7 @@ cw_consult_design_doc_assemble() {
   # Header — pull goal/arch/tech-stack from architecture.md if present.
   local goal="(see Architecture section)" arch_line="(see Architecture section)" tech_block=""
 
-  # v0.4.1: prefer first non-empty line under "## Agreed findings" then
+  # Prefer first non-empty line under "## Agreed findings" then
   # "## Cross-verified" in synthesis.md when caller supplied a path.
   if [[ -n "$synthesis_path" && -f "$synthesis_path" ]]; then
     local syn_goal
@@ -544,7 +559,7 @@ cw_consult_design_doc_assemble() {
     # Only fall back to architecture.md head if synthesis didn't set goal.
     [[ "$goal" == "(see Architecture section)" ]] && goal=$(head -n1 "$section_dir/architecture.md")
     # Architecture paragraph: lines >=3, until any H2 heading or blank line.
-    # v0.4.1: changed from "/^## Tech Stack$/" to "/^## /" so an architecture.md
+    # Match any H2 (not specifically "## Tech Stack") so an architecture.md
     # whose third line is the next H2 (no body paragraph) falls back cleanly.
     arch_line=$(awk '
       NR<3 {next}
@@ -636,7 +651,7 @@ cw_consult_design_doc_resume_state() {
   shopt -u nullglob
 }
 
-# cw_consult_parse_design_doc_flag <args>  (v0.4.2)
+# cw_consult_parse_design_doc_flag <args>
 # Token-aware parse: removes only EXACT --design-doc tokens (not substrings).
 # Emits "<flag>\t<topic>" on stdout, where <flag> ∈ {0,1}.
 # Subshell-safe (does not export anything; caller parses stdout).
@@ -657,7 +672,7 @@ cw_consult_parse_design_doc_flag() {
   printf '%s\t%s\n' "$flag" "${kept[*]}"
 }
 
-# cw_consult_load_prompt <relpath> [VAR=value ...]  (v0.5.0)
+# cw_consult_load_prompt <relpath> [VAR=value ...]
 # Reads $CLAUDE_PLUGIN_ROOT/config/prompt-templates/<relpath> and substitutes
 # every {{VAR}} placeholder using single-pass sed. Returns:
 #   rc=0 — rendered prompt printed to stdout

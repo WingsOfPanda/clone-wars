@@ -6,7 +6,7 @@
 #     ├── identity.md      — system prompt injected at spawn
 #     ├── inbox.md         — Master Yoda writes; trooper reads on nudge
 #     ├── outbox.jsonl     — trooper appends; Master Yoda tails
-#     ├── status.json      — trooper's current state (Plan B+ may use)
+#     ├── status.json      — trooper's last known state (idle/working/done/error)
 #     └── pane.json        — {pane_id, pid, spawned_at} for orphan detection
 
 # cw_trooper_dir <commander> <model> <topic> — print absolute state-dir path.
@@ -56,17 +56,8 @@ cw_state_archive() {
 # cw_identity_write <commander> <model> <topic>
 # Write identity.md by substituting {{vars}} in the plugin's identity template.
 # Appends a trailing "first action" instruction so the trooper emits {ready}
-# immediately.
-#
-# v0.5.2: lookup chain is in-tree only — the legacy
-# $CLONE_WARS_HOME/identity-template.md per-machine override is NO LONGER
-# consulted. It silently shadowed plugin updates (e.g. v0.5.x foreground
-# guards never reached troopers if a stale Apr-26-installed override sat
-# at $CLONE_WARS_HOME). Aligns with v0.5.0's "in-tree only, no overrides"
-# decision for the prompt-template registry. Power users who need to
-# customize should fork or edit the plugin path directly. Stale orphan
-# files at $CLONE_WARS_HOME/identity-template.md become harmless dead
-# weight and can be deleted.
+# immediately. Lookup is plugin-tree only — no per-machine override (it
+# silently shadowed prompt-template updates).
 cw_identity_write() {
   local commander="$1" model="$2" topic="$3"
   local dir identity tmpl outbox
@@ -281,9 +272,8 @@ cw_outbox_dump() {
 }
 
 # cw_pane_meta_write <commander> <model> <topic> <pane_id>
-# Write pane.json. v0.0.4 adds "commander" + "model" so consumers don't
-# have to parse the state dir name (which broke for hyphenated model keys
-# in iteration paths where the commander wasn't otherwise known).
+# Write pane.json with canonical commander/model so consumers don't have to
+# parse the state dir name (which is ambiguous for hyphenated model keys).
 cw_pane_meta_write() {
   local commander="$1" model="$2" topic="$3" pane="$4"
   local meta; meta=$(cw_pane_meta_path "$commander" "$model" "$topic")
@@ -313,7 +303,7 @@ _cw_pane_meta_fallback_warn() {
   if [[ -n "${_CW_PANE_META_FALLBACK_WARNED:-}" ]] || [[ -f "$marker" ]]; then
     return 0
   fi
-  log_warn "pane.json predates v0.0.4 (no 'commander'/'model' fields); using dir-name parser as fallback. Hyphenated model keys may be misparsed in list/teardown until the affected troopers are torn down + respawned. This deprecation notice will be removed in a future version."
+  log_warn "pane.json missing 'commander'/'model' fields; using dir-name parser as fallback. Hyphenated model keys may be misparsed in list/teardown until the affected troopers are torn down + respawned."
   _CW_PANE_META_FALLBACK_WARNED=1
   : > "$marker" 2>/dev/null || true
   # Best-effort cleanup of stale markers from dead PIDs to avoid
@@ -328,8 +318,8 @@ _cw_pane_meta_fallback_warn() {
 }
 
 # _cw_pane_meta_field <key> <file>
-# Extract the string value of a JSON key from pane.json. Handles both the
-# v0.0.4+ single-line format (`{"pane_id":"...","commander":"...","model":"...",...}`)
+# Extract the string value of a JSON key from pane.json. Handles the
+# single-line format (`{"pane_id":"...","commander":"...","model":"...",...}`)
 # and any future multi-line variants. Returns empty if key is missing.
 _cw_pane_meta_field() {
   local key="$1" file="$2"
@@ -341,7 +331,7 @@ _cw_pane_meta_field() {
 # cw_pane_meta_model <commander> <model_hint> <topic>
 # Return the model recorded in pane.json. <model_hint> is the value the
 # caller derived from the state dir name (used both to locate pane.json
-# and as the fallback return when pane.json predates v0.0.4).
+# and as the fallback return when pane.json lacks the canonical fields).
 cw_pane_meta_model() {
   local commander="$1" model_hint="$2" topic="$3"
   local meta; meta=$(cw_pane_meta_path "$commander" "$model_hint" "$topic")
@@ -360,7 +350,7 @@ cw_pane_meta_model() {
 # cw_pane_meta_commander <commander_hint> <model_hint> <topic>
 # Return the commander recorded in pane.json. Hints are the values the
 # caller derived from the state dir name; both arrive used to locate
-# pane.json. Falls back to <commander_hint> when pane.json predates v0.0.4.
+# pane.json. Falls back to <commander_hint> when canonical field missing.
 cw_pane_meta_commander() {
   local commander_hint="$1" model_hint="$2" topic="$3"
   local meta; meta=$(cw_pane_meta_path "$commander_hint" "$model_hint" "$topic")
@@ -382,7 +372,7 @@ cw_pane_meta_commander() {
 # iteration path that walks state/<repo-hash>/<topic>/* without a known
 # commander — it's the ONLY safe way to recover the canonical commander
 # and model when the model key contains hyphens. Falls back to dir-name
-# parsing for legacy v0.0.3 pane.json files (with one-time warning).
+# parsing for legacy pane.json files (with one-time warning).
 cw_pane_meta_read_for_dir() {
   local dir="$1"
   local meta="$dir/pane.json"

@@ -103,7 +103,7 @@ prep_trooper() {
     -e "s|{{model}}|$M|g" \
     -e "s|{{topic}}|$TOPIC|g" \
     -e "s|{{state_dir}}|$dir|g" \
-    "$PLUGIN_ROOT/config/identity-template.md" > "$identity"
+    "$PLUGIN_ROOT/config/prompt-templates/identity.md" > "$identity"
 
   cat >> "$identity" <<EOF
 

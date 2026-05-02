@@ -18,10 +18,9 @@
 #   - rc=1 if all troopers timed out / errored / produced empty files
 #   - rc=2 on bad args
 #
-# v0.5.3: extracted from commands/consult.md Step 8.5 inline drill code so the
-# drill logic doesn't suffer the slash-command renderer's $1/$2/$3 positional
-# substitution (which clobbered bash function args with topic words on
-# multi-word topics). Bash files are NOT subject to the renderer.
+# Extracted from commands/consult.md Step 8.5 to bypass the slash-command
+# renderer's $1/$2/$3 positional substitution (which clobbered bash
+# function args with topic words on multi-word topics).
 
 set -uo pipefail
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -45,10 +44,10 @@ MODEL1="$6"
 COMMANDER2="${7:-}"
 MODEL2="${8:-}"
 
-cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 2; }
+cw_consult_assert_topic "$TOPIC"
 [[ -d "$DD_DIR" ]] || { log_error "dd_dir not found: $DD_DIR"; exit 2; }
 
-TOPIC_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC"
+TOPIC_DIR="$(cw_consult_topic_dir "$TOPIC")"
 SYNTHESIS="$TOPIC_DIR/_consult/synthesis.md"
 [[ -f "$SYNTHESIS" ]] || { log_error "synthesis.md not found: $SYNTHESIS"; exit 2; }
 

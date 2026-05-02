@@ -89,7 +89,7 @@ sed \
   -e "s|{{model}}|$MODEL|g" \
   -e "s|{{topic}}|$TOPIC|g" \
   -e "s|{{state_dir}}|$trooper_dir|g" \
-  "$PLUGIN_ROOT/config/identity-template.md" > "$identity"
+  "$PLUGIN_ROOT/config/prompt-templates/identity.md" > "$identity"
 
 # Append a "first action" instruction so codex emits {ready} immediately.
 # Without this, the trooper would just sit at its prompt waiting for input.
