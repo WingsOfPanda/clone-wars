@@ -32,13 +32,13 @@ source "$STATE_FILE"   # sets OFFSET
 TIMEOUT="${CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE:-$(cw_consult_timeout research)}"
 log_info "[research-wait] $COMMANDER offset=$OFFSET timeout=${TIMEOUT}s"
 
-# v0.3: block on done|error|question; capture nothing (re-scan tail below).
+# Block on done|error|question; capture nothing (re-scan tail below).
 cw_outbox_wait_since "$COMMANDER" "$MODEL" "$TOPIC" "$OFFSET" done error question "$TIMEOUT" >/dev/null || true
 
 TROOPER_DIR=$(cw_trooper_dir "$COMMANDER" "$MODEL" "$TOPIC")
 OUTBOX="$TROOPER_DIR/outbox.jsonl"
 
-# v0.3 priority + race fix:
+# Priority + race fix:
 #   1. Terminal events (done/error) WIN over in-flight question events.
 #   2. Among questions, FIRST wins (head -n1) — serialization across re-arms.
 #   3. NEW_OFFSET is the matched line's exact end-byte (NOT wc -c of outbox,
@@ -87,8 +87,7 @@ case "$EVENT" in
     ;;
 esac
 
-# v0.5.0 background-await pattern: signal terminal completion to the
-# directive's notification handler. The .done sentinel lets the controller
+# background-await sentinel: lets the directive's notification handler
 # distinguish a clean exit from a notification-arrived-before-write race.
 touch "${STATE_FILE%.txt}.done"
 exit 0

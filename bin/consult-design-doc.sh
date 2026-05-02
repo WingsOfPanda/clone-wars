@@ -8,14 +8,8 @@
 #          $TOPIC_DIR/_consult/synthesis.md (drives Goal: line)
 # Output:  docs/clone-wars/specs/YYYY-MM-DD-<slug>-<hash6>-design.md  (committed)
 #
-# v0.4.2 atomic-write contract:
-#   1. Compute hash6 from topic.txt; reserve filename.
-#   2. Refuse if final path already exists (collision guard).
-#   3. Assemble into a temp file under specs/.
-#   4. Self-review the temp file.
-#      - dirty → rm temp, exit 1, error to stderr.
-#      - clean → mv temp to final path (atomic on same filesystem).
-#   5. git add + git commit (stdout suppressed; orchestrator emits only path).
+# Atomic-write contract: hash6-reserved filename, refuse-on-collision,
+# assemble to temp, self-review, atomic mv to final path, then git commit.
 #
 # Refuses if:
 #   - design-doc dir missing (Step 8.5 walk hasn't happened)
@@ -47,7 +41,7 @@ SLUG="${TOPIC#consult-}"
 # Title — Title-Case the slug as fallback; full topic.txt overrides via the helper.
 TITLE=$(printf '%s' "$SLUG" | tr '-' ' ' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) tolower(substr($i,2))} 1')
 
-# v0.4.2: derive 6-char hash from full topic-text (when available) for filename
+# Derive 6-char hash from full topic-text (when available) for filename
 # uniqueness across same-day topics that share the truncated slug.
 TOPIC_TEXT_FILE="$TOPIC_DIR/_consult/topic.txt"
 TOPIC_TEXT=""
@@ -73,7 +67,7 @@ fi
 
 mkdir -p "$(dirname "$OUT_ABS")"
 
-# v0.4.2 atomic write: assemble to temp file beside OUT_ABS.
+# Atomic write: assemble to temp file beside OUT_ABS.
 OUT_TMP="${OUT_ABS}.tmp.$$"
 # Always clean up the temp on any exit.
 trap 'rm -f "$OUT_TMP"' EXIT

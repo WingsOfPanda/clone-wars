@@ -93,10 +93,7 @@ else
 fi
 
 # 4. user-editable config files present in state root (copy shipped defaults
-# if missing). v0.5.2: identity-template is intentionally NOT in this list —
-# it's now plugin-provided only (see lib/ipc.sh::cw_identity_write). The
-# state-root identity-template.md, if present from a pre-v0.5.2 install, is
-# silently ignored; medic doesn't validate it because no code path reads it.
+# if missing). identity-template is plugin-side only and not in this list.
 for f in contracts.yaml commanders.yaml; do
   if [[ -f "$state_root/$f" ]]; then
     log_ok "config: $f"
@@ -115,20 +112,18 @@ for f in contracts.yaml commanders.yaml; do
   fi
 done
 
-# 4b. identity-template lives plugin-side only (v0.5.2). Validate the
-# canonical plugin path so medic flags a botched install.
+# 4b. identity-template lives plugin-side only. Validate the canonical
+# plugin path so medic flags a botched install.
 if [[ -f "$PLUGIN_ROOT/config/prompt-templates/identity.md" ]]; then
-  log_ok "config: identity.md (plugin-side, v0.5.2+)"
-elif [[ -f "$PLUGIN_ROOT/config/identity-template.md" ]]; then
-  log_ok "config: identity-template.md (plugin-side, back-compat)"
+  log_ok "config: identity.md"
 else
-  log_error "config: identity template not found at $PLUGIN_ROOT/config/prompt-templates/identity.md OR $PLUGIN_ROOT/config/identity-template.md"
+  log_error "config: identity template not found at $PLUGIN_ROOT/config/prompt-templates/identity.md"
   fail=1
 fi
 
-# 4c. v0.5.2 deprecation warning: stale state-root identity-template.md
+# 4c. stale state-root identity-template.md (no longer consulted; safe to delete).
 if [[ -f "$state_root/identity-template.md" ]]; then
-  log_warn "stale: $state_root/identity-template.md is no longer consulted (v0.5.2+); safe to delete"
+  log_warn "stale: $state_root/identity-template.md is no longer consulted; safe to delete"
 fi
 
 # 5. providers in contracts.yaml — WARN on missing, FAIL only when zero are healthy

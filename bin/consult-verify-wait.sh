@@ -27,8 +27,7 @@ STATE_FILE="$ART_DIR/verify-$COMMANDER.txt"
 # Short-circuit if already skipped (state file already has VS=skipped).
 if grep -q '^VS=skipped' "$STATE_FILE"; then
   log_info "[verify-wait] $COMMANDER skipped (already)"
-  # v0.5.0 background-await: still touch .done so the controller knows
-  # this exit was clean, not a crash.
+  # background-await sentinel: signal clean exit, not a crash.
   touch "${STATE_FILE%.txt}.done"
   exit 0
 fi
@@ -41,14 +40,14 @@ source "$STATE_FILE"
 TIMEOUT="${CW_CONSULT_VERIFY_TIMEOUT_OVERRIDE:-$(cw_consult_timeout verify)}"
 log_info "[verify-wait] $COMMANDER offset=$OFFSET timeout=${TIMEOUT}s"
 
-# v0.3: block on done|error|question; capture nothing (re-scan tail below).
+# Block on done|error|question; capture nothing (re-scan tail below).
 cw_outbox_wait_since "$COMMANDER" "$MODEL" "$TOPIC" "$OFFSET" done error question "$TIMEOUT" >/dev/null || true
 
 TROOPER_DIR=$(cw_trooper_dir "$COMMANDER" "$MODEL" "$TOPIC")
 OUTBOX="$TROOPER_DIR/outbox.jsonl"
 VERIFY_FILE="$TROOPER_DIR/verify.md"
 
-# v0.3 priority + race fix (mirror of research-wait).
+# Priority + race fix (mirror of research-wait).
 TAIL=$(tail -c "+$(( OFFSET + 1 ))" "$OUTBOX" 2>/dev/null || true)
 MATCHED=$(printf '%s\n' "$TAIL" | grep -m1 -E '"event":"(done|error)"' || true)
 [[ -z "$MATCHED" ]] \
@@ -93,8 +92,7 @@ case "$EVENT" in
     ;;
 esac
 
-# v0.5.0 background-await pattern: signal terminal completion to the
-# directive's notification handler. The .done sentinel lets the controller
+# background-await sentinel: lets the directive's notification handler
 # distinguish a clean exit from a notification-arrived-before-write race.
 touch "${STATE_FILE%.txt}.done"
 exit 0

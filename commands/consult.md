@@ -46,7 +46,7 @@ Write tool, then invoke sub-scripts with the resolved topic.
 
 Set task `0` → `in_progress`.
 
-**v0.4.2 — `--design-doc` token-aware flag parsing (BEFORE init):**
+**Token-aware `--design-doc` flag parsing (BEFORE init):**
 
 Use `cw_consult_parse_design_doc_flag` to remove ONLY exact `--design-doc`
 tokens (not substrings like `--design-documentation` or
@@ -83,9 +83,9 @@ Persist `$DESIGN_DOC` for Step 8.5.
 
    `$REPO_HASH` and `$TOPIC_DIR` are reused throughout the rest of the
    directive — DO NOT inline a `$(...)` containing a literal `<repo-hash>`
-   redirect anywhere (Codex Rev1 #1 — bash interprets `$(< repo-hash )` as
-   `cat repo-hash`, which would shell out to read a file named
-   `repo-hash`). Always use the `$REPO_HASH` variable computed above.
+   redirect anywhere (bash interprets `$(< repo-hash )` as `cat repo-hash`,
+   which would shell out to read a file named `repo-hash`). Always use the
+   `$REPO_HASH` variable computed above.
 
 Set task `0` → `completed`. Set tasks `1.1` and `1.2` → `in_progress`.
 
@@ -99,7 +99,7 @@ Capture each rc.
 "$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" cody claude "$CONSULT_TOPIC"   # parallel 2
 ```
 
-#### Spawn-rollback runbook (CRITICAL — Codex finding #3)
+#### Spawn-rollback runbook (CRITICAL)
 
 After both parallel spawn calls return, evaluate:
 
@@ -131,8 +131,8 @@ PARALLEL Bash tool calls:
 
 ### Step 3 — Parallel research wait (with question loop)
 
-v0.5 protocol: wait-scripts run as background tasks so Master Yoda's pane
-stays interactive while troopers work. Each wait-script writes
+Background-await protocol: wait-scripts run as background tasks so Master
+Yoda's pane stays interactive while troopers work. Each wait-script writes
 `FS=<state>` to its per-commander state file before exit and touches a
 `.done` sentinel; the controller reads both on the harness's completion
 notification.
@@ -179,7 +179,7 @@ a. Read the question payload — `_consult/question-<commander>.txt`. Use
    the Read tool, parse `TEXT=` and `OPTIONS=`. Decode any `%xx` you see.
 b. Read `$TOPIC_DIR/<commander>-<model>/findings.md` (if it exists) for
    findings-so-far context.
-c. Classify as critical / non-critical (same rules as v0.3).
+c. Classify as critical / non-critical (same rules as Pattern 4 below).
 d. Get an answer:
    - critical → `AskUserQuestion` with TEXT + OPTIONS.
    - non-critical → answer from topic + findings yourself.
@@ -304,9 +304,9 @@ When no `^- PENDING:` remains, set task `2` → `completed` and task `3.1` →
 Refuses if PENDING remains. On success, prints synthesis.md. Set task
 `3.1` → `completed`.
 
-### Step 8.5 — Design-doc walk (v0.4.0, optional)
+### Step 8.5 — Design-doc walk (optional)
 
-**Entry conditions** (v0.4.2 — classifier no longer the strict gate):
+**Entry conditions** (classifier is not the strict gate):
 
 1. **Explicit flag.** `$DESIGN_DOC=1` → enter Step 8.5 with no prompt.
 2. **Skip path.** Classifier returned `systematic-debugging` (clear non-design
@@ -386,9 +386,9 @@ For each `i` in `0..4`:
 
 **Drill-down sub-loop:**
 
-v0.5.3: drill-down dispatch + await is delegated to `bin/consult-drilldown.sh`
-to avoid the slash-command renderer's positional-arg substitution clobbering
-inline bash function args (`$1` etc) on multi-word topics. The bin script
+Drill-down dispatch + await is delegated to `bin/consult-drilldown.sh` to
+avoid the slash-command renderer's positional-arg substitution clobbering
+inline bash function args (`$1` etc.) on multi-word topics. The bin script
 handles 1- or 2-trooper drilldown in parallel and writes outputs to
 `<dd-dir>/drilldown-<section-slug>-<commander>.md`.
 
@@ -460,11 +460,10 @@ The script assembles, self-reviews, and commits. Failure modes:
 - **Git commit failed**: script exits 1, design.md exists uncommitted.
   Yoda surfaces the git error verbatim and asks user to resolve.
 
-**v0.4.2 — tear down troopers BEFORE the user-review gate.**
+**Tear down troopers BEFORE the user-review gate.**
 
-Codex's adversarial review flagged the v0.4.0 ordering (gate-then-teardown)
-as keeping two model TTYs idle through unbounded review pauses with no
-keepalive or recovery path. v0.4.2 reorders: after the design.md commits,
+Gate-then-teardown would keep two model TTYs idle through unbounded review
+pauses with no keepalive or recovery path. After the design.md commits,
 run teardown + archive immediately, THEN open the user-review gate. The
 trade-off is that post-gate edits cannot drill troopers (they're gone) —
 acceptable because drill-deeper is a during-walk affordance, not a
@@ -492,8 +491,8 @@ Set task `3.1.5` → `completed`.
 
 ### Step 9 — Teardown + archive
 
-**v0.4.2:** if Step 8.5 ran, teardown + archive already happened before the
-user-review gate. Skip this step. Otherwise (no design-doc walk):
+If Step 8.5 ran, teardown + archive already happened before the user-review
+gate. Skip this step. Otherwise (no design-doc walk):
 
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC"
@@ -516,8 +515,8 @@ Show the user the final synthesis (already printed by step 8). Set task
 
 ### Pattern 1: Malformed findings re-prompt
 
-> **v0.5+ note:** the wait-script runs in background; read state file +
-> `.done` sentinel from the controller's notification handler (see Step 3).
+> The wait-script runs in background; read state file + `.done` sentinel
+> from the controller's notification handler (see Step 3).
 
 If `research-<commander>.txt` shows `FS=malformed`:
 
@@ -540,8 +539,8 @@ Bash(
 
 ### Pattern 3: All-UNCERTAIN verify re-prompt
 
-> **v0.5+ note:** the wait-script runs in background; read state file +
-> `.done` sentinel from the controller's notification handler (see Step 3).
+> The wait-script runs in background; read state file + `.done` sentinel
+> from the controller's notification handler (see Step 3).
 
 If `verify-<commander>.txt` verdicts are all UNCERTAIN:
 
@@ -565,7 +564,7 @@ cp "$TOPIC_DIR/_consult/adjudicated-draft.md" "$TOPIC_DIR/_consult/adjudicated.m
 # preserve specific prior PENDING resolutions — see spec Pattern 3.)
 ```
 
-### Pattern 4: Critical-question relay (v0.3)
+### Pattern 4: Critical-question relay
 
 When a wait-script reports `FS=question` (research) or `VS=question`
 (verify):

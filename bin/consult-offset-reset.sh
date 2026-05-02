@@ -9,7 +9,7 @@
 # depend on it (diff.md and *_only_items.txt for the research phase;
 # adjudicated-draft.md for both phases). ALSO removes the trooper-owned
 # findings.md (research) or verify.md (verify) so the next wait sees only
-# fresh content (Codex Rev1 finding #2 closure). Idempotent on missing files.
+# fresh content. Idempotent on missing files.
 
 set -uo pipefail
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -17,9 +17,9 @@ source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/consult.sh"
 
-# v0.3: optional --keep-findings flag preserves trooper-owned files +
-# cascade artifacts (used by Patterns 1/3 for full re-prompts). The
-# question loop never calls this — wait-script auto-bumps OFFSET inline.
+# Optional --keep-findings flag preserves trooper-owned files + cascade
+# artifacts (used by Patterns 1/3 for full re-prompts). The question loop
+# never calls this — wait-script auto-bumps OFFSET inline.
 KEEP_FINDINGS=0
 ARGS=()
 for a in "$@"; do
@@ -45,13 +45,13 @@ ART_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/_consult"
 
 rm -f "$ART_DIR/$PHASE-$COMMANDER.txt"
 
-# v0.3: pending question payload always cleared (it's been handled).
+# Pending question payload always cleared (it's been handled).
 rm -f "$ART_DIR/question-$COMMANDER.txt"
 
 if (( ! KEEP_FINDINGS )); then
-  # Trooper-owned output file (Codex Rev1 finding #2): without this, the
-  # subsequent wait sees the stale findings.md/verify.md and marks FS/VS=ok
-  # even when the re-prompt timed out. Find the trooper dir by listing
+  # Trooper-owned output file: without this, the subsequent wait sees the
+  # stale findings.md/verify.md and marks FS/VS=ok even when the re-prompt
+  # timed out. Find the trooper dir by listing
   # state/<repo-hash>/<topic>/<commander>-<model>/ — model is unknown to
   # this script, so glob it.
   TROOPER_DIR_GLOB=$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/$COMMANDER-*
