@@ -83,3 +83,36 @@ pass "audit_doc FAIL on incomplete spec with structured issues"
 out=$(cw_execute_design_audit_doc "$TMP/nope.md" 2>&1) && rc=0 || rc=$?
 [[ "$rc" -eq 2 ]] || { echo "FAIL: missing file did not exit 2: rc=$rc out=$out" >&2; exit 1; }
 pass "audit_doc rc=2 on missing file"
+
+# 6. branch_create — happy path: clean tree, branch doesn't exist.
+REPO="$TMP/repo"
+git -C "$TMP" init --quiet --initial-branch=main "$REPO"
+cd "$REPO"
+git config user.email t@t; git config user.name t
+echo init > a.txt; git add a.txt; git commit --quiet -m init
+
+out=$(cw_execute_design_branch_create my-topic) && rc=0 || rc=$?
+[[ "$rc" -eq 0 ]] || { echo "FAIL: branch_create happy-path rc=$rc out=$out" >&2; exit 1; }
+[[ "$out" == "feat/exec-my-topic" ]] || { echo "FAIL: bad branch name printed: $out" >&2; exit 1; }
+got=$(git rev-parse --abbrev-ref HEAD)
+assert_eq "$got" "feat/exec-my-topic" "branch checked out"
+pass "branch_create happy path"
+
+# 7. Refuses if branch exists.
+git checkout --quiet main
+out=$(cw_execute_design_branch_create my-topic 2>&1) && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] || { echo "FAIL: existing branch accepted" >&2; exit 1; }
+echo "$out" | grep -q 'already exists' || { echo "FAIL: error msg missing 'already exists': $out" >&2; exit 1; }
+pass "branch_create refuses existing branch"
+
+# 8. Refuses if working tree is dirty.
+git checkout --quiet main
+echo dirty > b.txt
+out=$(cw_execute_design_branch_create other-topic 2>&1) && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] || { echo "FAIL: dirty tree accepted" >&2; exit 1; }
+echo "$out" | grep -q 'dirty\|uncommitted' || { echo "FAIL: error msg missing 'dirty': $out" >&2; exit 1; }
+pass "branch_create refuses dirty tree"
+
+# Cleanup test cwd
+cd "$TMP"
+rm -rf "$REPO"

@@ -67,3 +67,27 @@ cw_execute_design_audit_doc() {
   done
   return 1
 }
+
+# cw_execute_design_branch_create <topic> [<branch-name-override>]
+# Refuses on dirty tree or pre-existing branch. Prints created branch name.
+cw_execute_design_branch_create() {
+  local topic="$1" override="${2:-}" branch
+  branch="${override:-feat/exec-$topic}"
+  # Dirty-tree check
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    log_error "working tree is dirty (uncommitted changes); commit/stash or pass --no-branch"
+    return 1
+  fi
+  # Untracked-files check (ls-files -o exit code is unreliable; count instead)
+  if [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
+    log_error "working tree is dirty (untracked files); commit/stash or pass --no-branch"
+    return 1
+  fi
+  # Pre-existing branch check
+  if git show-ref --verify --quiet "refs/heads/$branch"; then
+    log_error "branch '$branch' already exists; pass --branch <name> to override"
+    return 1
+  fi
+  git checkout -b "$branch" >/dev/null 2>&1 || { log_error "git checkout -b failed"; return 1; }
+  printf '%s\n' "$branch"
+}
