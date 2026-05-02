@@ -386,95 +386,53 @@ For each `i` in `0..4`:
 
 **Drill-down sub-loop:**
 
-v0.4.2: drill-down accepts `rex` / `cody` / `both`. For `both`, Yoda dispatches
-the same focused prompt to BOTH troopers in parallel; outputs land at
-`drilldown-<section>-rex.md` and `drilldown-<section>-cody.md`; both fold into
-the section draft, attributing each finding by commander.
+v0.5.3: drill-down dispatch + await is delegated to `bin/consult-drilldown.sh`
+to avoid the slash-command renderer's positional-arg substitution clobbering
+inline bash function args (`$1` etc) on multi-word topics. The bin script
+handles 1- or 2-trooper drilldown in parallel and writes outputs to
+`<dd-dir>/drilldown-<section-slug>-<commander>.md`.
 
 ```
-# AskUserQuestion: "Which trooper to drill into '$title'?"
+# AskUserQuestion: "Which trooper to drill into '<TITLE>'?"
 #   options: rex (codex) / cody (claude) / both (parallel)
 TROOPER_CHOICE=<chosen>
 
 # AskUserQuestion: "What's the focus? (e.g., 'trade-offs feel hand-wavy')"
 FOCUS=<free-form>
-
-source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
-TIMEOUT=$(awk -F: '/findings_timeout_s/{gsub(/[^0-9]/,"",$2); print $2; exit}' \
-  "${CLONE_WARS_HOME:-$HOME/.clone-wars}/contracts.yaml")
-TIMEOUT=${TIMEOUT:-90}
-
-dispatch_drill() {
-  local commander="$1" model="$2"
-  local trooper_dir offset prompt
-  trooper_dir=$(cw_trooper_dir "$commander" "$model" "$CONSULT_TOPIC")
-  offset=$(wc -c < "$trooper_dir/outbox.jsonl" 2>/dev/null || echo 0)
-  prompt=$(cw_consult_design_doc_drilldown_prompt \
-    "$title" "$TOPIC_DIR/_consult/synthesis.md" "$commander" "$DD_DIR" "$FOCUS")
-  "$CLAUDE_PLUGIN_ROOT/bin/send.sh" "$commander" "$CONSULT_TOPIC" "$prompt"
-  printf '%s\n' "$offset"  # caller captures pre-send offset
-}
-
-await_drill() {
-  local commander="$1" model="$2" offset="$3"
-  cw_outbox_wait_since "$commander" "$model" "$CONSULT_TOPIC" \
-    "$offset" done error "$TIMEOUT" >/dev/null
-}
-
-SECTION_SLUG=$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
-
-case "$TROOPER_CHOICE" in
-  rex)
-    OFF_REX=$(dispatch_drill rex codex)
-    if await_drill rex codex "$OFF_REX"; then
-      DRILL="$DD_DIR/drilldown-${SECTION_SLUG}-rex.md"
-      [[ -s "$DRILL" ]] && log_info "[design-doc] folded $DRILL into $title draft"
-    fi
-    ;;
-  cody)
-    OFF_CODY=$(dispatch_drill cody claude)
-    if await_drill cody claude "$OFF_CODY"; then
-      DRILL="$DD_DIR/drilldown-${SECTION_SLUG}-cody.md"
-      [[ -s "$DRILL" ]] && log_info "[design-doc] folded $DRILL into $title draft"
-    fi
-    ;;
-  both)
-    OFF_REX=$(dispatch_drill rex codex)   # parallel — these run in tmux panes
-    OFF_CODY=$(dispatch_drill cody claude)
-    REX_OK=0; CODY_OK=0
-    await_drill rex  codex  "$OFF_REX"  && REX_OK=1
-    await_drill cody claude "$OFF_CODY" && CODY_OK=1
-    DRILL_REX="$DD_DIR/drilldown-${SECTION_SLUG}-rex.md"
-    DRILL_CODY="$DD_DIR/drilldown-${SECTION_SLUG}-cody.md"
-    if (( REX_OK || CODY_OK )); then
-      [[ -s "$DRILL_REX" ]]  && log_info "[design-doc] folded $DRILL_REX into $title draft"
-      [[ -s "$DRILL_CODY" ]] && log_info "[design-doc] folded $DRILL_CODY into $title draft"
-      # Yoda reads both files (when present) and incorporates findings,
-      # attributing each by commander in the section text.
-    else
-      # AskUserQuestion: "Both drill-downs failed/timed out. Retry / Skip drill?"
-      :
-    fi
-    ;;
-  *)
-    log_error "drill-down: unknown choice '$TROOPER_CHOICE' — re-prompting"
-    # Re-enter the AskUserQuestion above; do not proceed with stale MODEL.
-    ;;
-esac
-
-# Single-trooper empty-drilldown handling (rex/cody branches above).
-DRILL_PATH="$DD_DIR/drilldown-${SECTION_SLUG}-${TROOPER_CHOICE}.md"
-if [[ "$TROOPER_CHOICE" != "both" && ! -s "$DRILL_PATH" ]]; then
-  # AskUserQuestion: "Drill-down completed but $DRILL_PATH is empty.
-  #   Continue / Retry / Other trooper / Skip?"
-  :
-fi
-else
-  # AskUserQuestion: "Drill-down on $title timed out. Retry / Other
-  #   trooper / Skip drill / Continue with current draft?"
-  :
-fi
 ```
+
+Then invoke the drill script. One trooper:
+
+```
+"$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
+  "$CONSULT_TOPIC" "<TITLE>" "$DD_DIR" "<FOCUS>" \
+  rex codex                  # OR: cody claude
+```
+
+Both troopers (parallel):
+
+```
+"$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
+  "$CONSULT_TOPIC" "<TITLE>" "$DD_DIR" "<FOCUS>" \
+  rex codex cody claude
+```
+
+Script emits `[drilldown] $commander: wrote …` per success, and exits:
+- `rc=0` if at least one trooper produced a non-empty drilldown file
+- `rc=1` if all troopers timed out / errored / produced empty files
+- `rc=2` on bad args
+
+After the script returns, Yoda reads the produced files (one or two of
+`drilldown-<section-slug>-rex.md` and `drilldown-<section-slug>-cody.md`)
+and folds the content into the in-progress section draft, attributing each
+finding by commander when `both` was used.
+
+If `rc=1` (all drilldowns failed/empty), `AskUserQuestion`:
+"Drill-down on '<TITLE>' returned nothing usable. Retry / Other trooper /
+Skip drill / Continue with current draft?"
+
+For unknown `TROOPER_CHOICE` values, re-prompt the AskUserQuestion above;
+do not invoke the script with stale args.
 
 **Finalize** (after all 5 sections processed):
 
