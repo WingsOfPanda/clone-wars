@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# tests/test_execute_design_init.sh
+set -euo pipefail
+cd "$(dirname "$0")"
+source lib/assert.sh
+
+# Resolve repo paths once so subshells/`bash -c` quoting can't lose them.
+TESTS_DIR="$PWD"
+REPO_ROOT="$(cd .. && pwd)"
+BIN="$REPO_ROOT/bin/execute-design-init.sh"
+LIB_STATE="$REPO_ROOT/lib/state.sh"
+
+TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+export CLONE_WARS_HOME="$TMP/cw"
+
+# Stage a tmp git repo so branch creation works.
+REPO="$TMP/repo"
+mkdir -p "$REPO"
+( cd "$REPO" && git init --quiet --initial-branch=main \
+    && git config user.email t@t && git config user.name t \
+    && echo seed > seed.txt && git add seed.txt && git commit --quiet -m init )
+
+# Stage a sample design doc.
+DDOC="$REPO/docs/superpowers/specs/2026-05-02-foo-bar-design.md"
+mkdir -p "$(dirname "$DDOC")"
+cat > "$DDOC" <<'MD'
+# Foo
+## Goal
+Build foo.
+## Architecture
+Use bar.
+## Testing strategy
+Unit tests.
+## Success criteria
+1. tests pass
+MD
+( cd "$REPO" && git add . && git commit --quiet -m "spec: foo-bar" )
+
+# 1. Happy path — derives slug, creates _execute/, copies design.md, creates branch.
+( cd "$REPO" && bash "$BIN" "$DDOC" ) > "$TMP/topic.txt" 2>"$TMP/err.log"
+TOPIC=$(cat "$TMP/topic.txt" | tr -d '\r\n')
+assert_eq "$TOPIC" "foo-bar" "init prints derived slug"
+RH=$(bash -c "cd $REPO && source $LIB_STATE && cw_repo_hash")
+ART="$CLONE_WARS_HOME/state/$RH/foo-bar/_execute"
+assert_file_exists "$ART/design.md" "design.md copied into _execute/"
+assert_file_exists "$ART/topic.txt" "topic.txt written"
+got=$(cat "$ART/topic.txt"); assert_eq "$got" "foo-bar" "topic.txt content"
+got=$( cd "$REPO" && git rev-parse --abbrev-ref HEAD )
+assert_eq "$got" "feat/exec-foo-bar" "branch created"
+pass "init happy path"
+
+# 2. --no-branch skips branch creation.
+( cd "$REPO" && git checkout --quiet main && git branch -D feat/exec-foo-bar >/dev/null )
+rm -rf "$ART"
+( cd "$REPO" && bash "$BIN" --no-branch "$DDOC" ) >/dev/null
+got=$( cd "$REPO" && git rev-parse --abbrev-ref HEAD )
+assert_eq "$got" "main" "no-branch keeps main"
+pass "init --no-branch keeps current branch"
+
+# 3. Refuses if design doc unreadable.
+out=$( cd "$REPO" && bash "$BIN" "$REPO/no-such.md" 2>&1 ) && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] || { echo "FAIL: missing design accepted" >&2; exit 1; }
+pass "init refuses missing design"
+
+# 4. --topic <slug> overrides derived slug.
+rm -rf "$CLONE_WARS_HOME/state/$RH/explicit-slug"
+( cd "$REPO" && git checkout --quiet main )
+( cd "$REPO" && bash "$BIN" --no-branch --topic explicit-slug "$DDOC" ) > "$TMP/topic2.txt"
+TOPIC2=$(cat "$TMP/topic2.txt" | tr -d '\r\n')
+assert_eq "$TOPIC2" "explicit-slug" "--topic overrides"
+assert_file_exists "$CLONE_WARS_HOME/state/$RH/explicit-slug/_execute/design.md" "explicit slug got dir"
+pass "init --topic override"
+
+# 5. Refuses if topic dir already exists (no implicit overwrite).
+out=$( cd "$REPO" && bash "$BIN" --no-branch --topic explicit-slug "$DDOC" 2>&1 ) && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] || { echo "FAIL: dup topic accepted" >&2; exit 1; }
+echo "$out" | grep -q 'already exists' || { echo "FAIL: error msg missing 'already exists': $out" >&2; exit 1; }
+pass "init refuses duplicate topic"
