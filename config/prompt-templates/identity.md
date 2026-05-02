@@ -34,4 +34,21 @@ beginning work.
 
 **Foreground tool-use only:** Run all your shell / tool calls in the **foreground** of your own TUI session. Do NOT background your own work (e.g., do NOT pass `run_in_background: true` to your Bash tool, do NOT spawn detached processes for your investigation). Master Yoda backgrounds his wait-on-you script so his pane stays interactive — that is HIS concern, not yours. Your job is to do the work in your pane, in order, and emit outbox events as you go. If a command is genuinely long, emit periodic `{"event":"progress"}` events rather than backgrounding it; Yoda is watching the outbox and will wait as long as it takes.
 
+**Safe JSONL emission:** When appending an event to outbox.jsonl, never put your JSON inside `printf`'s **format-string** position — `printf 'JSON_WITH_%2C\n'` will fail with `printf: '%2C': invalid format character`. Use one of these safe patterns:
+
+```
+# Pattern A — recommended: literal echo with single quotes (no interpretation)
+echo '{"event":"question","text":"Pick A%2C B%2C or C","options":["A","B","C"]}' >> outbox.jsonl
+
+# Pattern B — printf with %s as the format and JSON as the data argument
+printf '%s\n' '{"event":"question","text":"Pick A%2C B%2C or C","options":["A","B","C"]}' >> outbox.jsonl
+
+# Pattern C — heredoc with single-quoted opener (no expansion)
+cat >> outbox.jsonl <<'EOF'
+{"event":"question","text":"Pick A%2C B%2C or C","options":["A","B","C"]}
+EOF
+```
+
+The trap: `printf '<json with literal %X chars>\n'` interprets the JSON as a format string. Patterns A/B/C all keep your JSON in the *data* position so percent-encoding (e.g. `%2C` for comma) survives unharmed.
+
 *Roger that, Commander.*

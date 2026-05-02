@@ -300,5 +300,6 @@ This repo follows Conventional Commits loosely: `feat:`, `fix:`, `docs:`, `test:
 - [x] v0.5.0: octogent-steals — prompt-template registry, stale state, cw_send --from, background-await pattern
 - [x] v0.5.1: rename background-await `description=` strings to `master yoda await <rank-prefixed trooper> <phase>` form + identity-template now tells troopers to run their own tool-use foreground (only Yoda backgrounds; troopers stay foreground in their own pane)
 - [x] v0.5.2: remove `$CLONE_WARS_HOME/identity-template.md` from `cw_identity_write` lookup chain — stale per-machine overrides silently shadowed v0.5.x prompt-template updates; lookup is now in-tree only (matches v0.5.0's "no overrides" decision); medic warns when an orphan state-root copy is detected
+- [x] v0.5.3: extract Step 8.5 drill code into `bin/consult-drilldown.sh` (escapes the slash-command renderer's `$1/$2/$3` positional substitution that clobbered bash function args on multi-word topics) + identity-template gains "safe JSONL emission" guidance to prevent `printf '%2C'` format-string failures observed in dogfood
 - [ ] v0.6: drop config/identity-template.md back-compat symlink + sweep tracer/*.sh + README.md legacy refs
 - [ ] Submit to claude-plugins-official (post v0.5.x dogfood)
