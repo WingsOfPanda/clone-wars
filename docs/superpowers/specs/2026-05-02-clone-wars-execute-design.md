@@ -224,7 +224,7 @@ moving to the next. Emit a `done` event when all tasks are complete and
 all tests pass. END_OF_INSTRUCTION"*
 
 **Wait:** very long timeout (default 7200s = 2h — implementation is the
-slowest phase). Configurable via `--implement-timeout`.
+slowest phase). Configurable via `CW_EXECUTE_IMPLEMENT_TIMEOUT` env var.
 
 **State:** `_execute/implement-cody.txt` records `IS=ok|failed|timeout`.
 
@@ -354,8 +354,12 @@ CLI shape:
 - `/clone-wars:execute-design <design-path>` — explicit path
 - `/clone-wars:execute-design --topic foo --source path/to/doc.md` — explicit
   both
-- Flags: `--no-branch`, `--branch <name>`, `--max-rounds 5`,
-  `--implement-timeout 7200`, `--plan-timeout 600`, `--verify-timeout 1200`
+- Flags: `--no-branch`, `--branch <name>`, `--max-rounds 5`
+
+Per-phase timeouts are env-var configurable, not CLI flags:
+`CW_EXECUTE_PLAN_TIMEOUT` (default 600s), `CW_EXECUTE_IMPLEMENT_TIMEOUT`
+(default 7200s), `CW_EXECUTE_VERIFY_TIMEOUT` (default 1200s). Set in the
+shell before invoking the slash command.
 
 Mirrors `/clone-wars:consult`'s args-file pattern: write the design path via
 the Write tool to `$CLONE_WARS_HOME/_args/execute-design.txt`, then invoke

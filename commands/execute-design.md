@@ -50,8 +50,24 @@ Set task `0` → `in_progress`.
    ARGS_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args"
    mkdir -p "$ARGS_DIR"; echo "$ARGS_DIR/execute-design.txt"
    ```
-2. Write tool: `file_path` = the path printed; `content` = `$ARGUMENTS` exactly.
-3. Inspect the args file to detect "no positional .md arg given". If so,
+2. Parse `--max-rounds <N>` out of `$ARGUMENTS` BEFORE writing the args file.
+   The init script rejects unknown flags, so this flag must never reach it.
+   Scan `$ARGUMENTS` token-by-token: when you see `--max-rounds`, capture the
+   NEXT token into `MAX_ROUNDS_OVERRIDE` (export it for Step 2's loop init)
+   and drop both tokens. Write the REMAINING tokens (space-joined) to the
+   args file via the Write tool — not `$ARGUMENTS` verbatim.
+
+   Example transformation:
+   - `$ARGUMENTS` = `path/to/spec.md --topic foo --max-rounds 3 --no-branch`
+   - `MAX_ROUNDS_OVERRIDE` = `3`
+   - args-file contents = `path/to/spec.md --topic foo --no-branch`
+
+   If `--max-rounds` is absent, leave `MAX_ROUNDS_OVERRIDE` unset (Step 2
+   defaults to 5) and write `$ARGUMENTS` unchanged.
+3. Write tool: `file_path` = the path printed in step 1; `content` = the
+   filtered argument string from step 2 (or `$ARGUMENTS` verbatim if no
+   `--max-rounds` was found).
+4. Inspect the args file to detect "no positional .md arg given". If so,
    apply source defaulting:
    - Find the most recent consult synthesis under this repo's state root:
      ```
@@ -68,7 +84,7 @@ Set task `0` → `in_progress`.
      receives it as the positional argument). On "Cancel", exit 0.
    - If `CANDIDATE` is empty and no `.md` path is in the args file, refuse
      with a usage hint and exit 1.
-4. Init (init.sh consumes the args file directly — its argv parser handles
+5. Init (init.sh consumes the args file directly — its argv parser handles
    `--no-branch` / `--branch` / `--topic` / `<design-path>`):
    ```
    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
@@ -77,18 +93,22 @@ Set task `0` → `in_progress`.
               --args-file "$ARGS_DIR/execute-design.txt")
    TOPIC_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$TOPIC"
    ART_DIR="$TOPIC_DIR/_execute"
-   # Record branch base for cross-verify diff range (used in Step 2.2 + Step 4)
-   git merge-base HEAD main 2>/dev/null > "$ART_DIR/branch-base.sha" \
-     || git rev-parse HEAD > "$ART_DIR/branch-base.sha"
+   # Record branch base for cross-verify diff range (used in Step 2.2 + Step 4).
+   # init.sh creates feat/exec-<topic> from HEAD, so HEAD right now IS the
+   # commit the new branch was created from — exactly the diff base we want.
+   # Do NOT use `git merge-base HEAD main` here: when invoked from a topic
+   # branch that already diverged from main, merge-base returns the prior
+   # branch's divergence point (over-counting unrelated commits).
+   git rev-parse HEAD > "$ART_DIR/branch-base.sha"
    BRANCH_BASE=$(cat "$ART_DIR/branch-base.sha")
    ```
-5. Run audit and persist verdict:
+6. Run audit and persist verdict:
    ```
    source "$CLAUDE_PLUGIN_ROOT/lib/execute_design.sh"
    AUDIT=$(cw_execute_design_audit_doc "$ART_DIR/design.md" 2>&1) && AUDIT_RC=0 || AUDIT_RC=$?
    printf '%s\n' "$AUDIT" > "$ART_DIR/design-audit.md"
    ```
-6. Branch on `AUDIT_RC` — distinguish unreadable doc from FAIL verdict:
+7. Branch on `AUDIT_RC` — distinguish unreadable doc from FAIL verdict:
    ```
    if (( AUDIT_RC == 2 )); then
      log_error "design-doc unreadable; aborting."
@@ -131,6 +151,9 @@ Read the last `PS=` line from `$ART_DIR/plan-cody.txt`:
     ```
   - Abort: teardown + archive + exit.
 
+Note: a `bin/send.sh` failure during dispatch surfaces here as `PS=timeout`;
+use the same Retry recipe.
+
 **Yoda does not read `plan.md`.**
 
 ### Step 1.3 — Implement
@@ -157,6 +180,9 @@ Read `IS=` from `implement-cody.txt`:
 Note: codex's question protocol is NOT wired in v0.6. If codex emits a question
 event, the wait-script will time out (only matches `done|error`). Surfaces as
 `IS=timeout` — handle via the Retry recipe above.
+
+Note: a `bin/send.sh` failure during dispatch surfaces here as `IS=timeout`;
+use the same Retry recipe.
 
 ### Step 2 — Verify-fix loop
 
@@ -191,6 +217,9 @@ Read `VS=` from `verify-cody-$ROUND.txt`. On non-`ok` status, AskUserQuestion
 Note: codex's question protocol is NOT wired in v0.6. If codex emits a question
 event, the wait-script will time out (only matches `done|error`). Surfaces as
 `VS=timeout` — handle via the Retry recipe above.
+
+Note: a `bin/send.sh` failure during dispatch surfaces here as `VS=timeout`;
+use the same Retry recipe.
 
 Set task `2.1` → `completed` for this round.
 
@@ -282,12 +311,21 @@ cw_outbox_wait_since cody codex "$TOPIC" "$OFFSET" done error 1200 || true
 
 Dispatch gap bundle (if any):
 ```
+# Capture pre-send byte offset BEFORE the gap-send fires, so the wait
+# matches THIS dispatch's done event (mirrors the debug-bundle pattern).
+GAP_OFFSET=$( [[ -f "$OUTBOX" ]] && wc -c < "$OUTBOX" || echo 0 )
 "$CLAUDE_PLUGIN_ROOT/bin/execute-design-fix-send.sh" "$TOPIC" "$ROUND" gap
+
+# Wait for codex to finish the gap bundle before incrementing ROUND.
+# Without this wait, the next verify-send (Step 2.1) races with codex's
+# inbox.md read of the gap prompt and silently overwrites it.
+cw_outbox_wait_since cody codex "$TOPIC" "$GAP_OFFSET" done error 1200 || true
+# Read the matched event; if 'error' or the wait timed out, AskUserQuestion
+# (Continue to verify / Abort). If 'done', proceed.
 ```
 
 Increment `ROUND`. Loop back to Step 2.1 (which dispatches verify-send for
-the new round; codex's done event from the gap fix is consumed by the next
-verify-wait).
+the new round).
 
 ### Step 4 — Teardown + archive
 
@@ -319,3 +357,11 @@ The cody pane stays alive after a 5-round hand-off. Attach:
 tmux select-pane -t <pane_id>   # printed by spawn.sh
 ```
 Use the cody session directly. RESUME.md in `$ART_DIR/` documents context.
+
+### Auto-created branch survives audit-FAIL and spawn-FAIL
+If the audit or spawn fails, the directive aborts and archives `_execute/`
+but the auto-created `feat/exec-<topic>` branch is left in place. Clean up
+manually if undesired:
+```
+git checkout - && git branch -D feat/exec-<topic>
+```
