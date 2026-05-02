@@ -20,7 +20,8 @@ export CLAUDE_PLUGIN_ROOT="$(cd .. && pwd)"
 mkdir -p "$CLONE_WARS_HOME"
 cp ../config/contracts.yaml       "$CLONE_WARS_HOME/contracts.yaml"
 cp ../config/commanders.yaml      "$CLONE_WARS_HOME/commanders.yaml"
-cp ../config/identity-template.md "$CLONE_WARS_HOME/identity-template.md"
+# v0.5.2: identity-template is plugin-side-only; cw_identity_write reads
+# $PLUGIN_ROOT/config/prompt-templates/identity.md directly. No state-root copy.
 
 source ../lib/state.sh
 source ../lib/ipc.sh

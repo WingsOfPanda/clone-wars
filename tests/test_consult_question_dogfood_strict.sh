@@ -26,11 +26,11 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 export CLONE_WARS_HOME="$TMP/cw"
 export CLAUDE_PLUGIN_ROOT="$(cd .. && pwd)"
 
-# Stage the config files spawn.sh + identity-template need.
+# Stage the user-editable config spawn.sh needs (v0.5.2: identity-template
+# is plugin-side-only; no state-root copy required).
 mkdir -p "$CLONE_WARS_HOME"
-cp ../config/contracts.yaml       "$CLONE_WARS_HOME/contracts.yaml"
-cp ../config/commanders.yaml      "$CLONE_WARS_HOME/commanders.yaml"
-cp ../config/identity-template.md "$CLONE_WARS_HOME/identity-template.md"
+cp ../config/contracts.yaml  "$CLONE_WARS_HOME/contracts.yaml"
+cp ../config/commanders.yaml "$CLONE_WARS_HOME/commanders.yaml"
 
 source ../lib/state.sh
 source ../lib/ipc.sh

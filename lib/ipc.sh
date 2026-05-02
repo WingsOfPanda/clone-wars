@@ -54,17 +54,26 @@ cw_state_archive() {
 }
 
 # cw_identity_write <commander> <model> <topic>
-# Write identity.md by substituting {{vars}} in $CLONE_WARS_HOME/identity-template.md
-# (or the shipped default if the per-machine copy isn't there yet). Appends a
-# trailing "first action" instruction so the trooper emits {ready} immediately.
+# Write identity.md by substituting {{vars}} in the plugin's identity template.
+# Appends a trailing "first action" instruction so the trooper emits {ready}
+# immediately.
+#
+# v0.5.2: lookup chain is in-tree only — the legacy
+# $CLONE_WARS_HOME/identity-template.md per-machine override is NO LONGER
+# consulted. It silently shadowed plugin updates (e.g. v0.5.x foreground
+# guards never reached troopers if a stale Apr-26-installed override sat
+# at $CLONE_WARS_HOME). Aligns with v0.5.0's "in-tree only, no overrides"
+# decision for the prompt-template registry. Power users who need to
+# customize should fork or edit the plugin path directly. Stale orphan
+# files at $CLONE_WARS_HOME/identity-template.md become harmless dead
+# weight and can be deleted.
 cw_identity_write() {
   local commander="$1" model="$2" topic="$3"
   local dir identity tmpl outbox
   dir=$(cw_trooper_dir "$commander" "$model" "$topic")
   identity="$dir/identity.md"
   outbox="$dir/outbox.jsonl"
-  tmpl="$(cw_state_root)/identity-template.md"
-  [[ -f "$tmpl" ]] || tmpl="$PLUGIN_ROOT/config/prompt-templates/identity.md"
+  tmpl="$PLUGIN_ROOT/config/prompt-templates/identity.md"
   [[ -f "$tmpl" ]] || tmpl="$PLUGIN_ROOT/config/identity-template.md"
 
   sed \
