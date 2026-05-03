@@ -45,7 +45,7 @@ case "$EVENT" in
     ;;
   error) printf 'VS=failed\n'  >> "$STATE_FILE"; log_warn "[verify-wait] cody round=$ROUND VS=failed (error)" ;;
   '')    printf 'VS=timeout\n' >> "$STATE_FILE"; log_warn "[verify-wait] cody round=$ROUND VS=timeout" ;;
-  *)     printf 'VS=failed\n'  >> "$STATE_FILE"; log_warn "[verify-wait] cody round=$ROUND VS=failed (unknown event)" ;;
+  *)     printf 'VS=failed\n'  >> "$STATE_FILE"; log_warn "[verify-wait] cody round=$ROUND VS=failed (unknown event '$EVENT')" ;;
 esac
 
 touch "${STATE_FILE%.txt}.done"

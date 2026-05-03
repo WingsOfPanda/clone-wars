@@ -18,10 +18,18 @@ Spec: `docs/superpowers/specs/2026-05-02-clone-wars-execute-design.md`
 ## Source defaulting
 
 If `$ARGUMENTS` does not include a `.md` path, look for the most recent
-`state/<repo-hash>/<topic>/_consult/synthesis.md` under `$CLONE_WARS_HOME`
-(consult writes synthesis.md INSIDE `_consult/`, not at the topic root) and
-prompt the user via `AskUserQuestion` to confirm. If no synthesis.md is found
-and no explicit path was given, refuse with a usage hint.
+consult artifact under this repo's state root (`$CLONE_WARS_HOME`).
+Candidates considered, in order of preference:
+
+1. `state/<repo-hash>/<topic>/_consult/design-doc/<YYYY-MM-DD>-<slug>-design.md`
+   (produced by `/clone-wars:consult --design-doc` — full audit-passable spec
+   that maps directly to execute-design's audit gates)
+2. `state/<repo-hash>/<topic>/_consult/synthesis.md`
+   (produced by every consult run — looser shape; may not pass the audit
+   without manual editing)
+
+Prompt the user via `AskUserQuestion` to confirm whichever is most-recent.
+If neither is found and no explicit path was given, refuse with a usage hint.
 
 ## Task list (TaskCreate × 8 BEFORE step 0)
 
@@ -69,14 +77,16 @@ Set task `0` → `in_progress`.
    `--max-rounds` was found).
 4. Inspect the args file to detect "no positional .md arg given". If so,
    apply source defaulting:
-   - Find the most recent consult synthesis under this repo's state root:
+   - Find the most recent consult artifact under this repo's state root.
+     Prefer a design-doc-mode spec (audit-passable) over a bare synthesis:
      ```
      source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
      REPO_HASH=$(cw_repo_hash)
      STATE_ROOT="${CLONE_WARS_HOME:-$HOME/.clone-wars}"
      CANDIDATE=$(find "$STATE_ROOT/state/$REPO_HASH" \
-                   -path '*/_consult/synthesis.md' -type f \
-                   -printf '%T@ %p\n' 2>/dev/null \
+                   \( -path '*/_consult/design-doc/*-design.md' \
+                      -o -path '*/_consult/synthesis.md' \) \
+                   -type f -printf '%T@ %p\n' 2>/dev/null \
                    | sort -n | tail -1 | cut -d' ' -f2-)
      ```
    - If `CANDIDATE` is non-empty, `AskUserQuestion` (options: "Use this",
@@ -292,6 +302,9 @@ Source the IPC helpers inline (the wait function is already defined there):
 source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
 source "$CLAUDE_PLUGIN_ROOT/lib/ipc.sh"
 OUTBOX="$(cw_trooper_dir cody codex "$TOPIC")/outbox.jsonl"
+# Inter-bundle wait timeout (debug→gap and gap→next-round). Default 1200s
+# matches verify-wait; export CW_EXECUTE_FIX_TIMEOUT to override.
+FIX_WAIT_TIMEOUT="${CW_EXECUTE_FIX_TIMEOUT:-1200}"
 ```
 
 Dispatch debug bundle (if any):
@@ -302,8 +315,7 @@ OFFSET=$( [[ -f "$OUTBOX" ]] && wc -c < "$OUTBOX" || echo 0 )
 "$CLAUDE_PLUGIN_ROOT/bin/execute-design-fix-send.sh" "$TOPIC" "$ROUND" debug
 
 # Wait for codex to finish the debug bundle before sending gap.
-# Timeout 1200s mirrors the implement-wait default; tune if your suite is slow.
-cw_outbox_wait_since cody codex "$TOPIC" "$OFFSET" done error 1200 || true
+cw_outbox_wait_since cody codex "$TOPIC" "$OFFSET" done error "$FIX_WAIT_TIMEOUT" || true
 # Read the matched event from the outbox (line at $OFFSET-onwards). If it's
 # 'error' or the wait timed out, AskUserQuestion (Continue with gap / Abort).
 # If 'done', proceed to gap.
@@ -319,7 +331,7 @@ GAP_OFFSET=$( [[ -f "$OUTBOX" ]] && wc -c < "$OUTBOX" || echo 0 )
 # Wait for codex to finish the gap bundle before incrementing ROUND.
 # Without this wait, the next verify-send (Step 2.1) races with codex's
 # inbox.md read of the gap prompt and silently overwrites it.
-cw_outbox_wait_since cody codex "$TOPIC" "$GAP_OFFSET" done error 1200 || true
+cw_outbox_wait_since cody codex "$TOPIC" "$GAP_OFFSET" done error "$FIX_WAIT_TIMEOUT" || true
 # Read the matched event; if 'error' or the wait timed out, AskUserQuestion
 # (Continue to verify / Abort). If 'done', proceed.
 ```
