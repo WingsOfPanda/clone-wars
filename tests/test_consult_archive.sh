@@ -31,3 +31,20 @@ pass "archive fails loud on missing _consult"
 err=$(../bin/consult-archive.sh "../bad" 2>&1) && rc=0 || rc=$?
 [[ "$rc" -ne 0 ]] || { echo "FAIL: bad topic accepted" >&2; exit 1; }
 pass "bad topic rejected"
+
+# 4. Same-second collision: invoke twice within one second using fixed TS via mocked date.
+# (We can't mock `date` cleanly without a wrapper, so instead we exercise the counter
+# by pre-creating the conflict target.)
+mkdir -p "$TD/_consult"
+echo "rerun" > "$TD/_consult/synthesis.md"
+ARCHIVE_BASE="$CLONE_WARS_HOME/archive/$RH/$TOPIC"
+# Pre-create today's expected target so the first archive will collide.
+TS=$(date -u +'%Y%m%dT%H%M%SZ')
+mkdir -p "$ARCHIVE_BASE/_consult-$TS"
+../bin/consult-archive.sh "$TOPIC"
+# Now there should be at least 2 _consult-* dirs (the pre-created one + the -2 suffix).
+n2=$(ls "$ARCHIVE_BASE" | grep -c '^_consult-' || true)
+[[ "$n2" -ge 2 ]] || { echo "FAIL: collision counter didn't fire; got $n2 dirs" >&2; exit 1; }
+ls "$ARCHIVE_BASE" | grep -q '^_consult-.*-2$' \
+  || { echo "FAIL: counter-suffix dir missing" >&2; exit 1; }
+pass "archive same-second collision uses counter suffix"
