@@ -190,10 +190,16 @@ ROUTING:
   superpowers:systematic-debugging skill.
 - For each issue tagged [spec-gap]: use the superpowers:writing-plans
   skill (re-plan the gap, then implement).
+- After EACH fix commit: dispatch a superpowers:code-reviewer subagent
+  via the superpowers:requesting-code-review skill with the fix commit's
+  SHA as scope. Address Critical and Important findings before moving to
+  the next issue. Round 1's subagent-driven-development walks code review
+  per-task automatically; fix rounds need this explicit invocation.
 
 For EACH issue: implement the fix, commit per fix (Conventional Commits
-prefix \`fix:\`, \`feat:\`, or \`test:\` as appropriate), then re-run
-the full test suite. Do NOT skip any listed issue.
+prefix \`fix:\`, \`feat:\`, or \`test:\` as appropriate), run the
+code-review subagent on the new commit, then re-run the full test suite.
+Do NOT skip any listed issue.
 
 After all issues are addressed AND the test suite is green:
   Run the full test suite, tee output to:

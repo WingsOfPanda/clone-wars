@@ -89,6 +89,10 @@ echo "$OUT" | grep -qiE 'resume|already|skip' \
   || { echo "FAIL: fix missing resume preamble" >&2; exit 1; }
 pass "fix includes resume preamble"
 
+echo "$OUT" | grep -q 'superpowers:code-reviewer' \
+  || { echo "FAIL: fix missing code-reviewer routing for fix commits" >&2; exit 1; }
+pass "fix routes to code-reviewer per fix commit"
+
 # Missing-bundle path
 err=$(cw_deploy_build_turn_prompt_fix "/no/such/path.md" "/abs/v.md" 2 2>&1) && rc=0 || rc=$?
 [[ "$rc" -ne 0 ]] || { echo "FAIL: missing bundle should rc!=0" >&2; exit 1; }
