@@ -156,6 +156,59 @@ END_OF_INSTRUCTION
 EOF
 }
 
+# cw_deploy_build_turn_prompt_fix <fix_bundle_path> <verify_out> <round>
+# Emits the fix-round inbox prompt for the collapsed fix+verify trooper
+# turn. Reads the user-authored fix bundle from disk, wraps it with
+# routing instructions (systematic-debugging for [bug]/[regression],
+# writing-plans for [spec-gap]) and the resume-aware preamble.
+# Returns 1 on missing/unreadable bundle.
+cw_deploy_build_turn_prompt_fix() {
+  local bundle="$1" verify_out="$2" round="$3"
+  [[ -f "$bundle" && -r "$bundle" ]] \
+    || { log_error "fix bundle not found or unreadable: $bundle"; return 1; }
+  local issues
+  issues=$(cat "$bundle")
+  cat <<EOF
+You are entering ROUND $round of /clone-wars:deploy (fix loop).
+
+This is a single-turn workflow: address each issue below, re-run the test
+suite, and write the verify report — all in one autonomous run.
+
+RESUME CHECK (do this BEFORE starting):
+- Check \`git log --oneline\` for commits since the previous round's
+  verify report was written. If some issues already have addressing
+  commits, identify which remain unaddressed and start from those.
+- If $verify_out already exists, re-run tests and update it if outcomes
+  changed.
+
+ISSUES TO ADDRESS:
+
+$issues
+
+ROUTING:
+- For each issue tagged [bug] or [regression]: use the
+  superpowers:systematic-debugging skill.
+- For each issue tagged [spec-gap]: use the superpowers:writing-plans
+  skill (re-plan the gap, then implement).
+
+For EACH issue: implement the fix, commit per fix (Conventional Commits
+prefix \`fix:\`, \`feat:\`, or \`test:\` as appropriate), then re-run
+the full test suite. Do NOT skip any listed issue.
+
+After all issues are addressed AND the test suite is green:
+  Run the full test suite, tee output to:
+    ${verify_out%/*}/test-output-$round.log
+  Write the verify report to:
+    $verify_out
+  The report MUST start with \`VERDICT: PASS|PARTIAL|FAIL\`.
+
+When done, emit:
+  {"event":"done","summary":"Round $round complete","ts":"<iso>"}
+
+END_OF_INSTRUCTION
+EOF
+}
+
 cw_deploy_build_plan_prompt() {
   local design="$1" plan_out="$2"
   cat <<EOF
