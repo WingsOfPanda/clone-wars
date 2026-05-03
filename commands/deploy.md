@@ -209,6 +209,21 @@ Branch on TS:
   fi
   ```
 
+  **Trooper-not-idle case on retry.** `bin/deploy-turn-send.sh` reads
+  `cody-codex/status.json` and refuses with `trooper not idle (state=...)`
+  when the previous turn never reset to idle (most common after
+  `TS=timeout` — the trooper is still mid-work). On that error,
+  AskUserQuestion (Wait 60s and retry / Force-retry / Abort):
+  - *Wait 60s and retry* — sleep 60, re-attempt `deploy-turn-send.sh`
+    (do NOT clear state files first; the previous attempt already cleared
+    them).
+  - *Force-retry* — write `{"state":"idle","updated":"<iso>","last_event":"force-reset"}`
+    to `cody-codex/status.json` (atomic tmp+rename), then re-attempt
+    `deploy-turn-send.sh`. The trooper's next inbox.md write will overlap
+    its previous read but the END_OF_INSTRUCTION sentinel keeps the new
+    payload safe.
+  - *Abort* — `bin/deploy-teardown.sh` + `bin/deploy-archive.sh`; exit.
+
 ### Step 2 — Cross-verify (per round)
 
 Set task `2` → `in_progress`.
