@@ -103,6 +103,58 @@ cw_deploy_branch_create() {
 # terminating in END_OF_INSTRUCTION. The slash directive writes the body
 # to inbox.md via bin/send.sh.
 
+# cw_deploy_build_turn_prompt_round1 <design> <plan_out> <verify_out>
+# Emits the round-1 inbox prompt for the collapsed plan+implement+verify
+# trooper turn. Bound to writing-plans + subagent-driven-development +
+# verification-before-completion skills. Includes resume-aware preamble so
+# auto-retry on the same prompt picks up from disk state.
+cw_deploy_build_turn_prompt_round1() {
+  local design="$1" plan_out="$2" verify_out="$3"
+  cat <<EOF
+You are entering ROUND 1 of /clone-wars:deploy.
+
+This is a single-turn workflow: you will write the implementation plan,
+implement it, run the test suite, and write the verify report — all in
+one autonomous run. The conductor will only re-engage when you emit done.
+
+RESUME CHECK (do this BEFORE starting):
+- If $plan_out already exists, skip the planning phase — read the
+  existing plan and proceed to implementation.
+- If \`git log --oneline\` shows commits past the design-doc commit on
+  this branch, identify the next pending task from $plan_out's checkbox
+  state and continue from there. Do not redo already-committed tasks.
+- If $verify_out already exists, you previously completed implementation
+  — re-run the test suite and update $verify_out if test outcomes changed.
+
+PHASE 1: Plan (skip if $plan_out exists)
+  Use the superpowers:writing-plans skill. Read the design doc at:
+    $design
+  Produce a comprehensive implementation plan and write it to:
+    $plan_out
+
+PHASE 2: Implement
+  Use the superpowers:subagent-driven-development skill. Walk $plan_out
+  task-by-task. Commit per task (Conventional Commits prefix). Run the
+  full test suite (\`bash tests/run.sh\`) after each task and confirm green.
+
+PHASE 3: Self-verify
+  Use the superpowers:verification-before-completion skill. Run the full
+  test suite, tee output to test-output-1.log alongside the verify
+  report, and write a structured verify report to:
+    $verify_out
+
+  The report MUST start with \`VERDICT: PASS|PARTIAL|FAIL\` on the first
+  line, followed by per-requirement evidence (file:line citations) and a
+  short summary.
+
+When all three phases are done AND the test suite is green AND
+$verify_out exists with a VERDICT line, emit:
+  {"event":"done","summary":"Round 1 complete","ts":"<iso>"}
+
+END_OF_INSTRUCTION
+EOF
+}
+
 cw_deploy_build_plan_prompt() {
   local design="$1" plan_out="$2"
   cat <<EOF
