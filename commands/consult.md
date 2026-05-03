@@ -390,7 +390,9 @@ Drill-down dispatch + await is delegated to `bin/consult-drilldown.sh` to
 avoid the slash-command renderer's positional-arg substitution clobbering
 inline bash function args (`$1` etc.) on multi-word topics. The bin script
 handles 1- or 2-trooper drilldown in parallel and writes outputs to
-`<dd-dir>/drilldown-<section-slug>-<commander>.md`.
+`<dd-dir>/_scratch/drilldown-<section-slug>-<commander>.md` (the `_scratch/`
+subdir keeps trooper outputs out of the user-facing design-doc directory,
+which contains only the final assembled spec).
 
 ```
 # AskUserQuestion: "Which trooper to drill into '<TITLE>'?"
@@ -423,9 +425,10 @@ Script emits `[drilldown] $commander: wrote …` per success, and exits:
 - `rc=2` on bad args
 
 After the script returns, Yoda reads the produced files (one or two of
-`drilldown-<section-slug>-rex.md` and `drilldown-<section-slug>-cody.md`)
-and folds the content into the in-progress section draft, attributing each
-finding by commander when `both` was used.
+`_scratch/drilldown-<section-slug>-rex.md` and
+`_scratch/drilldown-<section-slug>-cody.md`) and folds the content into the
+in-progress section draft, attributing each finding by commander when `both`
+was used.
 
 If `rc=1` (all drilldowns failed/empty), `AskUserQuestion`:
 "Drill-down on '<TITLE>' returned nothing usable. Retry / Other trooper /

@@ -13,7 +13,9 @@
 #       rex codex cody claude
 #
 # Output:
-#   - drilldown-<section-slug>-<commander>.md per trooper at <dd-dir>/
+#   - drilldown-<section-slug>-<commander>.md per trooper at <dd-dir>/_scratch/
+#     (kept out of the user-facing design-doc dir so only the final assembled
+#     spec is visible there)
 #   - rc=0 if at least one trooper produced a non-empty drilldown file
 #   - rc=1 if all troopers timed out / errored / produced empty files
 #   - rc=2 on bad args
@@ -46,6 +48,11 @@ MODEL2="${8:-}"
 
 cw_consult_assert_topic "$TOPIC"
 [[ -d "$DD_DIR" ]] || { log_error "dd_dir not found: $DD_DIR"; exit 2; }
+
+# Stage scratch dir for trooper drilldown outputs (kept out of dd-dir so the
+# final assembled spec is the only user-facing file there).
+mkdir -p "$DD_DIR/_scratch" \
+  || { log_error "failed to create scratch dir: $DD_DIR/_scratch"; exit 1; }
 
 TOPIC_DIR="$(cw_consult_topic_dir "$TOPIC")"
 SYNTHESIS="$TOPIC_DIR/_consult/synthesis.md"
@@ -91,7 +98,7 @@ fi
 
 # Await — single OR both.
 SUCCESS=0
-DRILL1="$DD_DIR/drilldown-${SECTION_SLUG}-${COMMANDER1}.md"
+DRILL1="$DD_DIR/_scratch/drilldown-${SECTION_SLUG}-${COMMANDER1}.md"
 if await_drill "$COMMANDER1" "$MODEL1" "$OFF1"; then
   if [[ -s "$DRILL1" ]]; then
     log_info "[drilldown] $COMMANDER1: wrote $DRILL1"
@@ -104,7 +111,7 @@ else
 fi
 
 if [[ -n "$COMMANDER2" ]]; then
-  DRILL2="$DD_DIR/drilldown-${SECTION_SLUG}-${COMMANDER2}.md"
+  DRILL2="$DD_DIR/_scratch/drilldown-${SECTION_SLUG}-${COMMANDER2}.md"
   if await_drill "$COMMANDER2" "$MODEL2" "$OFF2"; then
     if [[ -s "$DRILL2" ]]; then
       log_info "[drilldown] $COMMANDER2: wrote $DRILL2"

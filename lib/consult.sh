@@ -619,13 +619,15 @@ cw_consult_design_doc_self_review() {
 
 # cw_consult_design_doc_drilldown_prompt <section> <synthesis-path> <commander> <dd-dir> <focus>
 # Builds a focused inbox payload asking <commander> to drill into <section>.
-# Trooper writes to <dd-dir>/drilldown-<section-slug>-<commander>.md.
+# Trooper writes to <dd-dir>/_scratch/drilldown-<section-slug>-<commander>.md
+# (the _scratch/ subdir keeps per-section trooper output out of the user-facing
+# design-doc directory, which should contain only the final assembled spec).
 # <focus> is optional pushback text from the user; default applies if empty.
 cw_consult_design_doc_drilldown_prompt() {
   local section="$1" syn="$2" commander="$3" dd_dir="$4" focus="${5:-}"
   local section_slug
   section_slug=$(printf '%s' "$section" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
-  local out_path="$dd_dir/drilldown-${section_slug}-${commander}.md"
+  local out_path="$dd_dir/_scratch/drilldown-${section_slug}-${commander}.md"
   local resolved_focus="${focus:-Provide more depth, citations, and concrete trade-offs for the $section section.}"
   cw_consult_load_prompt consult/drilldown.md \
     "SECTION=$section" \
