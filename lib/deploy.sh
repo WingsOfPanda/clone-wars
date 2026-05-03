@@ -215,3 +215,18 @@ END_OF_INSTRUCTION
 EOF
 }
 
+# cw_deploy_detect_provider <repo-root>
+# Auto-detect rule for /clone-wars:deploy: presence of
+# <repo-root>/.claude-plugin/plugin.json signals "this repo is a Claude Code
+# plugin" → claude trooper. Otherwise → codex (cheap default).
+# Returns the slug to stdout. rc=2 on missing arg.
+cw_deploy_detect_provider() {
+  local repo_root="${1:-}"
+  [[ -n "$repo_root" ]] || { log_error "cw_deploy_detect_provider: missing repo-root arg"; return 2; }
+  if [[ -f "$repo_root/.claude-plugin/plugin.json" ]]; then
+    printf 'claude\n'
+  else
+    printf 'codex\n'
+  fi
+}
+
