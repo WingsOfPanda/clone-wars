@@ -305,5 +305,7 @@ This repo follows Conventional Commits loosely: `feat:`, `fix:`, `docs:`, `test:
 - [x] v0.6.1: drilldown scratch subdir + execute-design source-defaulting prefers design-doc + CW_EXECUTE_FIX_TIMEOUT env var + parameterized wait-script test
 - [x] v0.7.0: rename `/clone-wars:execute-design` → `/clone-wars:deploy` + hide internal slash commands (`spawn`/`send`/`collect`); user-facing surface is now medic/consult/deploy/list/teardown
 - [ ] v0.7.0 strict-dogfood pass on a real machine (release gate)
+- [x] v0.8.0: deploy single-turn — plan+implement+verify run in one trooper turn per round; auto-retry-once; CW_DEPLOY_TURN_TIMEOUT=14400 default; 6 bin scripts and 4 lib helpers deleted
+- [ ] v0.8.0 strict-dogfood pass on a real machine (release gate)
 - [ ] v0.6: drop config/identity-template.md back-compat symlink + sweep tracer/*.sh + README.md legacy refs
 - [ ] Submit to claude-plugins-official (post v0.5.x dogfood)
