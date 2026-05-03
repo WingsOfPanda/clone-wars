@@ -139,8 +139,9 @@ PHASE 2: Implement
 
 PHASE 3: Self-verify
   Use the superpowers:verification-before-completion skill. Run the full
-  test suite, tee output to test-output-1.log alongside the verify
-  report, and write a structured verify report to:
+  test suite, tee output to:
+    ${verify_out%/*}/test-output-1.log
+  Write a structured verify report to:
     $verify_out
 
   The report MUST start with \`VERDICT: PASS|PARTIAL|FAIL\` on the first

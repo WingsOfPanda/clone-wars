@@ -44,8 +44,12 @@ echo "$OUT" | grep -qiE 'resume|already exists|skip' \
   || { echo "FAIL: round1 missing resume preamble" >&2; exit 1; }
 pass "round1 includes resume preamble"
 
-echo "$OUT" | grep -q 'VERDICT' \
-  || { echo "FAIL: round1 missing VERDICT contract" >&2; exit 1; }
+echo "$OUT" | grep -qF 'VERDICT: PASS|PARTIAL|FAIL' \
+  || { echo "FAIL: round1 missing literal VERDICT: PASS|PARTIAL|FAIL contract" >&2; exit 1; }
 pass "round1 mentions VERDICT contract"
+
+echo "$OUT" | grep -q '/abs/test-output-1.log' \
+  || { echo "FAIL: round1 must derive absolute test-output path from verify_out dir (expected /abs/test-output-1.log)" >&2; exit 1; }
+pass "round1 references absolute test-output-1.log path (derived from verify_out)"
 
 echo "ALL: ok"
