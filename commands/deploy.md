@@ -1,16 +1,17 @@
 ---
-description: Audit a design doc, dispatch it to a Codex trooper for plan/implement/self-verify, then cross-verify and fix-loop until PASS or 5 rounds.
+description: Audit a design doc, dispatch it to an auto-detected trooper (codex by default; claude on plugin repos with confirmation) for plan/implement/self-verify, then cross-verify and fix-loop until PASS or 5 rounds.
 argument-hint: [<design-path>] [--no-branch] [--branch <name>] [--topic <slug>] [--max-rounds 5]
 ---
 
 # /clone-wars:deploy
 
-Run a Codex-implements / Yoda-verifies pipeline on `$ARGUMENTS`. Master Yoda
+Run a trooper-implements / Yoda-verifies pipeline on `$ARGUMENTS`. Master Yoda
 audits the design doc; spawns one persistent cody trooper (`cody-<provider>-<topic>`,
-where `<provider>` is auto-detected: `claude` for plugin repos, else `codex`);
-delegates plan + implementation + self-verification to the trooper using
-superpowers skills; and cross-verifies after every codex self-verify pass,
-sending fix bundles back until PASS or 5 rounds (then `AskUserQuestion`).
+where `<provider>` is auto-detected — `claude` for plugin repos with user
+confirmation, else `codex`); delegates plan + implementation + self-verification
+to the trooper using superpowers skills; and cross-verifies after every trooper
+self-verify pass, sending fix bundles back until PASS or 5 rounds (then
+`AskUserQuestion`).
 
 The cody pane stays attached for the entire run — `tmux select-pane` to watch.
 
