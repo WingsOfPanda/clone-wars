@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# bin/execute-design-plan-wait.sh — Phase 1 plan wait.
+# bin/deploy-plan-wait.sh — Phase 1 plan wait.
 #
-# Usage: bin/execute-design-plan-wait.sh <topic>
+# Usage: bin/deploy-plan-wait.sh <topic>
 #
-# Reads OFFSET= from _execute/plan-cody.txt; appends PS=<status>.
+# Reads OFFSET= from _deploy/plan-cody.txt; appends PS=<status>.
 # Returns rc=0 always — status field carries the outcome.
 
 set -uo pipefail
@@ -11,20 +11,20 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && p
 source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/ipc.sh"
-source "$PLUGIN_ROOT/lib/execute_design.sh"
+source "$PLUGIN_ROOT/lib/deploy.sh"
 
 [[ $# -eq 1 ]] || { echo "Usage: $0 <topic>" >&2; exit 2; }
 TOPIC="$1"
-cw_execute_design_assert_topic "$TOPIC"
+cw_deploy_assert_topic "$TOPIC"
 
-ART_DIR="$(cw_execute_design_art_dir "$TOPIC")"
+ART_DIR="$(cw_deploy_art_dir "$TOPIC")"
 STATE_FILE="$ART_DIR/plan-cody.txt"
-[[ -f "$STATE_FILE" ]] || { log_error "$STATE_FILE missing — run execute-design-plan-send first"; exit 1; }
+[[ -f "$STATE_FILE" ]] || { log_error "$STATE_FILE missing — run deploy-plan-send first"; exit 1; }
 # shellcheck disable=SC1090
 source "$STATE_FILE"
 [[ -n "${OFFSET:-}" ]] || { log_error "OFFSET not set in $STATE_FILE"; exit 1; }
 
-TIMEOUT="${CW_EXECUTE_PLAN_TIMEOUT:-600}"
+TIMEOUT="${CW_DEPLOY_PLAN_TIMEOUT:-600}"
 log_info "[plan-wait] cody offset=$OFFSET timeout=${TIMEOUT}s"
 
 cw_outbox_wait_since cody codex "$TOPIC" "$OFFSET" done error "$TIMEOUT" >/dev/null || true

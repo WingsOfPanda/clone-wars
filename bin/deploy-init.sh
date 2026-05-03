@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# bin/execute-design-init.sh — derive topic slug, create _execute/, copy
-# design doc, create feat/exec-<topic> branch (unless --no-branch).
+# bin/deploy-init.sh — derive topic slug, create _deploy/, copy
+# design doc, create feat/deploy-<topic> branch (unless --no-branch).
 # Prints the topic slug on stdout.
 #
 # Usage:
-#   bin/execute-design-init.sh [--no-branch] [--branch <name>] [--topic <slug>] <design-path>
+#   bin/deploy-init.sh [--no-branch] [--branch <name>] [--topic <slug>] <design-path>
 
 set -uo pipefail
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -12,7 +12,7 @@ source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/argsfile.sh"
 source "$PLUGIN_ROOT/lib/consult.sh"     # cw_consult_outbox_match_endbyte (later)
-source "$PLUGIN_ROOT/lib/execute_design.sh"
+source "$PLUGIN_ROOT/lib/deploy.sh"
 
 # --args-file passthrough (mirrors bin/spawn.sh / bin/send.sh).
 if [[ "${1:-}" == "--args-file" ]]; then
@@ -46,14 +46,14 @@ DESIGN_PATH="$1"
 if [[ -n "$TOPIC_OVERRIDE" ]]; then
   TOPIC="$TOPIC_OVERRIDE"
 else
-  TOPIC=$(cw_execute_design_derive_topic "$DESIGN_PATH")
+  TOPIC=$(cw_deploy_derive_topic "$DESIGN_PATH")
   [[ -n "$TOPIC" ]] || { log_error "could not derive topic from filename; pass --topic <slug>"; exit 1; }
 fi
-cw_execute_design_assert_topic "$TOPIC"
+cw_deploy_assert_topic "$TOPIC"
 
-TOPIC_DIR="$(cw_execute_design_topic_dir "$TOPIC")"
-ART_DIR="$(cw_execute_design_art_dir "$TOPIC")"
-[[ ! -d "$ART_DIR" ]] || { log_error "topic _execute dir already exists: $ART_DIR (pick a different --topic or run teardown)"; exit 1; }
+TOPIC_DIR="$(cw_deploy_topic_dir "$TOPIC")"
+ART_DIR="$(cw_deploy_art_dir "$TOPIC")"
+[[ ! -d "$ART_DIR" ]] || { log_error "topic _deploy dir already exists: $ART_DIR (pick a different --topic or run teardown)"; exit 1; }
 
 mkdir -p "$ART_DIR" \
   || { log_error "mkdir failed: $ART_DIR"; exit 1; }
@@ -64,16 +64,16 @@ printf '%s' "$TOPIC" > "$ART_DIR/topic.txt" \
 
 # Branch
 if (( NO_BRANCH == 0 )); then
-  if branch=$(cw_execute_design_branch_create "$TOPIC" "$BRANCH_OVERRIDE"); then
+  if branch=$(cw_deploy_branch_create "$TOPIC" "$BRANCH_OVERRIDE"); then
     log_info "branch: $branch"
   else
-    # Auto-rollback: branch failed, remove the _execute dir we just made.
+    # Auto-rollback: branch failed, remove the _deploy dir we just made.
     # Paranoia check: $ART_DIR must be under $CLONE_WARS_HOME/state.
     case "$ART_DIR" in
       "$(cw_state_root)/state/"*) rm -rf "$ART_DIR" ;;
       *) log_warn "auto-rollback skipped: $ART_DIR not under state root" ;;
     esac
-    log_error "branch creation failed; _execute/ rolled back. Stash/commit your changes (or pass --no-branch) and retry."
+    log_error "branch creation failed; _deploy/ rolled back. Stash/commit your changes (or pass --no-branch) and retry."
     exit 1
   fi
 fi

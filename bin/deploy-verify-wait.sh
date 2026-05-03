@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
-# bin/execute-design-verify-wait.sh — Phase 3 self-verify wait.
-# Usage: bin/execute-design-verify-wait.sh <topic> <round>
+# bin/deploy-verify-wait.sh — Phase 3 self-verify wait.
+# Usage: bin/deploy-verify-wait.sh <topic> <round>
 
 set -uo pipefail
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/ipc.sh"
-source "$PLUGIN_ROOT/lib/execute_design.sh"
+source "$PLUGIN_ROOT/lib/deploy.sh"
 
 [[ $# -eq 2 ]] || { echo "Usage: $0 <topic> <round>" >&2; exit 2; }
 TOPIC="$1"; ROUND="$2"
-cw_execute_design_assert_topic "$TOPIC"
+cw_deploy_assert_topic "$TOPIC"
 [[ "$ROUND" =~ ^[1-9][0-9]*$ ]] || { log_error "round must be a positive integer; got '$ROUND'"; exit 2; }
 
-ART_DIR="$(cw_execute_design_art_dir "$TOPIC")"
+ART_DIR="$(cw_deploy_art_dir "$TOPIC")"
 STATE_FILE="$ART_DIR/verify-cody-$ROUND.txt"
 [[ -f "$STATE_FILE" ]] || { log_error "$STATE_FILE missing — run verify-send first"; exit 1; }
 # shellcheck disable=SC1090
 source "$STATE_FILE"
 [[ -n "${OFFSET:-}" ]] || { log_error "OFFSET not set in $STATE_FILE"; exit 1; }
 
-TIMEOUT="${CW_EXECUTE_VERIFY_TIMEOUT:-1200}"
+TIMEOUT="${CW_DEPLOY_VERIFY_TIMEOUT:-1200}"
 log_info "[verify-wait] cody round=$ROUND offset=$OFFSET timeout=${TIMEOUT}s"
 
 cw_outbox_wait_since cody codex "$TOPIC" "$OFFSET" done error "$TIMEOUT" >/dev/null || true

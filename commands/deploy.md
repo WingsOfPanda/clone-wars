@@ -3,7 +3,7 @@ description: Audit a design doc, dispatch it to a Codex trooper for plan/impleme
 argument-hint: [<design-path>] [--no-branch] [--branch <name>] [--topic <slug>] [--max-rounds 5]
 ---
 
-# /clone-wars:execute-design
+# /clone-wars:deploy
 
 Run a Codex-implements / Yoda-verifies pipeline on `$ARGUMENTS`. Master Yoda
 audits the design doc; spawns one persistent Codex trooper (`cody-codex-<topic>`);
@@ -23,7 +23,7 @@ Candidates considered, in order of preference:
 
 1. `state/<repo-hash>/<topic>/_consult/design-doc/<YYYY-MM-DD>-<slug>-design.md`
    (produced by `/clone-wars:consult --design-doc` — full audit-passable spec
-   that maps directly to execute-design's audit gates)
+   that maps directly to deploy's audit gates)
 2. `state/<repo-hash>/<topic>/_consult/synthesis.md`
    (produced by every consult run — looser shape; may not pass the audit
    without manual editing)
@@ -56,7 +56,7 @@ Set task `0` → `in_progress`.
 1. Resolve args path:
    ```
    ARGS_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args"
-   mkdir -p "$ARGS_DIR"; echo "$ARGS_DIR/execute-design.txt"
+   mkdir -p "$ARGS_DIR"; echo "$ARGS_DIR/deploy.txt"
    ```
 2. Parse `--max-rounds <N>` out of `$ARGUMENTS` BEFORE writing the args file.
    The init script rejects unknown flags, so this flag must never reach it.
@@ -99,12 +99,12 @@ Set task `0` → `in_progress`.
    ```
    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
    REPO_HASH=$(cw_repo_hash)
-   TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/execute-design-init.sh" \
-              --args-file "$ARGS_DIR/execute-design.txt")
+   TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/deploy-init.sh" \
+              --args-file "$ARGS_DIR/deploy.txt")
    TOPIC_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$TOPIC"
-   ART_DIR="$TOPIC_DIR/_execute"
+   ART_DIR="$TOPIC_DIR/_deploy"
    # Record branch base for cross-verify diff range (used in Step 2.2 + Step 4).
-   # init.sh creates feat/exec-<topic> from HEAD, so HEAD right now IS the
+   # init.sh creates feat/deploy-<topic> from HEAD, so HEAD right now IS the
    # commit the new branch was created from — exactly the diff base we want.
    # Do NOT use `git merge-base HEAD main` here: when invoked from a topic
    # branch that already diverged from main, merge-base returns the prior
@@ -114,20 +114,20 @@ Set task `0` → `in_progress`.
    ```
 6. Run audit and persist verdict:
    ```
-   source "$CLAUDE_PLUGIN_ROOT/lib/execute_design.sh"
-   AUDIT=$(cw_execute_design_audit_doc "$ART_DIR/design.md" 2>&1) && AUDIT_RC=0 || AUDIT_RC=$?
+   source "$CLAUDE_PLUGIN_ROOT/lib/deploy.sh"
+   AUDIT=$(cw_deploy_audit_doc "$ART_DIR/design.md" 2>&1) && AUDIT_RC=0 || AUDIT_RC=$?
    printf '%s\n' "$AUDIT" > "$ART_DIR/design-audit.md"
    ```
 7. Branch on `AUDIT_RC` — distinguish unreadable doc from FAIL verdict:
    ```
    if (( AUDIT_RC == 2 )); then
      log_error "design-doc unreadable; aborting."
-     "$CLAUDE_PLUGIN_ROOT/bin/execute-design-archive.sh" "$TOPIC"
+     "$CLAUDE_PLUGIN_ROOT/bin/deploy-archive.sh" "$TOPIC"
      exit 1
    elif (( AUDIT_RC == 1 )); then
      # Audit FAIL — read the design doc yourself, weigh the flagged issues, then:
      # AskUserQuestion (options: "Proceed anyway", "Abort and edit doc").
-     # Abort → bin/execute-design-archive.sh "$TOPIC" + exit 1
+     # Abort → bin/deploy-archive.sh "$TOPIC" + exit 1
      # Proceed → continue.
      :
    fi
@@ -141,14 +141,14 @@ Set task `1.1` → `in_progress`.
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" cody codex "$TOPIC"
 ```
-Set task `1.1` → `completed`. If spawn fails, archive `_execute/` and exit.
+Set task `1.1` → `completed`. If spawn fails, archive `_deploy/` and exit.
 
 ### Step 1.2 — Plan
 
 Set task `1.2` → `in_progress`.
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/execute-design-plan-send.sh" "$TOPIC"
-"$CLAUDE_PLUGIN_ROOT/bin/execute-design-plan-wait.sh" "$TOPIC"
+"$CLAUDE_PLUGIN_ROOT/bin/deploy-plan-send.sh" "$TOPIC"
+"$CLAUDE_PLUGIN_ROOT/bin/deploy-plan-wait.sh" "$TOPIC"
 ```
 Read the last `PS=` line from `$ART_DIR/plan-cody.txt`:
 - `PS=ok` → set task `1.2` → `completed`.
@@ -156,8 +156,8 @@ Read the last `PS=` line from `$ART_DIR/plan-cody.txt`:
   - Retry recipe (clear sentinel + state file, then re-run send + wait):
     ```
     rm -f "$ART_DIR/plan-cody.txt" "$ART_DIR/plan-cody.done"
-    "$CLAUDE_PLUGIN_ROOT/bin/execute-design-plan-send.sh" "$TOPIC"
-    "$CLAUDE_PLUGIN_ROOT/bin/execute-design-plan-wait.sh" "$TOPIC"
+    "$CLAUDE_PLUGIN_ROOT/bin/deploy-plan-send.sh" "$TOPIC"
+    "$CLAUDE_PLUGIN_ROOT/bin/deploy-plan-wait.sh" "$TOPIC"
     ```
   - Abort: teardown + archive + exit.
 
@@ -173,8 +173,8 @@ Set task `1.3` → `in_progress`.
 **Skill (cody-side):** the implement prompt binds cody to
 `superpowers:subagent-driven-development` to walk plan.md task-by-task.
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/execute-design-implement-send.sh" "$TOPIC"
-"$CLAUDE_PLUGIN_ROOT/bin/execute-design-implement-wait.sh" "$TOPIC"
+"$CLAUDE_PLUGIN_ROOT/bin/deploy-implement-send.sh" "$TOPIC"
+"$CLAUDE_PLUGIN_ROOT/bin/deploy-implement-wait.sh" "$TOPIC"
 ```
 Read `IS=` from `implement-cody.txt`:
 - `IS=ok` → set task `1.3` → `completed`.
@@ -183,8 +183,8 @@ Read `IS=` from `implement-cody.txt`:
   - Retry recipe:
     ```
     rm -f "$ART_DIR/implement-cody.txt" "$ART_DIR/implement-cody.done"
-    "$CLAUDE_PLUGIN_ROOT/bin/execute-design-implement-send.sh" "$TOPIC"
-    "$CLAUDE_PLUGIN_ROOT/bin/execute-design-implement-wait.sh" "$TOPIC"
+    "$CLAUDE_PLUGIN_ROOT/bin/deploy-implement-send.sh" "$TOPIC"
+    "$CLAUDE_PLUGIN_ROOT/bin/deploy-implement-wait.sh" "$TOPIC"
     ```
 
 Note: codex's question protocol is NOT wired in v0.6. If codex emits a question
@@ -212,16 +212,16 @@ Loop while `ROUND <= MAX_ROUNDS + 1`:
 Set task `2.1` → `in_progress` (use the same task across rounds; only the
 activeForm reflects round number).
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/execute-design-verify-send.sh" "$TOPIC" "$ROUND"
-"$CLAUDE_PLUGIN_ROOT/bin/execute-design-verify-wait.sh" "$TOPIC" "$ROUND"
+"$CLAUDE_PLUGIN_ROOT/bin/deploy-verify-send.sh" "$TOPIC" "$ROUND"
+"$CLAUDE_PLUGIN_ROOT/bin/deploy-verify-wait.sh" "$TOPIC" "$ROUND"
 ```
 Read `VS=` from `verify-cody-$ROUND.txt`. On non-`ok` status, AskUserQuestion
 (Retry / Hand-off / Abort).
 - Retry recipe (round N):
   ```
   rm -f "$ART_DIR/verify-cody-$ROUND.txt" "$ART_DIR/verify-cody-$ROUND.done"
-  "$CLAUDE_PLUGIN_ROOT/bin/execute-design-verify-send.sh" "$TOPIC" "$ROUND"
-  "$CLAUDE_PLUGIN_ROOT/bin/execute-design-verify-wait.sh" "$TOPIC" "$ROUND"
+  "$CLAUDE_PLUGIN_ROOT/bin/deploy-verify-send.sh" "$TOPIC" "$ROUND"
+  "$CLAUDE_PLUGIN_ROOT/bin/deploy-verify-wait.sh" "$TOPIC" "$ROUND"
   ```
 
 Note: codex's question protocol is NOT wired in v0.6. If codex emits a question
@@ -303,8 +303,8 @@ source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
 source "$CLAUDE_PLUGIN_ROOT/lib/ipc.sh"
 OUTBOX="$(cw_trooper_dir cody codex "$TOPIC")/outbox.jsonl"
 # Inter-bundle wait timeout (debug→gap and gap→next-round). Default 1200s
-# matches verify-wait; export CW_EXECUTE_FIX_TIMEOUT to override.
-FIX_WAIT_TIMEOUT="${CW_EXECUTE_FIX_TIMEOUT:-1200}"
+# matches verify-wait; export CW_DEPLOY_FIX_TIMEOUT to override.
+FIX_WAIT_TIMEOUT="${CW_DEPLOY_FIX_TIMEOUT:-1200}"
 ```
 
 Dispatch debug bundle (if any):
@@ -312,7 +312,7 @@ Dispatch debug bundle (if any):
 # Capture pre-send byte offset so the wait matches THIS dispatch's done event,
 # not a stale prior event.
 OFFSET=$( [[ -f "$OUTBOX" ]] && wc -c < "$OUTBOX" || echo 0 )
-"$CLAUDE_PLUGIN_ROOT/bin/execute-design-fix-send.sh" "$TOPIC" "$ROUND" debug
+"$CLAUDE_PLUGIN_ROOT/bin/deploy-fix-send.sh" "$TOPIC" "$ROUND" debug
 
 # Wait for codex to finish the debug bundle before sending gap.
 cw_outbox_wait_since cody codex "$TOPIC" "$OFFSET" done error "$FIX_WAIT_TIMEOUT" || true
@@ -326,7 +326,7 @@ Dispatch gap bundle (if any):
 # Capture pre-send byte offset BEFORE the gap-send fires, so the wait
 # matches THIS dispatch's done event (mirrors the debug-bundle pattern).
 GAP_OFFSET=$( [[ -f "$OUTBOX" ]] && wc -c < "$OUTBOX" || echo 0 )
-"$CLAUDE_PLUGIN_ROOT/bin/execute-design-fix-send.sh" "$TOPIC" "$ROUND" gap
+"$CLAUDE_PLUGIN_ROOT/bin/deploy-fix-send.sh" "$TOPIC" "$ROUND" gap
 
 # Wait for codex to finish the gap bundle before incrementing ROUND.
 # Without this wait, the next verify-send (Step 2.1) races with codex's
@@ -343,8 +343,8 @@ the new round).
 
 Set task `4` → `in_progress`.
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/execute-design-teardown.sh" "$TOPIC"
-"$CLAUDE_PLUGIN_ROOT/bin/execute-design-archive.sh" "$TOPIC"
+"$CLAUDE_PLUGIN_ROOT/bin/deploy-teardown.sh" "$TOPIC"
+"$CLAUDE_PLUGIN_ROOT/bin/deploy-archive.sh" "$TOPIC"
 ```
 
 Print final summary to the user:
@@ -359,8 +359,8 @@ Set task `4` → `completed`.
 ### Abandoned run cleanup
 If a previous run wedged (panes alive, state intact), tear down explicitly:
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/execute-design-teardown.sh" <topic>
-"$CLAUDE_PLUGIN_ROOT/bin/execute-design-archive.sh" <topic>
+"$CLAUDE_PLUGIN_ROOT/bin/deploy-teardown.sh" <topic>
+"$CLAUDE_PLUGIN_ROOT/bin/deploy-archive.sh" <topic>
 ```
 
 ### Manual takeover (after hand-off)
@@ -371,9 +371,9 @@ tmux select-pane -t <pane_id>   # printed by spawn.sh
 Use the cody session directly. RESUME.md in `$ART_DIR/` documents context.
 
 ### Auto-created branch survives audit-FAIL and spawn-FAIL
-If the audit or spawn fails, the directive aborts and archives `_execute/`
-but the auto-created `feat/exec-<topic>` branch is left in place. Clean up
+If the audit or spawn fails, the directive aborts and archives `_deploy/`
+but the auto-created `feat/deploy-<topic>` branch is left in place. Clean up
 manually if undesired:
 ```
-git checkout - && git branch -D feat/exec-<topic>
+git checkout - && git branch -D feat/deploy-<topic>
 ```

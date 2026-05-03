@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/test_execute_design_init.sh
+# tests/test_deploy_init.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 source lib/assert.sh
@@ -7,7 +7,7 @@ source lib/assert.sh
 # Resolve repo paths once so subshells/`bash -c` quoting can't lose them.
 TESTS_DIR="$PWD"
 REPO_ROOT="$(cd .. && pwd)"
-BIN="$REPO_ROOT/bin/execute-design-init.sh"
+BIN="$REPO_ROOT/bin/deploy-init.sh"
 LIB_STATE="$REPO_ROOT/lib/state.sh"
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
@@ -36,21 +36,21 @@ Unit tests.
 MD
 ( cd "$REPO" && git add . && git commit --quiet -m "spec: foo-bar" )
 
-# 1. Happy path — derives slug, creates _execute/, copies design.md, creates branch.
+# 1. Happy path — derives slug, creates _deploy/, copies design.md, creates branch.
 ( cd "$REPO" && bash "$BIN" "$DDOC" ) > "$TMP/topic.txt" 2>"$TMP/err.log"
 TOPIC=$(cat "$TMP/topic.txt" | tr -d '\r\n')
 assert_eq "$TOPIC" "foo-bar" "init prints derived slug"
 RH=$(bash -c "cd $REPO && source $LIB_STATE && cw_repo_hash")
-ART="$CLONE_WARS_HOME/state/$RH/foo-bar/_execute"
-assert_file_exists "$ART/design.md" "design.md copied into _execute/"
+ART="$CLONE_WARS_HOME/state/$RH/foo-bar/_deploy"
+assert_file_exists "$ART/design.md" "design.md copied into _deploy/"
 assert_file_exists "$ART/topic.txt" "topic.txt written"
 got=$(cat "$ART/topic.txt"); assert_eq "$got" "foo-bar" "topic.txt content"
 got=$( cd "$REPO" && git rev-parse --abbrev-ref HEAD )
-assert_eq "$got" "feat/exec-foo-bar" "branch created"
+assert_eq "$got" "feat/deploy-foo-bar" "branch created"
 pass "init happy path"
 
 # 2. --no-branch skips branch creation.
-( cd "$REPO" && git checkout --quiet main && git branch -D feat/exec-foo-bar >/dev/null )
+( cd "$REPO" && git checkout --quiet main && git branch -D feat/deploy-foo-bar >/dev/null )
 rm -rf "$ART"
 ( cd "$REPO" && bash "$BIN" --no-branch "$DDOC" ) >/dev/null
 got=$( cd "$REPO" && git rev-parse --abbrev-ref HEAD )
@@ -68,7 +68,7 @@ rm -rf "$CLONE_WARS_HOME/state/$RH/explicit-slug"
 ( cd "$REPO" && bash "$BIN" --no-branch --topic explicit-slug "$DDOC" ) > "$TMP/topic2.txt"
 TOPIC2=$(cat "$TMP/topic2.txt" | tr -d '\r\n')
 assert_eq "$TOPIC2" "explicit-slug" "--topic overrides"
-assert_file_exists "$CLONE_WARS_HOME/state/$RH/explicit-slug/_execute/design.md" "explicit slug got dir"
+assert_file_exists "$CLONE_WARS_HOME/state/$RH/explicit-slug/_deploy/design.md" "explicit slug got dir"
 pass "init --topic override"
 
 # 5. Refuses if topic dir already exists (no implicit overwrite).
@@ -91,12 +91,12 @@ echo "$out" | grep -q '\-\-topic requires a value' \
   || { echo "FAIL: --topic error msg missing: $out" >&2; exit 1; }
 pass "--topic requires a value"
 
-# 8. Branch-creation failure auto-rollbacks _execute/.
-# Stage a dirty tree to make branch_create refuse, then confirm _execute/ is gone after exit.
+# 8. Branch-creation failure auto-rollbacks _deploy/.
+# Stage a dirty tree to make branch_create refuse, then confirm _deploy/ is gone after exit.
 ( cd "$REPO" && git checkout --quiet main && echo dirt > scratch.txt )   # dirty tree
 ( cd "$REPO" && bash "$BIN" --topic rollback-test "$DDOC" 2>"$TMP/rb.err" ) && rc=0 || rc=$?
 [[ "$rc" -ne 0 ]] || { echo "FAIL: dirty-tree should refuse" >&2; exit 1; }
-[[ ! -d "$CLONE_WARS_HOME/state/$RH/rollback-test/_execute" ]] \
-  || { echo "FAIL: _execute/ not rolled back after branch failure" >&2; exit 1; }
-pass "branch failure auto-rollbacks _execute/"
+[[ ! -d "$CLONE_WARS_HOME/state/$RH/rollback-test/_deploy" ]] \
+  || { echo "FAIL: _deploy/ not rolled back after branch failure" >&2; exit 1; }
+pass "branch failure auto-rollbacks _deploy/"
 ( cd "$REPO" && rm -f scratch.txt )   # clean up the dirty marker

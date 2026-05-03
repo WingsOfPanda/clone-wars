@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# bin/execute-design-implement-send.sh — Phase 2 implement dispatch.
-# Usage: bin/execute-design-implement-send.sh <topic>
+# bin/deploy-implement-send.sh — Phase 2 implement dispatch.
+# Usage: bin/deploy-implement-send.sh <topic>
 
 set -uo pipefail
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -8,13 +8,13 @@ source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/ipc.sh"
 source "$PLUGIN_ROOT/lib/consult.sh"
-source "$PLUGIN_ROOT/lib/execute_design.sh"
+source "$PLUGIN_ROOT/lib/deploy.sh"
 
 [[ $# -eq 1 ]] || { echo "Usage: $0 <topic>" >&2; exit 2; }
 TOPIC="$1"
-cw_execute_design_assert_topic "$TOPIC"
+cw_deploy_assert_topic "$TOPIC"
 
-ART_DIR="$(cw_execute_design_art_dir "$TOPIC")"
+ART_DIR="$(cw_deploy_art_dir "$TOPIC")"
 [[ -d "$ART_DIR" ]] || { log_error "$ART_DIR not found — run init first"; exit 1; }
 
 PLAN="$ART_DIR/plan.md"
@@ -28,7 +28,7 @@ OUTBOX="$TROOPER_DIR/outbox.jsonl"
 [[ -f "$OUTBOX" ]] || { log_error "outbox not found at $OUTBOX"; exit 1; }
 
 PROMPT_FILE="$ART_DIR/cody_implement_prompt.md"
-cw_execute_design_build_implement_prompt "$PLAN" > "$PROMPT_FILE"
+cw_deploy_build_implement_prompt "$PLAN" > "$PROMPT_FILE"
 
 OFFSET=$(wc -c < "$OUTBOX" | tr -d ' ')
 printf 'OFFSET=%s\n' "$OFFSET" > "$STATE_FILE"

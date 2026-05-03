@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# tests/test_execute_design_wait_scripts.sh
-# Parameterized integration test for the three execute-design wait scripts:
-#   bin/execute-design-plan-wait.sh
-#   bin/execute-design-implement-wait.sh
-#   bin/execute-design-verify-wait.sh
+# tests/test_deploy_wait_scripts.sh
+# Parameterized integration test for the three deploy wait scripts:
+#   bin/deploy-plan-wait.sh
+#   bin/deploy-implement-wait.sh
+#   bin/deploy-verify-wait.sh
 #
 # Each wait script reads OFFSET= from a per-phase state file, blocks via
 # cw_outbox_wait_since, then writes a status field (PS=/IS=/VS=) based on the
@@ -24,7 +24,7 @@ BIN="$REPO_ROOT/bin"
 RH=$(bash -c "source $REPO_ROOT/lib/state.sh; cw_repo_hash")
 TOPIC=wait-fixture
 TD="$CLONE_WARS_HOME/state/$RH/$TOPIC"
-mkdir -p "$TD/_execute" "$TD/cody-codex"
+mkdir -p "$TD/_deploy" "$TD/cody-codex"
 
 # ---- run_wait_case <name> <wait-script> <state-file> <status-prefix>
 #                   <pre-outbox-bytes> [<artifact-path>]
@@ -61,7 +61,7 @@ run_wait_case() {
 
 # Reset between cases (state files + outbox + artifacts).
 reset_state() {
-  rm -f "$TD/_execute"/*.txt "$TD/_execute"/*.done "$TD/_execute"/*.md "$TD/_execute"/*.log
+  rm -f "$TD/_deploy"/*.txt "$TD/_deploy"/*.done "$TD/_deploy"/*.md "$TD/_deploy"/*.log
   rm -f "$TD/cody-codex/outbox.jsonl"
   touch "$TD/cody-codex/outbox.jsonl"
 }
@@ -69,7 +69,7 @@ reset_state() {
 # 1. plan-wait — needs plan.md non-empty for PS=ok.
 reset_state
 PLAN_SCRIPT_ARGS=("$TOPIC")
-CW_EXECUTE_PLAN_TIMEOUT=5 bash "$BIN/execute-design-plan-wait.sh" "${PLAN_SCRIPT_ARGS[@]}" >/dev/null 2>&1 \
+CW_DEPLOY_PLAN_TIMEOUT=5 bash "$BIN/deploy-plan-wait.sh" "${PLAN_SCRIPT_ARGS[@]}" >/dev/null 2>&1 \
   && { echo "FAIL: plan-wait should refuse without state file" >&2; exit 1; } || true
 pass "plan-wait refuses missing state file"
 
@@ -77,12 +77,12 @@ pass "plan-wait refuses missing state file"
 PRE=10
 head -c "$PRE" /dev/zero > "$TD/cody-codex/outbox.jsonl"
 printf '{"event":"done"}\n' >> "$TD/cody-codex/outbox.jsonl"
-echo "OFFSET=$PRE" > "$TD/_execute/plan-cody.txt"
-echo "plan body" > "$TD/_execute/plan.md"
-CW_EXECUTE_PLAN_TIMEOUT=5 bash "$BIN/execute-design-plan-wait.sh" "$TOPIC" >/dev/null 2>&1
-grep -q '^PS=ok$' "$TD/_execute/plan-cody.txt" \
+echo "OFFSET=$PRE" > "$TD/_deploy/plan-cody.txt"
+echo "plan body" > "$TD/_deploy/plan.md"
+CW_DEPLOY_PLAN_TIMEOUT=5 bash "$BIN/deploy-plan-wait.sh" "$TOPIC" >/dev/null 2>&1
+grep -q '^PS=ok$' "$TD/_deploy/plan-cody.txt" \
   || { echo "FAIL: plan-wait missing PS=ok"; exit 1; }
-[[ -f "$TD/_execute/plan-cody.done" ]] \
+[[ -f "$TD/_deploy/plan-cody.done" ]] \
   || { echo "FAIL: plan-wait sentinel missing"; exit 1; }
 pass "plan-wait → PS=ok + sentinel"
 
@@ -91,10 +91,10 @@ reset_state
 PRE=5
 head -c "$PRE" /dev/zero > "$TD/cody-codex/outbox.jsonl"
 printf '{"event":"done"}\n' >> "$TD/cody-codex/outbox.jsonl"
-echo "OFFSET=$PRE" > "$TD/_execute/plan-cody.txt"
+echo "OFFSET=$PRE" > "$TD/_deploy/plan-cody.txt"
 # NO plan.md
-CW_EXECUTE_PLAN_TIMEOUT=5 bash "$BIN/execute-design-plan-wait.sh" "$TOPIC" >/dev/null 2>&1
-grep -q '^PS=failed$' "$TD/_execute/plan-cody.txt" \
+CW_DEPLOY_PLAN_TIMEOUT=5 bash "$BIN/deploy-plan-wait.sh" "$TOPIC" >/dev/null 2>&1
+grep -q '^PS=failed$' "$TD/_deploy/plan-cody.txt" \
   || { echo "FAIL: plan-wait should report PS=failed when plan.md missing"; exit 1; }
 pass "plan-wait → PS=failed when plan.md missing (artifact gate)"
 
@@ -103,11 +103,11 @@ reset_state
 PRE=20
 head -c "$PRE" /dev/zero > "$TD/cody-codex/outbox.jsonl"
 printf '{"event":"done"}\n' >> "$TD/cody-codex/outbox.jsonl"
-echo "OFFSET=$PRE" > "$TD/_execute/implement-cody.txt"
-CW_EXECUTE_IMPLEMENT_TIMEOUT=5 bash "$BIN/execute-design-implement-wait.sh" "$TOPIC" >/dev/null 2>&1
-grep -q '^IS=ok$' "$TD/_execute/implement-cody.txt" \
+echo "OFFSET=$PRE" > "$TD/_deploy/implement-cody.txt"
+CW_DEPLOY_IMPLEMENT_TIMEOUT=5 bash "$BIN/deploy-implement-wait.sh" "$TOPIC" >/dev/null 2>&1
+grep -q '^IS=ok$' "$TD/_deploy/implement-cody.txt" \
   || { echo "FAIL: implement-wait missing IS=ok"; exit 1; }
-[[ -f "$TD/_execute/implement-cody.done" ]] \
+[[ -f "$TD/_deploy/implement-cody.done" ]] \
   || { echo "FAIL: implement-wait sentinel missing"; exit 1; }
 pass "implement-wait → IS=ok + sentinel"
 
@@ -116,12 +116,12 @@ reset_state
 PRE=15
 head -c "$PRE" /dev/zero > "$TD/cody-codex/outbox.jsonl"
 printf '{"event":"done"}\n' >> "$TD/cody-codex/outbox.jsonl"
-echo "OFFSET=$PRE" > "$TD/_execute/verify-cody-1.txt"
-echo "VERDICT=PASS" > "$TD/_execute/verify-report-1.md"
-CW_EXECUTE_VERIFY_TIMEOUT=5 bash "$BIN/execute-design-verify-wait.sh" "$TOPIC" 1 >/dev/null 2>&1
-grep -q '^VS=ok$' "$TD/_execute/verify-cody-1.txt" \
+echo "OFFSET=$PRE" > "$TD/_deploy/verify-cody-1.txt"
+echo "VERDICT=PASS" > "$TD/_deploy/verify-report-1.md"
+CW_DEPLOY_VERIFY_TIMEOUT=5 bash "$BIN/deploy-verify-wait.sh" "$TOPIC" 1 >/dev/null 2>&1
+grep -q '^VS=ok$' "$TD/_deploy/verify-cody-1.txt" \
   || { echo "FAIL: verify-wait missing VS=ok"; exit 1; }
-[[ -f "$TD/_execute/verify-cody-1.done" ]] \
+[[ -f "$TD/_deploy/verify-cody-1.done" ]] \
   || { echo "FAIL: verify-wait round-1 sentinel missing"; exit 1; }
 pass "verify-wait round=1 → VS=ok + sentinel"
 
@@ -130,12 +130,12 @@ reset_state
 PRE=8
 head -c "$PRE" /dev/zero > "$TD/cody-codex/outbox.jsonl"
 printf '{"event":"done"}\n' >> "$TD/cody-codex/outbox.jsonl"
-echo "OFFSET=$PRE" > "$TD/_execute/verify-cody-2.txt"
-echo "VERDICT=PASS" > "$TD/_execute/verify-report-2.md"
-CW_EXECUTE_VERIFY_TIMEOUT=5 bash "$BIN/execute-design-verify-wait.sh" "$TOPIC" 2 >/dev/null 2>&1
-grep -q '^VS=ok$' "$TD/_execute/verify-cody-2.txt" \
+echo "OFFSET=$PRE" > "$TD/_deploy/verify-cody-2.txt"
+echo "VERDICT=PASS" > "$TD/_deploy/verify-report-2.md"
+CW_DEPLOY_VERIFY_TIMEOUT=5 bash "$BIN/deploy-verify-wait.sh" "$TOPIC" 2 >/dev/null 2>&1
+grep -q '^VS=ok$' "$TD/_deploy/verify-cody-2.txt" \
   || { echo "FAIL: verify-wait round=2 missing VS=ok"; exit 1; }
-[[ -f "$TD/_execute/verify-cody-2.done" ]] \
+[[ -f "$TD/_deploy/verify-cody-2.done" ]] \
   || { echo "FAIL: verify-wait round-2 sentinel missing"; exit 1; }
 pass "verify-wait round=2 → VS=ok + sentinel (per-round isolation)"
 
@@ -144,15 +144,15 @@ reset_state
 PRE=5
 head -c "$PRE" /dev/zero > "$TD/cody-codex/outbox.jsonl"
 printf '{"event":"error"}\n' >> "$TD/cody-codex/outbox.jsonl"
-echo "OFFSET=$PRE" > "$TD/_execute/verify-cody-3.txt"
-echo "VERDICT=FAIL" > "$TD/_execute/verify-report-3.md"
-CW_EXECUTE_VERIFY_TIMEOUT=5 bash "$BIN/execute-design-verify-wait.sh" "$TOPIC" 3 >/dev/null 2>&1
-grep -q '^VS=failed$' "$TD/_execute/verify-cody-3.txt" \
+echo "OFFSET=$PRE" > "$TD/_deploy/verify-cody-3.txt"
+echo "VERDICT=FAIL" > "$TD/_deploy/verify-report-3.md"
+CW_DEPLOY_VERIFY_TIMEOUT=5 bash "$BIN/deploy-verify-wait.sh" "$TOPIC" 3 >/dev/null 2>&1
+grep -q '^VS=failed$' "$TD/_deploy/verify-cody-3.txt" \
   || { echo "FAIL: verify-wait missing VS=failed on error"; exit 1; }
 pass "verify-wait → VS=failed on error event"
 
 # 7. plan-wait — invalid bad topic → exit 2.
 reset_state
-out=$(bash "$BIN/execute-design-plan-wait.sh" "../bad" 2>&1) && rc=0 || rc=$?
+out=$(bash "$BIN/deploy-plan-wait.sh" "../bad" 2>&1) && rc=0 || rc=$?
 [[ "$rc" -eq 2 ]] || { echo "FAIL: bad topic exit code $rc, want 2"; exit 1; }
 pass "plan-wait rejects bad topic"
