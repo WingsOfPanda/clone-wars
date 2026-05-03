@@ -99,7 +99,7 @@ cw_deploy_branch_create() {
   printf '%s\n' "$branch"
 }
 
-# Phase prompt builders. Each prints a self-contained inbox-prompt body
+# Turn prompt builders. Each prints a self-contained inbox-prompt body
 # terminating in END_OF_INSTRUCTION. The slash directive writes the body
 # to inbox.md via bin/send.sh.
 
@@ -209,89 +209,3 @@ END_OF_INSTRUCTION
 EOF
 }
 
-cw_deploy_build_plan_prompt() {
-  local design="$1" plan_out="$2"
-  cat <<EOF
-You are entering the PLAN phase of /clone-wars:deploy.
-
-Use the superpowers:writing-plans skill. Read the design doc at:
-  $design
-
-Produce a comprehensive implementation plan and write it to:
-  $plan_out
-
-Follow the writing-plans skill's task-decomposition conventions
-(bite-sized steps, exact file paths, complete code, frequent commits).
-
-When the plan file is written, emit a {"event":"done"} line to your
-outbox.
-
-END_OF_INSTRUCTION
-EOF
-}
-
-cw_deploy_build_implement_prompt() {
-  local plan="$1"
-  cat <<EOF
-You are entering the IMPLEMENT phase of /clone-wars:deploy.
-
-Use the superpowers:subagent-driven-development skill. Read the plan at:
-  $plan
-
-Implement every task in order. For each task: write failing tests, make
-them pass, commit per task, run the full test suite after each task and
-confirm it stays green. Do not skip tasks. Do not declare done before all
-tasks are implemented and all tests pass.
-
-When all tasks are complete and the full test suite is green, emit a
-{"event":"done"} line to your outbox.
-
-END_OF_INSTRUCTION
-EOF
-}
-
-cw_deploy_build_verify_prompt() {
-  local design="$1" round="$2" report="$3" test_log="$4"
-  cat <<EOF
-You are entering the SELF-VERIFY phase (round $round) of /clone-wars:deploy.
-
-Use the superpowers:verification-before-completion skill. Verify your
-implementation against the design doc at:
-  $design
-
-Write your verification report to:
-  $report
-
-The report must include:
-  - top-line VERDICT: PASS | PARTIAL | FAIL
-  - per-requirement verdicts (PASS / PARTIAL / FAIL) with evidence
-    (file:line or commit SHA references)
-
-Also run the full test suite and write the raw output to:
-  $test_log
-
-When both files are written, emit a {"event":"done"} line to your outbox.
-
-END_OF_INSTRUCTION
-EOF
-}
-
-cw_deploy_build_fix_prompt() {
-  local fix_prompt="$1"
-  cat <<EOF
-You are entering the FIX phase of /clone-wars:deploy.
-
-Cross-verification flagged issues. Read the fix-prompt at:
-  $fix_prompt
-
-The file's preamble names the superpowers skill you must use
-(systematic-debugging for bugs/regressions, writing-plans for spec gaps).
-Resolve every issue listed. Make one commit per fix. Re-run the full
-test suite after each fix. Do NOT skip any issue.
-
-When every issue is resolved and the full test suite is green, emit a
-{"event":"done"} line to your outbox.
-
-END_OF_INSTRUCTION
-EOF
-}
