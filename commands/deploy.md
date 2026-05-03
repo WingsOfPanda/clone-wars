@@ -141,10 +141,16 @@ Set task `0` → `in_progress`.
 
    Branch on `$AUTO_PROVIDER`:
 
-   - `codex` (or any unexpected value) → no prompt, just persist:
+   - `codex` → no prompt, just persist:
      ```
      PROVIDER=codex
      log_info "trooper provider: codex (auto-go)"
+     ```
+   - any other unexpected value (e.g. stale-file corruption) → log warning,
+     default to codex without prompting:
+     ```
+     log_warn "unexpected auto_provider value '$AUTO_PROVIDER'; defaulting to codex"
+     PROVIDER=codex
      ```
    - `claude` → AskUserQuestion (the cheap default isn't appropriate for
      plugin repos; ask the user before spending claude tokens):
