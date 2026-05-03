@@ -100,3 +100,43 @@ pass "--topic requires a value"
   || { echo "FAIL: _deploy/ not rolled back after branch failure" >&2; exit 1; }
 pass "branch failure auto-rollbacks _deploy/"
 ( cd "$REPO" && rm -f scratch.txt )   # clean up the dirty marker
+
+# 9. auto_provider.txt: codex case (no .claude-plugin/plugin.json at repo root).
+TMP_AP_CODEX=$(mktemp -d)
+export CLONE_WARS_HOME="$TMP_AP_CODEX/cw"
+mkdir -p "$TMP_AP_CODEX/repo"
+( cd "$TMP_AP_CODEX/repo" && git init --quiet --initial-branch=main \
+    && git config user.email t@t && git config user.name t \
+    && git commit --quiet --allow-empty -m init )
+echo "# fake spec" > "$TMP_AP_CODEX/spec.md"
+TOPIC_CODEX=$( cd "$TMP_AP_CODEX/repo" \
+    && bash "$BIN" --no-branch --topic ap-codex "$TMP_AP_CODEX/spec.md" 2>/dev/null \
+    | tail -1 )
+RH_CODEX=$(bash -c "cd $TMP_AP_CODEX/repo && source $LIB_STATE && cw_repo_hash")
+ART_CODEX="$CLONE_WARS_HOME/state/$RH_CODEX/$TOPIC_CODEX/_deploy"
+assert_file_exists "$ART_CODEX/auto_provider.txt" "codex case writes auto_provider.txt"
+got=$(cat "$ART_CODEX/auto_provider.txt")
+assert_eq "$got" "codex" "codex case auto_provider.txt content"
+pass "deploy-init writes auto_provider.txt=codex when no .claude-plugin/plugin.json"
+rm -rf "$TMP_AP_CODEX"
+
+# 10. auto_provider.txt: claude case (.claude-plugin/plugin.json present).
+TMP_AP_CLAUDE=$(mktemp -d)
+export CLONE_WARS_HOME="$TMP_AP_CLAUDE/cw"
+mkdir -p "$TMP_AP_CLAUDE/repo/.claude-plugin"
+touch "$TMP_AP_CLAUDE/repo/.claude-plugin/plugin.json"
+( cd "$TMP_AP_CLAUDE/repo" && git init --quiet --initial-branch=main \
+    && git config user.email t@t && git config user.name t \
+    && git add .claude-plugin/plugin.json \
+    && git commit --quiet -m init )
+echo "# fake spec" > "$TMP_AP_CLAUDE/spec.md"
+TOPIC_CLAUDE=$( cd "$TMP_AP_CLAUDE/repo" \
+    && bash "$BIN" --no-branch --topic ap-claude "$TMP_AP_CLAUDE/spec.md" 2>/dev/null \
+    | tail -1 )
+RH_CLAUDE=$(bash -c "cd $TMP_AP_CLAUDE/repo && source $LIB_STATE && cw_repo_hash")
+ART_CLAUDE="$CLONE_WARS_HOME/state/$RH_CLAUDE/$TOPIC_CLAUDE/_deploy"
+assert_file_exists "$ART_CLAUDE/auto_provider.txt" "claude case writes auto_provider.txt"
+got=$(cat "$ART_CLAUDE/auto_provider.txt")
+assert_eq "$got" "claude" "claude case auto_provider.txt content"
+pass "deploy-init writes auto_provider.txt=claude when .claude-plugin/plugin.json present"
+rm -rf "$TMP_AP_CLAUDE"
