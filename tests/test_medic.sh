@@ -42,3 +42,30 @@ pass "providers enumerated"
 # Test 5: a Verdict line is present.
 [[ "$out" == *"Verdict:"* ]] || { echo "FAIL: no Verdict line" >&2; exit 1; }
 pass "verdict line present"
+
+# --- legacy deploy env-var warnings (added with v0.8 single-turn refactor) ---
+out=$(CW_DEPLOY_PLAN_TIMEOUT=999 bash ../bin/medic.sh 2>&1) || true
+echo "$out" | grep -qi 'CW_DEPLOY_PLAN_TIMEOUT.*deprecated\|CW_DEPLOY_PLAN_TIMEOUT.*ignored' \
+  || { echo "FAIL: medic should warn on CW_DEPLOY_PLAN_TIMEOUT" >&2; exit 1; }
+pass "medic warns on legacy CW_DEPLOY_PLAN_TIMEOUT env var"
+
+out=$(CW_DEPLOY_IMPLEMENT_TIMEOUT=999 bash ../bin/medic.sh 2>&1) || true
+echo "$out" | grep -qi 'CW_DEPLOY_IMPLEMENT_TIMEOUT.*deprecated\|CW_DEPLOY_IMPLEMENT_TIMEOUT.*ignored' \
+  || { echo "FAIL: medic should warn on CW_DEPLOY_IMPLEMENT_TIMEOUT" >&2; exit 1; }
+pass "medic warns on legacy CW_DEPLOY_IMPLEMENT_TIMEOUT env var"
+
+out=$(CW_DEPLOY_VERIFY_TIMEOUT=999 bash ../bin/medic.sh 2>&1) || true
+echo "$out" | grep -qi 'CW_DEPLOY_VERIFY_TIMEOUT.*deprecated\|CW_DEPLOY_VERIFY_TIMEOUT.*ignored' \
+  || { echo "FAIL: medic should warn on CW_DEPLOY_VERIFY_TIMEOUT" >&2; exit 1; }
+pass "medic warns on legacy CW_DEPLOY_VERIFY_TIMEOUT env var"
+
+out=$(CW_DEPLOY_FIX_TIMEOUT=999 bash ../bin/medic.sh 2>&1) || true
+echo "$out" | grep -qi 'CW_DEPLOY_FIX_TIMEOUT.*deprecated\|CW_DEPLOY_FIX_TIMEOUT.*ignored' \
+  || { echo "FAIL: medic should warn on CW_DEPLOY_FIX_TIMEOUT" >&2; exit 1; }
+pass "medic warns on legacy CW_DEPLOY_FIX_TIMEOUT env var"
+
+# Probe still passes after the helper rename.
+out=$(bash ../bin/medic.sh 2>&1) || true
+echo "$out" | grep -q 'deploy helpers load clean' \
+  || { echo "FAIL: medic deploy-helpers probe regressed" >&2; exit 1; }
+pass "medic deploy-helpers probe still clean after refactor"

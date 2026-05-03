@@ -126,17 +126,26 @@ if [[ -f "$state_root/identity-template.md" ]]; then
   log_warn "stale: $state_root/identity-template.md is no longer consulted; safe to delete"
 fi
 
-# 4d. deploy helpers source-load sanity (v0.7.0).
+# 4d. deploy helpers source-load sanity (turn-based deploy).
 if ( source "$PLUGIN_ROOT/lib/state.sh" \
      && source "$PLUGIN_ROOT/lib/log.sh" \
      && source "$PLUGIN_ROOT/lib/consult.sh" \
      && source "$PLUGIN_ROOT/lib/deploy.sh" \
-     && cw_deploy_topic_dir test-topic >/dev/null ) 2>/dev/null; then
+     && cw_deploy_build_turn_prompt_round1 /a /b /c >/dev/null ) 2>/dev/null; then
   log_ok "deploy helpers load clean"
 else
   log_warn "deploy helpers FAILED to load"
   warn=1
 fi
+
+# 4e. legacy deploy env vars (now ignored — CW_DEPLOY_TURN_TIMEOUT is the single knob).
+for legacy_var in CW_DEPLOY_PLAN_TIMEOUT CW_DEPLOY_IMPLEMENT_TIMEOUT \
+                  CW_DEPLOY_VERIFY_TIMEOUT CW_DEPLOY_FIX_TIMEOUT; do
+  if [[ -n "${!legacy_var:-}" ]]; then
+    log_warn "$legacy_var is deprecated and ignored; use CW_DEPLOY_TURN_TIMEOUT (default 14400s)"
+    warn=1
+  fi
+done
 
 # 5. providers in contracts.yaml — WARN on missing, FAIL only when zero are healthy
 echo

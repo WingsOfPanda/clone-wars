@@ -99,93 +99,119 @@ cw_deploy_branch_create() {
   printf '%s\n' "$branch"
 }
 
-# Phase prompt builders. Each prints a self-contained inbox-prompt body
+# Turn prompt builders. Each prints a self-contained inbox-prompt body
 # terminating in END_OF_INSTRUCTION. The slash directive writes the body
 # to inbox.md via bin/send.sh.
 
-cw_deploy_build_plan_prompt() {
-  local design="$1" plan_out="$2"
+# cw_deploy_build_turn_prompt_round1 <design> <plan_out> <verify_out>
+# Emits the round-1 inbox prompt for the collapsed plan+implement+verify
+# trooper turn. Bound to writing-plans + subagent-driven-development +
+# verification-before-completion skills. Includes resume-aware preamble so
+# auto-retry on the same prompt picks up from disk state.
+cw_deploy_build_turn_prompt_round1() {
+  local design="$1" plan_out="$2" verify_out="$3"
   cat <<EOF
-You are entering the PLAN phase of /clone-wars:deploy.
+You are entering ROUND 1 of /clone-wars:deploy.
 
-Use the superpowers:writing-plans skill. Read the design doc at:
-  $design
+This is a single-turn workflow: you will write the implementation plan,
+implement it, run the test suite, and write the verify report — all in
+one autonomous run. The conductor will only re-engage when you emit done.
 
-Produce a comprehensive implementation plan and write it to:
-  $plan_out
+RESUME CHECK (do this BEFORE starting):
+- If $plan_out already exists, skip the planning phase — read the
+  existing plan and proceed to implementation.
+- If \`git log --oneline\` shows commits past the design-doc commit on
+  this branch, identify the next pending task from $plan_out's checkbox
+  state and continue from there. Do not redo already-committed tasks.
+- If $verify_out already exists, you previously completed implementation
+  — re-run the test suite and update $verify_out if test outcomes changed.
 
-Follow the writing-plans skill's task-decomposition conventions
-(bite-sized steps, exact file paths, complete code, frequent commits).
+PHASE 1: Plan (skip if $plan_out exists)
+  Use the superpowers:writing-plans skill. Read the design doc at:
+    $design
+  Produce a comprehensive implementation plan and write it to:
+    $plan_out
 
-When the plan file is written, emit a {"event":"done"} line to your
-outbox.
+PHASE 2: Implement
+  Use the superpowers:subagent-driven-development skill. Walk $plan_out
+  task-by-task. Commit per task (Conventional Commits prefix). Run the
+  full test suite (\`bash tests/run.sh\`) after each task and confirm green.
+
+PHASE 3: Self-verify
+  Use the superpowers:verification-before-completion skill. Run the full
+  test suite, tee output to:
+    ${verify_out%/*}/test-output-1.log
+  Write a structured verify report to:
+    $verify_out
+
+  The report MUST start with \`VERDICT: PASS|PARTIAL|FAIL\` on the first
+  line, followed by per-requirement evidence (file:line citations) and a
+  short summary.
+
+When all three phases are done AND the test suite is green AND
+$verify_out exists with a VERDICT line, emit:
+  {"event":"done","summary":"Round 1 complete","ts":"<iso>"}
 
 END_OF_INSTRUCTION
 EOF
 }
 
-cw_deploy_build_implement_prompt() {
-  local plan="$1"
+# cw_deploy_build_turn_prompt_fix <fix_bundle_path> <verify_out> <round>
+# Emits the fix-round inbox prompt for the collapsed fix+verify trooper
+# turn. Reads the user-authored fix bundle from disk, wraps it with
+# routing instructions (systematic-debugging for [bug]/[regression],
+# writing-plans for [spec-gap]) and the resume-aware preamble.
+# Returns 1 on missing/unreadable bundle.
+cw_deploy_build_turn_prompt_fix() {
+  local bundle="$1" verify_out="$2" round="$3"
+  [[ -f "$bundle" && -r "$bundle" ]] \
+    || { log_error "fix bundle not found or unreadable: $bundle"; return 1; }
+  local issues
+  issues=$(cat "$bundle")
   cat <<EOF
-You are entering the IMPLEMENT phase of /clone-wars:deploy.
+You are entering ROUND $round of /clone-wars:deploy (fix loop).
 
-Use the superpowers:subagent-driven-development skill. Read the plan at:
-  $plan
+This is a single-turn workflow: address each issue below, re-run the test
+suite, and write the verify report — all in one autonomous run.
 
-Implement every task in order. For each task: write failing tests, make
-them pass, commit per task, run the full test suite after each task and
-confirm it stays green. Do not skip tasks. Do not declare done before all
-tasks are implemented and all tests pass.
+RESUME CHECK (do this BEFORE starting):
+- Check \`git log --oneline\` for commits since the previous round's
+  verify report was written. If some issues already have addressing
+  commits, identify which remain unaddressed and start from those.
+- If $verify_out already exists, re-run tests and update it if outcomes
+  changed.
 
-When all tasks are complete and the full test suite is green, emit a
-{"event":"done"} line to your outbox.
+ISSUES TO ADDRESS:
+
+$issues
+
+ROUTING:
+- For each issue tagged [bug] or [regression]: use the
+  superpowers:systematic-debugging skill.
+- For each issue tagged [spec-gap]: use the superpowers:writing-plans
+  skill (re-plan the gap, then implement).
+- After EACH fix commit: dispatch a superpowers:code-reviewer subagent
+  via the superpowers:requesting-code-review skill with the fix commit's
+  SHA as scope. Address Critical and Important findings before moving to
+  the next issue. Round 1's subagent-driven-development walks code review
+  per-task automatically; fix rounds need this explicit invocation.
+
+For EACH issue: implement the fix, commit per fix (Conventional Commits
+prefix \`fix:\`, \`feat:\`, or \`test:\` as appropriate), run the
+code-review subagent on the new commit, then re-run the full test suite.
+Do NOT skip any listed issue.
+
+After all issues are addressed AND the test suite is green:
+  Run the full test suite, tee output to:
+    ${verify_out%/*}/test-output-$round.log
+  Write the verify report to:
+    $verify_out
+  The report MUST start with \`VERDICT: PASS|PARTIAL|FAIL\`.
+
+When done, emit:
+  {"event":"done","summary":"Round $round complete","ts":"<iso>"}
 
 END_OF_INSTRUCTION
 EOF
 }
 
-cw_deploy_build_verify_prompt() {
-  local design="$1" round="$2" report="$3" test_log="$4"
-  cat <<EOF
-You are entering the SELF-VERIFY phase (round $round) of /clone-wars:deploy.
-
-Use the superpowers:verification-before-completion skill. Verify your
-implementation against the design doc at:
-  $design
-
-Write your verification report to:
-  $report
-
-The report must include:
-  - top-line VERDICT: PASS | PARTIAL | FAIL
-  - per-requirement verdicts (PASS / PARTIAL / FAIL) with evidence
-    (file:line or commit SHA references)
-
-Also run the full test suite and write the raw output to:
-  $test_log
-
-When both files are written, emit a {"event":"done"} line to your outbox.
-
-END_OF_INSTRUCTION
-EOF
-}
-
-cw_deploy_build_fix_prompt() {
-  local fix_prompt="$1"
-  cat <<EOF
-You are entering the FIX phase of /clone-wars:deploy.
-
-Cross-verification flagged issues. Read the fix-prompt at:
-  $fix_prompt
-
-The file's preamble names the superpowers skill you must use
-(systematic-debugging for bugs/regressions, writing-plans for spec gaps).
-Resolve every issue listed. Make one commit per fix. Re-run the full
-test suite after each fix. Do NOT skip any issue.
-
-When every issue is resolved and the full test suite is green, emit a
-{"event":"done"} line to your outbox.
-
-END_OF_INSTRUCTION
-EOF
-}

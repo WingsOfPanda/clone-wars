@@ -122,9 +122,11 @@ The full v0.2 spec is at `docs/superpowers/specs/2026-04-29-clone-wars-consult-v
 
 `/clone-wars:deploy [<design-path>]` hands a design doc to a Codex
 trooper (`cody-codex-<topic>`) for plan-writing, implementation, and
-self-verification, while Master Yoda acts only at the gates. The slash
-directive walks the conductor through 8 task boundaries via per-phase
-sub-scripts under `bin/`:
+self-verification, while Master Yoda acts only at the gates. As of
+v0.8.0 each round runs as one autonomous trooper turn — plan +
+implement + self-verify happen in a single inbox dispatch; Yoda only
+re-engages at cross-verify. The slash directive walks the conductor
+through 6 task boundaries via sub-scripts under `bin/`:
 
 1. `deploy-init.sh` derives a topic slug from the design filename,
    creates `_deploy/`, copies `design.md`, and (default) creates
@@ -133,22 +135,25 @@ sub-scripts under `bin/`:
    gates require Goal / Architecture / Testing / Success-criteria sections,
    no `TBD` / `TODO`, concrete file paths, single bounded feature.
 3. `spawn.sh cody codex <topic>` brings up one persistent Codex trooper.
-4. `deploy-plan-send.sh` + `-wait.sh` — cody runs
-   `superpowers:writing-plans` against `_deploy/design.md` and writes
-   `_deploy/plan.md`.
-5. `deploy-implement-send.sh` + `-wait.sh` — cody runs
-   `superpowers:subagent-driven-development` and commits per task on the
-   feat branch.
-6. Per round (max 5): `deploy-verify-send.sh` + `-wait.sh` — cody
-   runs `superpowers:verification-before-completion` and writes
-   `_deploy/verify-report-N.md` + `test-output-N.log`. Yoda then cross-
-   verifies (her own pass of the same skill on the diff) and writes
-   `_deploy/cross-verify-N.md` with `VERDICT: PASS|FAIL`.
-7. On FAIL, Yoda bundles classified issues into `fix-prompt-N[-debug|-gap].md`
-   and dispatches via `deploy-fix-send.sh`. Bug bundles use
-   `superpowers:systematic-debugging`; spec-gap bundles use
-   `superpowers:writing-plans`. Loop returns to step 6.
-8. After PASS or 5-round exhaustion: `deploy-teardown.sh` +
+4. Per round (max 5): `deploy-turn-send.sh <topic> <round>` +
+   `-wait.sh <topic> <round>` — one inbox dispatches the whole turn.
+   Round 1 = plan + implement + self-verify (cody runs
+   `superpowers:writing-plans`, then `subagent-driven-development`, then
+   `verification-before-completion`, commits per task, and writes
+   `_deploy/plan.md` + `_deploy/verify-report-1.md` + `test-output-1.log`
+   before emitting `done`). Default timeout is 4 hours
+   (`CW_DEPLOY_TURN_TIMEOUT=14400`). On `TS=failed` or `TS=timeout`,
+   Yoda silently auto-retries the same prompt once — the trooper resumes
+   from disk state. Per-round state file: `_deploy/turn-cody-<round>.txt`.
+5. Yoda cross-verifies (her own pass of the same skill on the diff) and
+   writes `_deploy/cross-verify-N.md` with `VERDICT: PASS|FAIL`. On FAIL,
+   Yoda bundles classified issues (`[bug]` / `[regression]` / `[spec-gap]`)
+   into a single `_deploy/fix-prompt-<N+1>.md` (no debug/gap split) and
+   loops back to step 4 with `ROUND=N+1`. The fix-round prompt routes
+   `[bug]/[regression]` to `superpowers:systematic-debugging` and
+   `[spec-gap]` to `superpowers:writing-plans`; cody addresses every
+   issue, re-runs tests, writes the next verify report, and emits `done`.
+6. After PASS or 5-round exhaustion: `deploy-teardown.sh` +
    `-archive.sh` — cody pane is killed and `_deploy/` + `cody-codex/`
    move to `$CLONE_WARS_HOME/archive/<repo-hash>/<topic>-<ts>/`.
 

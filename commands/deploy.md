@@ -31,18 +31,16 @@ Candidates considered, in order of preference:
 Prompt the user via `AskUserQuestion` to confirm whichever is most-recent.
 If neither is found and no explicit path was given, refuse with a usage hint.
 
-## Task list (TaskCreate × 8 BEFORE step 0)
+## Task list (TaskCreate × 6 BEFORE step 0)
 
 | # | subject | activeForm |
 |---|---|---|
-| 0   | `0   Audit design doc [yoda]`               | `Auditing design doc` |
-| 1.1 | `1.1 Spawn cody (codex) [yoda]`             | `Spawning cody` |
-| 1.2 | `1.2 Plan [cody/codex]`                     | `Cody planning` |
-| 1.3 | `1.3 Implement [cody/codex]`                | `Cody implementing` |
-| 2.1 | `2.1 Self-verify [cody/codex]`              | `Cody self-verifying` |
-| 2.2 | `2.2 Cross-verify [yoda]`                   | `Yoda cross-verifying` |
-| 3   | `3   Fix loop (if needed) [yoda + cody]`    | `Running fix loop` |
-| 4   | `4   Teardown + archive [yoda]`             | `Tearing down` |
+| 0   | `0   Audit design doc [yoda]`              | `Auditing design doc` |
+| 1.1 | `1.1 Spawn cody (codex) [yoda]`            | `Spawning cody` |
+| 1   | `1   Run trooper turn (round N) [cody]`    | `Cody running turn (round N)` |
+| 2   | `2   Cross-verify (round N) [yoda]`        | `Yoda cross-verifying (round N)` |
+| 3   | `3   Author fix bundle (if needed) [yoda]` | `Authoring fix bundle` |
+| 4   | `4   Teardown + archive [yoda]`            | `Tearing down` |
 
 ## Steps
 
@@ -103,7 +101,7 @@ Set task `0` → `in_progress`.
               --args-file "$ARGS_DIR/deploy.txt")
    TOPIC_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$TOPIC"
    ART_DIR="$TOPIC_DIR/_deploy"
-   # Record branch base for cross-verify diff range (used in Step 2.2 + Step 4).
+   # Record branch base for cross-verify diff range (used in Step 2 + Step 4).
    # init.sh creates feat/deploy-<topic> from HEAD, so HEAD right now IS the
    # commit the new branch was created from — exactly the diff base we want.
    # Do NOT use `git merge-base HEAD main` here: when invoked from a topic
@@ -143,99 +141,92 @@ Set task `1.1` → `in_progress`.
 ```
 Set task `1.1` → `completed`. If spawn fails, archive `_deploy/` and exit.
 
-### Step 1.2 — Plan
+### Step 1 — Run trooper turn (round-aware, auto-retry-once)
 
-Set task `1.2` → `in_progress`.
-```
-"$CLAUDE_PLUGIN_ROOT/bin/deploy-plan-send.sh" "$TOPIC"
-"$CLAUDE_PLUGIN_ROOT/bin/deploy-plan-wait.sh" "$TOPIC"
-```
-Read the last `PS=` line from `$ART_DIR/plan-cody.txt`:
-- `PS=ok` → set task `1.2` → `completed`.
-- `PS=failed`/`PS=timeout` → AskUserQuestion (Retry / Abort).
-  - Retry recipe (clear sentinel + state file, then re-run send + wait):
-    ```
-    rm -f "$ART_DIR/plan-cody.txt" "$ART_DIR/plan-cody.done"
-    "$CLAUDE_PLUGIN_ROOT/bin/deploy-plan-send.sh" "$TOPIC"
-    "$CLAUDE_PLUGIN_ROOT/bin/deploy-plan-wait.sh" "$TOPIC"
-    ```
-  - Abort: teardown + archive + exit.
+Set task `1` → `in_progress`. Use the same task across rounds; only the
+activeForm reflects the round number (e.g. `Cody running turn (round 2)`).
 
-Note: a `bin/send.sh` failure during dispatch surfaces here as `PS=timeout`;
-use the same Retry recipe.
+Initialize (only on first entry, NOT on retry):
 
-**Yoda does not read `plan.md`.**
-
-### Step 1.3 — Implement
-
-Set task `1.3` → `in_progress`.
-
-**Skill (cody-side):** the implement prompt binds cody to
-`superpowers:subagent-driven-development` to walk plan.md task-by-task.
-```
-"$CLAUDE_PLUGIN_ROOT/bin/deploy-implement-send.sh" "$TOPIC"
-"$CLAUDE_PLUGIN_ROOT/bin/deploy-implement-wait.sh" "$TOPIC"
-```
-Read `IS=` from `implement-cody.txt`:
-- `IS=ok` → set task `1.3` → `completed`.
-- `IS=failed`/`IS=timeout` → read last 30 lines of cody outbox; AskUserQuestion
-  (Retry / Hand-off / Abort).
-  - Retry recipe:
-    ```
-    rm -f "$ART_DIR/implement-cody.txt" "$ART_DIR/implement-cody.done"
-    "$CLAUDE_PLUGIN_ROOT/bin/deploy-implement-send.sh" "$TOPIC"
-    "$CLAUDE_PLUGIN_ROOT/bin/deploy-implement-wait.sh" "$TOPIC"
-    ```
-
-Note: codex's question protocol is NOT wired in v0.6. If codex emits a question
-event, the wait-script will time out (only matches `done|error`). Surfaces as
-`IS=timeout` — handle via the Retry recipe above.
-
-Note: a `bin/send.sh` failure during dispatch surfaces here as `IS=timeout`;
-use the same Retry recipe.
-
-### Step 2 — Verify-fix loop
-
-Initialize:
 ```
 ROUND=1
+RETRY_COUNT=0
 MAX_ROUNDS="${MAX_ROUNDS_OVERRIDE:-5}"
 ```
 
-Loop while `ROUND <= MAX_ROUNDS + 1`:
+**Dispatch:**
 
-<!-- +1 means round 6 hits the "exhaustion" AskUserQuestion branch; without +1, round 5's FAIL would silently exit the loop without asking. -->
-
-
-#### Step 2.1 — Self-verify (per round)
-
-Set task `2.1` → `in_progress` (use the same task across rounds; only the
-activeForm reflects round number).
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/deploy-verify-send.sh" "$TOPIC" "$ROUND"
-"$CLAUDE_PLUGIN_ROOT/bin/deploy-verify-wait.sh" "$TOPIC" "$ROUND"
+"$CLAUDE_PLUGIN_ROOT/bin/deploy-turn-send.sh" "$TOPIC" "$ROUND"
 ```
-Read `VS=` from `verify-cody-$ROUND.txt`. On non-`ok` status, AskUserQuestion
-(Retry / Hand-off / Abort).
-- Retry recipe (round N):
+
+If round 1, the script generates the round-1 prompt (plan + implement +
+self-verify in one turn). If round >= 2, the script reads
+`$ART_DIR/fix-prompt-$ROUND.md` (which Step 3 wrote on the previous round)
+and wraps it with the fix-round preamble. **Yoda authors fix-prompt-$ROUND.md
+in Step 3 BEFORE incrementing ROUND and re-entering Step 1.**
+
+**Wait (background — Yoda's pane stays interactive):**
+
+```
+Bash(
+  command='"$CLAUDE_PLUGIN_ROOT/bin/deploy-turn-wait.sh" "$TOPIC" "$ROUND"',
+  run_in_background: true,
+  description='master yoda await cody round=$ROUND turn (background)'
+)
+```
+
+Default timeout is 4 hours (`CW_DEPLOY_TURN_TIMEOUT=14400`). Override
+with the env var if your topic is unusually large.
+
+**On harness completion notification:**
+
+Read `TS=` from `$ART_DIR/turn-cody-$ROUND.txt`:
+
+```
+TS=$(grep '^TS=' "$ART_DIR/turn-cody-$ROUND.txt" | tail -1 | cut -d= -f2)
+```
+
+Branch on TS:
+
+- `TS=ok` → set task `1` → `completed` for this round; jump to Step 2.
+- `TS=failed` or `TS=timeout` → auto-retry path:
+
   ```
-  rm -f "$ART_DIR/verify-cody-$ROUND.txt" "$ART_DIR/verify-cody-$ROUND.done"
-  "$CLAUDE_PLUGIN_ROOT/bin/deploy-verify-send.sh" "$TOPIC" "$ROUND"
-  "$CLAUDE_PLUGIN_ROOT/bin/deploy-verify-wait.sh" "$TOPIC" "$ROUND"
+  if (( RETRY_COUNT == 0 )); then
+    log "auto-retry round=$ROUND attempt=2"
+    rm -f "$ART_DIR/turn-cody-$ROUND.txt" "$ART_DIR/turn-cody-$ROUND.done"
+    rm -f "$ART_DIR/cody_turn_prompt_$ROUND.md"
+    RETRY_COUNT=1
+    # re-dispatch turn-send + turn-wait (loop back to top of Step 1)
+  else
+    # Two attempts failed.
+    AskUserQuestion (Hand-off / Abort / Try-again).
+    Hand-off: write $ART_DIR/RESUME.md with topic dir + branch + last
+      cross-verify summary; preserve cody pane (do NOT teardown); exit.
+    Abort: bin/deploy-teardown.sh + bin/deploy-archive.sh; exit.
+    Try-again: RETRY_COUNT=0; loop back to top of Step 1.
+  fi
   ```
 
-Note: codex's question protocol is NOT wired in v0.6. If codex emits a question
-event, the wait-script will time out (only matches `done|error`). Surfaces as
-`VS=timeout` — handle via the Retry recipe above.
+  **Trooper-not-idle case on retry.** `bin/deploy-turn-send.sh` reads
+  `cody-codex/status.json` and refuses with `trooper not idle (state=...)`
+  when the previous turn never reset to idle (most common after
+  `TS=timeout` — the trooper is still mid-work). On that error,
+  AskUserQuestion (Wait 60s and retry / Force-retry / Abort):
+  - *Wait 60s and retry* — sleep 60, re-attempt `deploy-turn-send.sh`
+    (do NOT clear state files first; the previous attempt already cleared
+    them).
+  - *Force-retry* — write `{"state":"idle","updated":"<iso>","last_event":"force-reset"}`
+    to `cody-codex/status.json` (atomic tmp+rename), then re-attempt
+    `deploy-turn-send.sh`. The trooper's next inbox.md write will overlap
+    its previous read but the END_OF_INSTRUCTION sentinel keeps the new
+    payload safe.
+  - *Abort* — `bin/deploy-teardown.sh` + `bin/deploy-archive.sh`; exit.
 
-Note: a `bin/send.sh` failure during dispatch surfaces here as `VS=timeout`;
-use the same Retry recipe.
+### Step 2 — Cross-verify (per round)
 
-Set task `2.1` → `completed` for this round.
-
-#### Step 2.2 — Cross-verify (per round)
-
-Set task `2.2` → `in_progress`.
+Set task `2` → `in_progress`.
 
 **Skill:** invoke `superpowers:verification-before-completion`.
 
@@ -255,7 +246,7 @@ Write the verdict to `$ART_DIR/cross-verify-$ROUND.md`:
   `[spec-gap]`, with (a) requirement reference, (b) evidence (file:line or
   commit), (c) suggested fix direction.
 
-If `VERDICT: PASS` → set task `2.2` → `completed`, exit the loop, jump to
+If `VERDICT: PASS` → set task `2` → `completed`, exit the loop, jump to
 Step 4.
 
 If `VERDICT: FAIL` and `ROUND > MAX_ROUNDS`:
@@ -270,74 +261,36 @@ If `VERDICT: FAIL` and `ROUND > MAX_ROUNDS`:
 
 If `VERDICT: FAIL` and `ROUND <= MAX_ROUNDS` → continue to Step 3.
 
-#### Step 3 — Fix-prompt + dispatch
+### Step 3 — Author fix bundle
 
 Set task `3` → `in_progress`.
 
-Group issues from `cross-verify-$ROUND.md` by tag:
-- `[bug]` and `[regression]` → bundle preamble names
-  `superpowers:systematic-debugging`.
-- `[spec-gap]` → bundle preamble names `superpowers:writing-plans` (replan)
-  → then implement.
+Read `cross-verify-$ROUND.md`. For every issue listed under `## Issues`,
+preserve its tag (`[bug]`, `[regression]`, `[spec-gap]`) and its
+`(file:line)` evidence. Group all issues into a single fix bundle file:
 
-If the cross-verify mixes both, write **two** files:
-- `$ART_DIR/fix-prompt-$ROUND-debug.md` (bugs/regressions)
-- `$ART_DIR/fix-prompt-$ROUND-gap.md` (spec gaps)
-
-If only one classification, write a single `$ART_DIR/fix-prompt-$ROUND.md`.
-
-Each file's preamble (one short paragraph at the top) must:
-- Name the required skill (`superpowers:systematic-debugging` or
-  `superpowers:writing-plans`).
-- Tell codex to commit per fix and re-run the full test suite after each.
-- Forbid skipping any listed issue.
-
-Then dispatch sequentially. **If both bundles exist, you MUST wait for the
-debug bundle's `done` event in the outbox before dispatching the gap bundle**
-— otherwise gap's inbox.md write races with debug consumption and codex
-silently drops the bug-fix prompt.
-
-Source the IPC helpers inline (the wait function is already defined there):
 ```
-source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
-source "$CLAUDE_PLUGIN_ROOT/lib/ipc.sh"
-OUTBOX="$(cw_trooper_dir cody codex "$TOPIC")/outbox.jsonl"
-# Inter-bundle wait timeout (debug→gap and gap→next-round). Default 1200s
-# matches verify-wait; export CW_DEPLOY_FIX_TIMEOUT to override.
-FIX_WAIT_TIMEOUT="${CW_DEPLOY_FIX_TIMEOUT:-1200}"
+$ART_DIR/fix-prompt-$((ROUND + 1)).md
 ```
 
-Dispatch debug bundle (if any):
-```
-# Capture pre-send byte offset so the wait matches THIS dispatch's done event,
-# not a stale prior event.
-OFFSET=$( [[ -f "$OUTBOX" ]] && wc -c < "$OUTBOX" || echo 0 )
-"$CLAUDE_PLUGIN_ROOT/bin/deploy-fix-send.sh" "$TOPIC" "$ROUND" debug
+The fix bundle is a markdown body — NO preamble, NO skill mention, NO
+END_OF_INSTRUCTION sentinel. The turn-send script wraps it with all of
+those when it dispatches. Just list the issues, one per markdown bullet,
+each starting with the tag:
 
-# Wait for codex to finish the debug bundle before sending gap.
-cw_outbox_wait_since cody codex "$TOPIC" "$OFFSET" done error "$FIX_WAIT_TIMEOUT" || true
-# Read the matched event from the outbox (line at $OFFSET-onwards). If it's
-# 'error' or the wait timed out, AskUserQuestion (Continue with gap / Abort).
-# If 'done', proceed to gap.
+```markdown
+- [bug] <evidence> — <suggested fix direction>
+- [spec-gap] <evidence> — <suggested fix direction>
 ```
 
-Dispatch gap bundle (if any):
-```
-# Capture pre-send byte offset BEFORE the gap-send fires, so the wait
-# matches THIS dispatch's done event (mirrors the debug-bundle pattern).
-GAP_OFFSET=$( [[ -f "$OUTBOX" ]] && wc -c < "$OUTBOX" || echo 0 )
-"$CLAUDE_PLUGIN_ROOT/bin/deploy-fix-send.sh" "$TOPIC" "$ROUND" gap
+After writing the bundle:
 
-# Wait for codex to finish the gap bundle before incrementing ROUND.
-# Without this wait, the next verify-send (Step 2.1) races with codex's
-# inbox.md read of the gap prompt and silently overwrites it.
-cw_outbox_wait_since cody codex "$TOPIC" "$GAP_OFFSET" done error "$FIX_WAIT_TIMEOUT" || true
-# Read the matched event; if 'error' or the wait timed out, AskUserQuestion
-# (Continue to verify / Abort). If 'done', proceed.
+```
+ROUND=$((ROUND + 1))
+RETRY_COUNT=0
 ```
 
-Increment `ROUND`. Loop back to Step 2.1 (which dispatches verify-send for
-the new round).
+Set task `3` → `completed`; loop back to Step 1.
 
 ### Step 4 — Teardown + archive
 
@@ -353,6 +306,22 @@ Print final summary to the user:
 - Archive path.
 
 Set task `4` → `completed`.
+
+## Environment variables
+
+- `CW_DEPLOY_TURN_TIMEOUT` (default `14400` / 4hr) — max wall time for one
+  trooper turn (plan+implement+verify in round 1; fix+verify in fix
+  rounds). Set to a larger value for very long-running specs; reduce
+  only for testing.
+- `MAX_ROUNDS_OVERRIDE` (default `5`) — fix-round ceiling before
+  exhaustion AskUserQuestion fires.
+
+The following legacy env vars are **deprecated and ignored** (medic warns
+when set):
+- `CW_DEPLOY_PLAN_TIMEOUT`
+- `CW_DEPLOY_IMPLEMENT_TIMEOUT`
+- `CW_DEPLOY_VERIFY_TIMEOUT`
+- `CW_DEPLOY_FIX_TIMEOUT`
 
 ## Intervention patterns
 
