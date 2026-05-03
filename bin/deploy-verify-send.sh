@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# bin/execute-design-verify-send.sh — Phase 3 self-verify dispatch.
-# Usage: bin/execute-design-verify-send.sh <topic> <round>
+# bin/deploy-verify-send.sh — Phase 3 self-verify dispatch.
+# Usage: bin/deploy-verify-send.sh <topic> <round>
 
 set -uo pipefail
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -8,14 +8,14 @@ source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/ipc.sh"
 source "$PLUGIN_ROOT/lib/consult.sh"
-source "$PLUGIN_ROOT/lib/execute_design.sh"
+source "$PLUGIN_ROOT/lib/deploy.sh"
 
 [[ $# -eq 2 ]] || { echo "Usage: $0 <topic> <round>" >&2; exit 2; }
 TOPIC="$1"; ROUND="$2"
-cw_execute_design_assert_topic "$TOPIC"
+cw_deploy_assert_topic "$TOPIC"
 [[ "$ROUND" =~ ^[1-9][0-9]*$ ]] || { log_error "round must be a positive integer; got '$ROUND'"; exit 2; }
 
-ART_DIR="$(cw_execute_design_art_dir "$TOPIC")"
+ART_DIR="$(cw_deploy_art_dir "$TOPIC")"
 [[ -d "$ART_DIR" ]] || { log_error "$ART_DIR not found"; exit 1; }
 DESIGN="$ART_DIR/design.md"
 [[ -f "$DESIGN" ]] || { log_error "design.md missing"; exit 1; }
@@ -30,7 +30,7 @@ OUTBOX="$TROOPER_DIR/outbox.jsonl"
 [[ -f "$OUTBOX" ]] || { log_error "outbox not found at $OUTBOX"; exit 1; }
 
 PROMPT_FILE="$ART_DIR/cody_verify_prompt-$ROUND.md"
-cw_execute_design_build_verify_prompt "$DESIGN" "$ROUND" "$REPORT" "$TEST_LOG" > "$PROMPT_FILE"
+cw_deploy_build_verify_prompt "$DESIGN" "$ROUND" "$REPORT" "$TEST_LOG" > "$PROMPT_FILE"
 
 OFFSET=$(wc -c < "$OUTBOX" | tr -d ' ')
 printf 'OFFSET=%s\n' "$OFFSET" > "$STATE_FILE"

@@ -79,7 +79,7 @@ run concurrently.
 | `/clone-wars:collect <commander> <topic> [--timeout s]` | Block until the trooper reports `done` or `error`, then print the summary. Exits non-zero on error/timeout so Master Yoda can chain commands. |
 | `/clone-wars:list [<topic>]` | Show active troopers across topics, or scope to one. Flags `[ORPHAN]` panes for cleanup. |
 | `/clone-wars:teardown <topic>` / `<commander> <topic>` / `--all` | Graceful shutdown: 8s colored banner, then kill the pane and archive state. |
-| `/clone-wars:execute-design [<design-path>]` | Codex implements + Yoda verifies a design doc. |
+| `/clone-wars:deploy [<design-path>]` | Codex implements + Yoda verifies a design doc. |
 
 Full spec: `docs/DESIGN.md` §Slash commands. Runtime IPC (the `END_OF_INSTRUCTION` sentinel,
 JSONL outbox event types, status state machine) is in §File-IPC protocol.
@@ -118,41 +118,41 @@ contract is fully documented in the slash directive.
 
 The full v0.2 spec is at `docs/superpowers/specs/2026-04-29-clone-wars-consult-v2-design.md`.
 
-## Implementing a design doc: `/clone-wars:execute-design`
+## Implementing a design doc: `/clone-wars:deploy`
 
-`/clone-wars:execute-design [<design-path>]` hands a design doc to a Codex
+`/clone-wars:deploy [<design-path>]` hands a design doc to a Codex
 trooper (`cody-codex-<topic>`) for plan-writing, implementation, and
 self-verification, while Master Yoda acts only at the gates. The slash
 directive walks the conductor through 8 task boundaries via per-phase
 sub-scripts under `bin/`:
 
-1. `execute-design-init.sh` derives a topic slug from the design filename,
-   creates `_execute/`, copies `design.md`, and (default) creates
-   `feat/exec-<topic>` from current HEAD.
-2. Yoda reads `design.md` and writes `_execute/design-audit.md`. The audit
+1. `deploy-init.sh` derives a topic slug from the design filename,
+   creates `_deploy/`, copies `design.md`, and (default) creates
+   `feat/deploy-<topic>` from current HEAD.
+2. Yoda reads `design.md` and writes `_deploy/design-audit.md`. The audit
    gates require Goal / Architecture / Testing / Success-criteria sections,
    no `TBD` / `TODO`, concrete file paths, single bounded feature.
 3. `spawn.sh cody codex <topic>` brings up one persistent Codex trooper.
-4. `execute-design-plan-send.sh` + `-wait.sh` — cody runs
-   `superpowers:writing-plans` against `_execute/design.md` and writes
-   `_execute/plan.md`.
-5. `execute-design-implement-send.sh` + `-wait.sh` — cody runs
+4. `deploy-plan-send.sh` + `-wait.sh` — cody runs
+   `superpowers:writing-plans` against `_deploy/design.md` and writes
+   `_deploy/plan.md`.
+5. `deploy-implement-send.sh` + `-wait.sh` — cody runs
    `superpowers:subagent-driven-development` and commits per task on the
    feat branch.
-6. Per round (max 5): `execute-design-verify-send.sh` + `-wait.sh` — cody
+6. Per round (max 5): `deploy-verify-send.sh` + `-wait.sh` — cody
    runs `superpowers:verification-before-completion` and writes
-   `_execute/verify-report-N.md` + `test-output-N.log`. Yoda then cross-
+   `_deploy/verify-report-N.md` + `test-output-N.log`. Yoda then cross-
    verifies (her own pass of the same skill on the diff) and writes
-   `_execute/cross-verify-N.md` with `VERDICT: PASS|FAIL`.
+   `_deploy/cross-verify-N.md` with `VERDICT: PASS|FAIL`.
 7. On FAIL, Yoda bundles classified issues into `fix-prompt-N[-debug|-gap].md`
-   and dispatches via `execute-design-fix-send.sh`. Bug bundles use
+   and dispatches via `deploy-fix-send.sh`. Bug bundles use
    `superpowers:systematic-debugging`; spec-gap bundles use
    `superpowers:writing-plans`. Loop returns to step 6.
-8. After PASS or 5-round exhaustion: `execute-design-teardown.sh` +
-   `-archive.sh` — cody pane is killed and `_execute/` + `cody-codex/`
+8. After PASS or 5-round exhaustion: `deploy-teardown.sh` +
+   `-archive.sh` — cody pane is killed and `_deploy/` + `cody-codex/`
    move to `$CLONE_WARS_HOME/archive/<repo-hash>/<topic>-<ts>/`.
 
-Round-5 exhaustion writes `_execute/RESUME.md` and offers Hand-off
+Round-5 exhaustion writes `_deploy/RESUME.md` and offers Hand-off
 (default), Continue (one more round), or Abort. Hand-off leaves the cody
 pane alive so you can `tmux select-pane` and continue manually using
 RESUME.md as context.
@@ -165,7 +165,7 @@ slug derived from the filename. `--max-rounds 5` raises the round budget
 (default 5).
 
 ```
-/clone-wars:execute-design docs/superpowers/specs/2026-05-02-foo-design.md
+/clone-wars:deploy docs/superpowers/specs/2026-05-02-foo-design.md
 ```
 
 ### v0.3 — trooper question protocol + skill routing

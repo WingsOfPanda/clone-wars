@@ -302,6 +302,8 @@ This repo follows Conventional Commits loosely: `feat:`, `fix:`, `docs:`, `test:
 - [x] v0.5.2: remove `$CLONE_WARS_HOME/identity-template.md` from `cw_identity_write` lookup chain — stale per-machine overrides silently shadowed v0.5.x prompt-template updates; lookup is now in-tree only (matches v0.5.0's "no overrides" decision); medic warns when an orphan state-root copy is detected
 - [x] v0.5.3: extract Step 8.5 drill code into `bin/consult-drilldown.sh` (escapes the slash-command renderer's `$1/$2/$3` positional substitution that clobbered bash function args on multi-word topics) + identity-template gains "safe JSONL emission" guidance to prevent `printf '%2C'` format-string failures observed in dogfood
 - [x] v0.6.0: execute-design — codex-implements + yoda-verifies pipeline
-- [ ] v0.6.0 strict-dogfood pass on a real machine (release gate)
+- [x] v0.6.1: drilldown scratch subdir + execute-design source-defaulting prefers design-doc + CW_EXECUTE_FIX_TIMEOUT env var + parameterized wait-script test
+- [x] v0.7.0: rename `/clone-wars:execute-design` → `/clone-wars:deploy` + hide internal slash commands (`spawn`/`send`/`collect`); user-facing surface is now medic/consult/deploy/list/teardown
+- [ ] v0.7.0 strict-dogfood pass on a real machine (release gate)
 - [ ] v0.6: drop config/identity-template.md back-compat symlink + sweep tracer/*.sh + README.md legacy refs
 - [ ] Submit to claude-plugins-official (post v0.5.x dogfood)

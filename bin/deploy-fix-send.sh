@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# bin/execute-design-fix-send.sh — Phase 5 fix dispatch.
-# Usage: bin/execute-design-fix-send.sh <topic> <round> [<variant>]
+# bin/deploy-fix-send.sh — Phase 5 fix dispatch.
+# Usage: bin/deploy-fix-send.sh <topic> <round> [<variant>]
 #
 # Looks for $ART_DIR/fix-prompt-<round>[-<variant>].md and tells codex to
 # read it. The slash directive must have written that file (with a skill
@@ -14,14 +14,14 @@ source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/ipc.sh"
 source "$PLUGIN_ROOT/lib/consult.sh"
-source "$PLUGIN_ROOT/lib/execute_design.sh"
+source "$PLUGIN_ROOT/lib/deploy.sh"
 
 [[ $# -ge 2 && $# -le 3 ]] || { echo "Usage: $0 <topic> <round> [<variant>]" >&2; exit 2; }
 TOPIC="$1"; ROUND="$2"; VARIANT="${3:-}"
-cw_execute_design_assert_topic "$TOPIC"
+cw_deploy_assert_topic "$TOPIC"
 [[ "$ROUND" =~ ^[1-9][0-9]*$ ]] || { log_error "round must be a positive integer; got '$ROUND'"; exit 2; }
 
-ART_DIR="$(cw_execute_design_art_dir "$TOPIC")"
+ART_DIR="$(cw_deploy_art_dir "$TOPIC")"
 [[ -d "$ART_DIR" ]] || { log_error "$ART_DIR not found"; exit 1; }
 
 if [[ -n "$VARIANT" ]]; then
@@ -36,7 +36,7 @@ OUTBOX="$TROOPER_DIR/outbox.jsonl"
 [[ -f "$OUTBOX" ]] || { log_error "outbox not found at $OUTBOX"; exit 1; }
 
 PROMPT_FILE="$ART_DIR/cody_fix_prompt-$ROUND${VARIANT:+-$VARIANT}.md"
-cw_execute_design_build_fix_prompt "$FIX" > "$PROMPT_FILE"
+cw_deploy_build_fix_prompt "$FIX" > "$PROMPT_FILE"
 
 log_info "[fix-send] cody round=$ROUND variant=${VARIANT:-<none>} ($FIX)"
 

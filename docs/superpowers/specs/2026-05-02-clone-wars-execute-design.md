@@ -1,5 +1,12 @@
 # /clone-wars:execute-design — Codex-Implements, Yoda-Verifies Pipeline
 
+> **Renamed in v0.7.0:** the slash command, bin scripts, lib helpers, env vars,
+> and artifact directory have been renamed to `deploy` / `bin/deploy-*.sh` /
+> `lib/deploy.sh` / `cw_deploy_*` / `CW_DEPLOY_*` / `_deploy/`. This document
+> retains the historical "execute-design" terminology to preserve the v0.6.0
+> design context. Read it as describing the same pipeline; substitute names as
+> needed when cross-referencing live code.
+
 **Status:** Design — Revision 0 (initial)
 **Date:** 2026-05-02
 **Target version:** v0.6.0

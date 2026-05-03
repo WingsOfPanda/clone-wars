@@ -1,24 +1,24 @@
-# lib/execute_design.sh — /clone-wars:execute-design helpers.
+# lib/deploy.sh — /clone-wars:deploy helpers.
 # Sourced. Depends on lib/state.sh, lib/consult.sh (for slug regex re-use).
 
-cw_execute_design_topic_dir() {
+cw_deploy_topic_dir() {
   printf '%s/state/%s/%s\n' "$(cw_state_root)" "$(cw_repo_hash)" "$1"
 }
 
-cw_execute_design_art_dir() {
-  printf '%s/state/%s/%s/_execute\n' "$(cw_state_root)" "$(cw_repo_hash)" "$1"
+cw_deploy_art_dir() {
+  printf '%s/state/%s/%s/_deploy\n' "$(cw_state_root)" "$(cw_repo_hash)" "$1"
 }
 
-# cw_execute_design_assert_topic <topic>
-# Stricter than cw_consult_topic_validate's regex; execute-design topics are strict kebab-only.
-cw_execute_design_assert_topic() {
+# cw_deploy_assert_topic <topic>
+# Stricter than cw_consult_topic_validate's regex; deploy topics are strict kebab-only.
+cw_deploy_assert_topic() {
   [[ "$1" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] \
     || { log_error "invalid topic slug: '$1' (must match ^[a-z0-9][a-z0-9-]{0,31}\$)"; exit 2; }
 }
 
-# cw_execute_design_derive_topic <design-path>
+# cw_deploy_derive_topic <design-path>
 # Strip leading YYYY-MM-DD- and trailing -design.md (or .md). Print slug.
-cw_execute_design_derive_topic() {
+cw_deploy_derive_topic() {
   local p="$1" base
   [[ -n "$p" ]] || { printf ''; return 0; }
   base="${p##*/}"                       # basename
@@ -28,7 +28,7 @@ cw_execute_design_derive_topic() {
   printf '%s\n' "$base"
 }
 
-# cw_execute_design_audit_doc <design-path>
+# cw_deploy_audit_doc <design-path>
 # Heuristic checklist for design-doc readiness. Prints one VERDICT= line plus
 # one ISSUE= line per detected issue. Returns 0 on PASS, 1 on FAIL, 2 on
 # missing/unreadable file.
@@ -43,7 +43,7 @@ cw_execute_design_derive_topic() {
 #                           'todo' is allowed since it commonly appears in field names)
 #   fill_in_later_marker  — file matches /fill in later/i
 #   to_be_determined_marker — file matches /to be determined/i
-cw_execute_design_audit_doc() {
+cw_deploy_audit_doc() {
   local doc="$1"
   [[ -f "$doc" && -r "$doc" ]] || { log_error "design-doc unreadable: $doc"; return 2; }
   local fail=0
@@ -68,11 +68,11 @@ cw_execute_design_audit_doc() {
   return 1
 }
 
-# cw_execute_design_branch_create <topic> [<branch-name-override>]
+# cw_deploy_branch_create <topic> [<branch-name-override>]
 # Refuses on dirty tree or pre-existing branch. Prints created branch name.
-cw_execute_design_branch_create() {
+cw_deploy_branch_create() {
   local topic="$1" override="${2:-}" branch
-  branch="${override:-feat/exec-$topic}"
+  branch="${override:-feat/deploy-$topic}"
   # Not-in-a-git-repo gate (prevents misleading "dirty" message + 70-line git usage spew)
   git rev-parse --git-dir >/dev/null 2>&1 \
     || { log_error "not inside a git repository"; return 1; }
@@ -103,10 +103,10 @@ cw_execute_design_branch_create() {
 # terminating in END_OF_INSTRUCTION. The slash directive writes the body
 # to inbox.md via bin/send.sh.
 
-cw_execute_design_build_plan_prompt() {
+cw_deploy_build_plan_prompt() {
   local design="$1" plan_out="$2"
   cat <<EOF
-You are entering the PLAN phase of /clone-wars:execute-design.
+You are entering the PLAN phase of /clone-wars:deploy.
 
 Use the superpowers:writing-plans skill. Read the design doc at:
   $design
@@ -124,10 +124,10 @@ END_OF_INSTRUCTION
 EOF
 }
 
-cw_execute_design_build_implement_prompt() {
+cw_deploy_build_implement_prompt() {
   local plan="$1"
   cat <<EOF
-You are entering the IMPLEMENT phase of /clone-wars:execute-design.
+You are entering the IMPLEMENT phase of /clone-wars:deploy.
 
 Use the superpowers:subagent-driven-development skill. Read the plan at:
   $plan
@@ -144,10 +144,10 @@ END_OF_INSTRUCTION
 EOF
 }
 
-cw_execute_design_build_verify_prompt() {
+cw_deploy_build_verify_prompt() {
   local design="$1" round="$2" report="$3" test_log="$4"
   cat <<EOF
-You are entering the SELF-VERIFY phase (round $round) of /clone-wars:execute-design.
+You are entering the SELF-VERIFY phase (round $round) of /clone-wars:deploy.
 
 Use the superpowers:verification-before-completion skill. Verify your
 implementation against the design doc at:
@@ -170,10 +170,10 @@ END_OF_INSTRUCTION
 EOF
 }
 
-cw_execute_design_build_fix_prompt() {
+cw_deploy_build_fix_prompt() {
   local fix_prompt="$1"
   cat <<EOF
-You are entering the FIX phase of /clone-wars:execute-design.
+You are entering the FIX phase of /clone-wars:deploy.
 
 Cross-verification flagged issues. Read the fix-prompt at:
   $fix_prompt
