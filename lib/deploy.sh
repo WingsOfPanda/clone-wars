@@ -54,6 +54,12 @@ cw_deploy_audit_doc() {
   grep -qE '\bTODO\b'                           "$doc" && { issues+=("todo_marker"); fail=1; }
   grep -qiE 'fill in later'                     "$doc" && { issues+=("fill_in_later_marker"); fail=1; }
   grep -qiE 'to be determined'                  "$doc" && { issues+=("to_be_determined_marker"); fail=1; }
+  # Target Sub-Project header: if present, slug must be valid (matches ^[A-Za-z0-9._-]+$).
+  # Use cw_deploy_extract_target which returns rc=1 on invalid slug.
+  if grep -qE '^[[:space:]]*\*\*Target Sub-Project:\*\*[[:space:]]+' "$doc"; then
+    cw_deploy_extract_target "$doc" >/dev/null 2>&1 \
+      || { issues+=("target_subproject_when_invalid"); fail=1; }
+  fi
   if (( fail == 0 )); then
     printf 'VERDICT=PASS\n'
     return 0
@@ -252,5 +258,34 @@ cw_deploy_extract_target() {
     return 1
   fi
   printf '%s\n' "$slug"
+}
+
+# cw_deploy_resolve_target <design-path> <conductor-cwd>
+# Resolves the target cwd for a /clone-wars:deploy invocation:
+#   - If design-doc has no Target Sub-Project header → returns <conductor-cwd>.
+#   - If header present + <conductor-cwd>/<slug>/.git/ exists → returns <conductor-cwd>/<slug>.
+#   - If header present + <conductor-cwd>/<slug> missing → rc=1 + log_error.
+#   - If header present + <conductor-cwd>/<slug> exists but no .git → rc=1 + log_error.
+# rc=2 on missing args.
+cw_deploy_resolve_target() {
+  local doc="${1:-}" cwd="${2:-}"
+  [[ -n "$doc" ]] || { log_error "cw_deploy_resolve_target: missing design-path arg"; return 2; }
+  [[ -n "$cwd" ]] || { log_error "cw_deploy_resolve_target: missing cwd arg"; return 2; }
+  local slug
+  slug=$(cw_deploy_extract_target "$doc") || return $?
+  if [[ -z "$slug" ]]; then
+    printf '%s\n' "$cwd"
+    return 0
+  fi
+  local sub="$cwd/$slug"
+  if [[ ! -d "$sub" ]]; then
+    log_error "target sub-project '$slug' not found at $sub (no directory; check spelling or that the sub-repo is checked out)"
+    return 1
+  fi
+  if [[ ! -d "$sub/.git" && ! -f "$sub/.git" ]]; then
+    log_error "target sub-project '$slug' is a directory but not a git repo (no .git/ at $sub)"
+    return 1
+  fi
+  printf '%s\n' "$sub"
 }
 
