@@ -126,12 +126,13 @@ if [[ -f "$state_root/identity-template.md" ]]; then
   log_warn "stale: $state_root/identity-template.md is no longer consulted; safe to delete"
 fi
 
-# 4d. deploy helpers source-load sanity (turn-based deploy).
+# 4d. deploy helpers source-load sanity (turn-based deploy + provider detect).
 if ( source "$PLUGIN_ROOT/lib/state.sh" \
      && source "$PLUGIN_ROOT/lib/log.sh" \
      && source "$PLUGIN_ROOT/lib/consult.sh" \
      && source "$PLUGIN_ROOT/lib/deploy.sh" \
-     && cw_deploy_build_turn_prompt_round1 /a /b /c >/dev/null ) 2>/dev/null; then
+     && cw_deploy_build_turn_prompt_round1 /a /b /c >/dev/null \
+     && cw_deploy_detect_provider /tmp >/dev/null ) 2>/dev/null; then
   log_ok "deploy helpers load clean"
 else
   log_warn "deploy helpers FAILED to load"

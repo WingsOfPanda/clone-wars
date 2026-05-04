@@ -138,3 +138,41 @@ pass "branch_create override honored"
 # Cleanup test cwd
 cd "$TMP"
 rm -rf "$REPO"
+
+# --- cw_deploy_detect_provider ---
+TMP_DETECT=$(mktemp -d); trap 'rm -rf "$TMP" "$TMP_DETECT"' EXIT
+
+# Case 1: file present → claude
+mkdir -p "$TMP_DETECT/yes/.claude-plugin"
+touch "$TMP_DETECT/yes/.claude-plugin/plugin.json"
+out=$(cw_deploy_detect_provider "$TMP_DETECT/yes")
+[[ "$out" == "claude" ]] \
+  || { echo "FAIL: detect with plugin.json should return 'claude' (got '$out')" >&2; exit 1; }
+pass "detect_provider returns 'claude' when .claude-plugin/plugin.json exists"
+
+# Case 2: file absent → codex
+mkdir -p "$TMP_DETECT/no"
+out=$(cw_deploy_detect_provider "$TMP_DETECT/no")
+[[ "$out" == "codex" ]] \
+  || { echo "FAIL: detect without plugin.json should return 'codex' (got '$out')" >&2; exit 1; }
+pass "detect_provider returns 'codex' when .claude-plugin/plugin.json absent"
+
+# Case 3: directory present but no file → codex (presence test must be on file)
+mkdir -p "$TMP_DETECT/dir-only/.claude-plugin"
+out=$(cw_deploy_detect_provider "$TMP_DETECT/dir-only")
+[[ "$out" == "codex" ]] \
+  || { echo "FAIL: empty .claude-plugin/ dir should return 'codex' (got '$out')" >&2; exit 1; }
+pass "detect_provider returns 'codex' when .claude-plugin/ exists but plugin.json doesn't"
+
+# Case 4: missing repo-root → codex (graceful no-signal case)
+out=$(cw_deploy_detect_provider "$TMP_DETECT/does-not-exist")
+[[ "$out" == "codex" ]] \
+  || { echo "FAIL: missing repo-root should return 'codex' (got '$out')" >&2; exit 1; }
+pass "detect_provider returns 'codex' when repo-root doesn't exist"
+
+# Case 5: no arg → rc=2 with clear error
+err=$(cw_deploy_detect_provider 2>&1) && rc=0 || rc=$?
+[[ "$rc" -eq 2 ]] || { echo "FAIL: no arg should rc=2 (got $rc)" >&2; exit 1; }
+echo "$err" | grep -qi 'missing.*repo-root\|repo-root.*missing\|repo-root arg' \
+  || { echo "FAIL: no-arg error message unclear: $err" >&2; exit 1; }
+pass "detect_provider rc=2 + clear error when no arg"

@@ -1,15 +1,17 @@
 ---
-description: Audit a design doc, dispatch it to a Codex trooper for plan/implement/self-verify, then cross-verify and fix-loop until PASS or 5 rounds.
+description: Audit a design doc, dispatch it to an auto-detected trooper (codex by default; claude on plugin repos with confirmation) for plan/implement/self-verify, then cross-verify and fix-loop until PASS or 5 rounds.
 argument-hint: [<design-path>] [--no-branch] [--branch <name>] [--topic <slug>] [--max-rounds 5]
 ---
 
 # /clone-wars:deploy
 
-Run a Codex-implements / Yoda-verifies pipeline on `$ARGUMENTS`. Master Yoda
-audits the design doc; spawns one persistent Codex trooper (`cody-codex-<topic>`);
-delegates plan + implementation + self-verification to the trooper using
-superpowers skills; and cross-verifies after every codex self-verify pass,
-sending fix bundles back until PASS or 5 rounds (then `AskUserQuestion`).
+Run a trooper-implements / Yoda-verifies pipeline on `$ARGUMENTS`. Master Yoda
+audits the design doc; spawns one persistent cody trooper (`cody-<provider>-<topic>`,
+where `<provider>` is auto-detected — `claude` for plugin repos with user
+confirmation, else `codex`); delegates plan + implementation + self-verification
+to the trooper using superpowers skills; and cross-verifies after every trooper
+self-verify pass, sending fix bundles back until PASS or 5 rounds (then
+`AskUserQuestion`).
 
 The cody pane stays attached for the entire run — `tmux select-pane` to watch.
 
@@ -36,7 +38,7 @@ If neither is found and no explicit path was given, refuse with a usage hint.
 | # | subject | activeForm |
 |---|---|---|
 | 0   | `0   Audit design doc [yoda]`              | `Auditing design doc` |
-| 1.1 | `1.1 Spawn cody (codex) [yoda]`            | `Spawning cody` |
+| 1.1 | `1.1 Spawn cody (auto-provider) [yoda]`    | `Spawning cody-${PROVIDER}` |
 | 1   | `1   Run trooper turn (round N) [cody]`    | `Cody running turn (round N)` |
 | 2   | `2   Cross-verify (round N) [yoda]`        | `Yoda cross-verifying (round N)` |
 | 3   | `3   Author fix bundle (if needed) [yoda]` | `Authoring fix bundle` |
@@ -131,13 +133,52 @@ Set task `0` → `in_progress`.
    fi
    ```
 
+8. Resolve trooper provider (auto-detect → confirm if claude):
+
+   ```
+   AUTO_PROVIDER=$(cat "$ART_DIR/auto_provider.txt")
+   ```
+
+   Branch on `$AUTO_PROVIDER`:
+
+   - `codex` → no prompt, just persist:
+     ```
+     PROVIDER=codex
+     log_info "trooper provider: codex (auto-go)"
+     ```
+   - any other unexpected value (e.g. stale-file corruption) → log warning,
+     default to codex without prompting:
+     ```
+     log_warn "unexpected auto_provider value '$AUTO_PROVIDER'; defaulting to codex"
+     PROVIDER=codex
+     ```
+   - `claude` → AskUserQuestion (the cheap default isn't appropriate for
+     plugin repos; ask the user before spending claude tokens):
+     ```
+     question: "This repo has .claude-plugin/plugin.json — Claude is the
+       recommended trooper for plugin testing (it can load slash commands,
+       run hooks, exercise the Claude Code surface natively). It will use
+       claude tokens. Use claude or fall back to codex?"
+     options:
+       - "Use claude (recommended for plugin testing)"
+       - "Fall back to codex (cheaper)"
+     ```
+     Set `PROVIDER` to `claude` if user picked "Use claude"; else `codex`.
+
+   Atomically persist the final choice:
+   ```
+   printf '%s\n' "$PROVIDER" > "$ART_DIR/provider.txt.tmp"
+   mv "$ART_DIR/provider.txt.tmp" "$ART_DIR/provider.txt"
+   ```
+
 Set task `0` → `completed`.
 
-### Step 1.1 — Spawn cody-codex
+### Step 1.1 — Spawn cody-$PROVIDER
 
 Set task `1.1` → `in_progress`.
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" cody codex "$TOPIC"
+PROVIDER=$(cat "$ART_DIR/provider.txt")
+"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" cody "$PROVIDER" "$TOPIC"
 ```
 Set task `1.1` → `completed`. If spawn fails, archive `_deploy/` and exit.
 
@@ -210,7 +251,7 @@ Branch on TS:
   ```
 
   **Trooper-not-idle case on retry.** `bin/deploy-turn-send.sh` reads
-  `cody-codex/status.json` and refuses with `trooper not idle (state=...)`
+  `cody-$PROVIDER/status.json` and refuses with `trooper not idle (state=...)`
   when the previous turn never reset to idle (most common after
   `TS=timeout` — the trooper is still mid-work). On that error,
   AskUserQuestion (Wait 60s and retry / Force-retry / Abort):
@@ -218,7 +259,7 @@ Branch on TS:
     (do NOT clear state files first; the previous attempt already cleared
     them).
   - *Force-retry* — write `{"state":"idle","updated":"<iso>","last_event":"force-reset"}`
-    to `cody-codex/status.json` (atomic tmp+rename), then re-attempt
+    to `cody-$PROVIDER/status.json` (atomic tmp+rename), then re-attempt
     `deploy-turn-send.sh`. The trooper's next inbox.md write will overlap
     its previous read but the END_OF_INSTRUCTION sentinel keeps the new
     payload safe.
