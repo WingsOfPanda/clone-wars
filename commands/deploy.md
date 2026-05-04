@@ -108,6 +108,12 @@ Set task `0` → `in_progress`.
    # this early read is harmless because deploy-init.sh has already written
    # target_cwd.txt by the time it returns.
    TARGET_CWD=$(cat "$ART_DIR/target_cwd.txt")
+   # CRITICAL: export so EVERY downstream bin script invocation in this
+   # directive (deploy-turn-send, deploy-turn-wait, deploy-archive,
+   # deploy-teardown, spawn) inherits it. lib/state.sh's cw_topic_repo_hash
+   # honors this var when computing topic-state paths so reads agree with
+   # what bin/deploy-init.sh wrote (under the SUB-repo hash, not the HUB).
+   export CW_TOPIC_REPO_CWD="$TARGET_CWD"
    # Record branch base for cross-verify diff range (used in Step 2 + Step 4).
    # init.sh creates feat/deploy-<topic> from HEAD on the *trooper's* working
    # tree, so HEAD inside $TARGET_CWD right now IS the commit the new branch
@@ -177,18 +183,28 @@ Set task `0` → `in_progress`.
    mv "$ART_DIR/provider.txt.tmp" "$ART_DIR/provider.txt"
    ```
 
-9. Read the target cwd resolved by `deploy-init.sh`:
+9. Re-confirm the target cwd resolved by `deploy-init.sh` and ensure it is
+   exported for downstream bin scripts:
 
    ```
    TARGET_CWD=$(cat "$ART_DIR/target_cwd.txt")
+   export CW_TOPIC_REPO_CWD="$TARGET_CWD"
    log_info "trooper target cwd: $TARGET_CWD"
    ```
 
+   Every downstream bin script (`bin/deploy-turn-send.sh`, `bin/deploy-turn-wait.sh`,
+   `bin/deploy-archive.sh`, `bin/spawn.sh`, `bin/teardown.sh`) reads
+   `$CW_TOPIC_REPO_CWD` (via `lib/state.sh`'s `cw_topic_repo_hash`) to compute
+   topic-state paths against the sub-repo's hash — without this export they
+   would key off the conductor's `$PWD` (the HUB) and miss the artifacts that
+   `deploy-init.sh` wrote under the SUB-repo hash.
+
    For single-repo deploys (no `Target Sub-Project` header in the design doc),
-   `$TARGET_CWD` equals the conductor's cwd. For hub deploys with a header,
-   `$TARGET_CWD` is the absolute path to the named sub-repo. Step 1.1 passes
-   this to `spawn.sh --cwd`, and Step 2's cross-verify uses it as the
-   `git -C` working tree.
+   `$TARGET_CWD` equals the conductor's cwd — the env var still gets exported
+   but resolves to the same hash, so behavior is unchanged. For hub deploys
+   with a header, `$TARGET_CWD` is the absolute path to the named sub-repo.
+   Step 1.1 passes this to `spawn.sh --cwd`, and Step 2's cross-verify uses
+   it as the `git -C` working tree.
 
 Set task `0` → `completed`.
 

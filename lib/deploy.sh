@@ -1,8 +1,13 @@
 # lib/deploy.sh — /clone-wars:deploy helpers.
 # Sourced. Depends on lib/state.sh, lib/log.sh.
 
+# cw_deploy_topic_dir <topic>
+# Honors $CW_TOPIC_REPO_CWD (sub-repo redirect) via cw_topic_state_dir →
+# cw_topic_repo_hash. Single-repo mode unchanged (env var unset → $PWD-based hash).
 cw_deploy_topic_dir() { cw_topic_state_dir "$1"; }
 
+# cw_deploy_art_dir <topic>
+# Same env-var contract as cw_deploy_topic_dir.
 cw_deploy_art_dir() {
   printf '%s/_deploy\n' "$(cw_topic_state_dir "$1")"
 }
@@ -246,6 +251,18 @@ cw_deploy_extract_target() {
   local doc="${1:-}"
   [[ -n "$doc" ]] || { log_error "cw_deploy_extract_target: missing design-path arg"; return 2; }
   [[ -f "$doc" && -r "$doc" ]] || { log_error "cw_deploy_extract_target: doc unreadable: $doc"; return 2; }
+  # Multi-header guard: a doc with 2+ Target Sub-Project headers is ambiguous —
+  # refuse rather than silently picking the first match. Catches accidental
+  # paste-duplication when authoring hub specs.
+  # NB: `grep -c` exits 1 when there are zero matches AND emits "0", so
+  # `... || echo 0` would concatenate "0\n0". Use a plain assignment + pipe:
+  # grep + wc -l never errors on zero matches.
+  local matches
+  matches=$(grep -cE '^[[:space:]]*\*\*Target Sub-Project:\*\*[[:space:]]+' "$doc" 2>/dev/null) || matches=0
+  if (( matches > 1 )); then
+    log_error "cw_deploy_extract_target: multiple Target Sub-Project headers found in $doc (got $matches; expected 0 or 1)"
+    return 1
+  fi
   local line
   line=$(grep -m1 -E '^[[:space:]]*\*\*Target Sub-Project:\*\*[[:space:]]+' "$doc" || true)
   if [[ -z "$line" ]]; then

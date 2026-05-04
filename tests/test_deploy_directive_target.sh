@@ -38,4 +38,10 @@ fi
 rm -f /tmp/_bare_git.$$
 pass "no leftover bare git invocations in directive"
 
+# Directive must export CW_TOPIC_REPO_CWD so downstream bin scripts (turn-send/wait,
+# archive, spawn, teardown) inherit the sub-repo-keyed hash for path resolution.
+grep -qE 'export[ ]+CW_TOPIC_REPO_CWD' "$D" \
+  || { echo "FAIL: directive must export CW_TOPIC_REPO_CWD for downstream bin scripts" >&2; exit 1; }
+pass "directive exports CW_TOPIC_REPO_CWD"
+
 echo "ALL: ok"

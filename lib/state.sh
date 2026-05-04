@@ -33,10 +33,26 @@ cw_repo_hash() {
   cw_repo_hash_for "$PWD"
 }
 
+# cw_topic_repo_hash
+# Returns the SHA256 hash to use for topic-state paths. Honors $CW_TOPIC_REPO_CWD
+# (set by /clone-wars:deploy when the design doc declares **Target Sub-Project:**),
+# falling back to the conductor's $PWD when unset (single-repo mode).
+# Use this everywhere `cw_repo_hash` was called for topic-state path resolution.
+cw_topic_repo_hash() {
+  if [[ -n "${CW_TOPIC_REPO_CWD:-}" ]]; then
+    cw_repo_hash_for "$CW_TOPIC_REPO_CWD"
+  else
+    cw_repo_hash_for "$PWD"
+  fi
+}
+
 # cw_repo_state_dir — absolute path to this repo's state root:
 #   $CLONE_WARS_HOME/state/<repo-hash>
+# Honors $CW_TOPIC_REPO_CWD via cw_topic_repo_hash so downstream bin scripts
+# (turn-send/wait, archive, spawn, teardown) read the same paths that
+# bin/deploy-init.sh wrote when the design doc declares **Target Sub-Project:**.
 cw_repo_state_dir() {
-  printf '%s/state/%s\n' "$(cw_state_root)" "$(cw_repo_hash)"
+  printf '%s/state/%s\n' "$(cw_state_root)" "$(cw_topic_repo_hash)"
 }
 
 # cw_topic_state_dir <topic> — absolute path to a topic's state dir:
@@ -46,8 +62,9 @@ cw_repo_state_dir() {
 # lib/consult.sh's cw_consult_topic_dir and lib/deploy.sh's cw_deploy_topic_dir
 # remain as named alternatives for clarity at call sites where the consult/deploy
 # context is meaningful.
+# Honors $CW_TOPIC_REPO_CWD via cw_topic_repo_hash (see cw_repo_state_dir).
 cw_topic_state_dir() {
-  printf '%s/state/%s/%s\n' "$(cw_state_root)" "$(cw_repo_hash)" "$1"
+  printf '%s/state/%s/%s\n' "$(cw_state_root)" "$(cw_topic_repo_hash)" "$1"
 }
 
 # cw_atomic_write <dest-path> — read stdin and atomically write to <dest-path>

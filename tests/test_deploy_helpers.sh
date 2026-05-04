@@ -235,6 +235,22 @@ out=$(cw_deploy_extract_target "$TMP_ET/whitespace.md")
 [[ "$out" == "web-frontend" ]] || { echo "FAIL: whitespace-tolerance failed (got '$out')" >&2; exit 1; }
 pass "extract_target tolerates leading/trailing whitespace"
 
+# Case 6: multiple headers → rc=1
+cat > "$TMP_ET/multiple.md" <<'EOF'
+# Spec
+
+**Target Sub-Project:** ARS-Perfusion
+**Target Sub-Project:** ARS-CppOps
+
+## Goal
+foo
+EOF
+err=$(cw_deploy_extract_target "$TMP_ET/multiple.md" 2>&1) && rc=0 || rc=$?
+[[ "$rc" -eq 1 ]] || { echo "FAIL: multiple headers should rc=1 (got $rc)" >&2; exit 1; }
+echo "$err" | grep -qi 'multiple' \
+  || { echo "FAIL: multiple-header error message unclear: $err" >&2; exit 1; }
+pass "extract_target rc=1 + clear error on multiple headers"
+
 # --- cw_deploy_resolve_target ---
 TMP_RT=$(mktemp -d); trap 'rm -rf "$TMP_RT" "$TMP_ET" "${TMP_DETECT:-}"' EXIT
 

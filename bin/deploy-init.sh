@@ -58,11 +58,15 @@ TARGET_CWD=$(cw_deploy_resolve_target "$DESIGN_PATH" "$(cw_repo_root)") || {
   log_error "could not resolve target cwd"; exit 1;
 }
 
-# State path keys off the TARGET (sub-repo) hash so artifacts land alongside
-# the code being modified, not the conductor's repo. cw_deploy_topic_dir/
-# cw_deploy_art_dir use cwd-based hashing; compute inline to anchor on TARGET.
-TOPIC_DIR="$(cw_state_root)/state/$(cw_repo_hash_for "$TARGET_CWD")/$TOPIC"
-ART_DIR="$TOPIC_DIR/_deploy"
+# Export $CW_TOPIC_REPO_CWD BEFORE the ART_DIR computation so cw_deploy_art_dir
+# (which calls cw_topic_state_dir → cw_topic_repo_hash) anchors paths on the
+# TARGET (sub-repo) hash rather than the conductor's cwd. Every downstream bin
+# script (turn-send, turn-wait, archive, spawn, teardown) inherits this env var
+# from the directive (commands/deploy.md Step 0 re-exports it from
+# target_cwd.txt) so all readers/writers agree on the path.
+export CW_TOPIC_REPO_CWD="$TARGET_CWD"
+TOPIC_DIR=$(cw_deploy_topic_dir "$TOPIC")
+ART_DIR=$(cw_deploy_art_dir "$TOPIC")
 [[ ! -d "$ART_DIR" ]] || { log_error "topic _deploy dir already exists: $ART_DIR (pick a different --topic or run teardown)"; exit 1; }
 
 mkdir -p "$ART_DIR" \

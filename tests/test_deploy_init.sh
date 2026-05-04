@@ -207,3 +207,51 @@ echo "$err" | grep -qi 'not found\|missing' \
 ART_BAD="$CLONE_WARS_HOME/state/$SUB_HASH/v10-bad/_deploy"
 [[ ! -d "$ART_BAD" ]] || { echo "FAIL: missing-sub-repo case left orphan ART_DIR at $ART_BAD" >&2; exit 1; }
 pass "deploy-init rejects + auto-rollbacks when header points at missing sub-repo"
+
+# v0.10 integration: the path init writes to MUST match what downstream bin scripts
+# resolve via cw_deploy_art_dir + CW_TOPIC_REPO_CWD env var.
+# This catches the class of bug where init writes under SUB-hash but turn-send/archive
+# read under HUB-hash.
+TMP_INT=$(mktemp -d)
+trap 'rm -rf "$TMP_INT" "$TMP_HUB" "${TMP_AP_CODEX:-}" "${TMP_AP_CLAUDE:-}"' EXIT
+export CLONE_WARS_HOME="$TMP_INT/cw"
+mkdir -p "$TMP_INT/hub/sub-x/.claude-plugin"
+touch "$TMP_INT/hub/sub-x/.claude-plugin/plugin.json"
+( cd "$TMP_INT/hub" && git init -q . && git config user.email t@t && git config user.name t \
+    && git commit -q --allow-empty -m hub-init )
+( cd "$TMP_INT/hub/sub-x" && git init -q . && git config user.email t@t && git config user.name t \
+    && git commit -q --allow-empty -m sub-init )
+
+cat > "$TMP_INT/spec.md" <<'EOF'
+# Hub Spec
+**Target Sub-Project:** sub-x
+## Goal
+foo
+## Architecture
+foo
+## Testing
+foo
+## Success
+foo
+EOF
+
+BIN_INIT="$(cd .. && pwd)/bin/deploy-init.sh"
+TOPIC=$( cd "$TMP_INT/hub" && bash "$BIN_INIT" --no-branch --topic v10-int "$TMP_INT/spec.md" 2>/dev/null | tail -1 )
+
+# Now simulate what downstream scripts do — set CW_TOPIC_REPO_CWD and resolve via cw_deploy_art_dir.
+# Use absolute paths to lib/ so the subshell cwd doesn't matter.
+LIB_STATE_ABS="$REPO_ROOT/lib/state.sh"
+LIB_LOG_ABS="$REPO_ROOT/lib/log.sh"
+LIB_DEPLOY_ABS="$REPO_ROOT/lib/deploy.sh"
+DOWNSTREAM_ART=$(
+  cd "$TMP_INT/hub" \
+    && CW_TOPIC_REPO_CWD="$TMP_INT/hub/sub-x" \
+       bash -c "source '$LIB_STATE_ABS'; source '$LIB_LOG_ABS'; source '$LIB_DEPLOY_ABS'; cw_deploy_art_dir \"\$1\"" _ "$TOPIC"
+)
+SUB_HASH=$(bash -c "source '$LIB_STATE_ABS'; cw_repo_hash_for '$TMP_INT/hub/sub-x'")
+INIT_ART="$CLONE_WARS_HOME/state/$SUB_HASH/$TOPIC/_deploy"
+[[ "$DOWNSTREAM_ART" == "$INIT_ART" ]] \
+  || { echo "FAIL: downstream cw_deploy_art_dir ($DOWNSTREAM_ART) must equal init's ART_DIR ($INIT_ART)" >&2; exit 1; }
+[[ -d "$DOWNSTREAM_ART" ]] \
+  || { echo "FAIL: downstream-resolved ART_DIR ($DOWNSTREAM_ART) doesn't exist (init didn't write there)" >&2; exit 1; }
+pass "init ART_DIR matches downstream cw_deploy_art_dir resolution under CW_TOPIC_REPO_CWD"
