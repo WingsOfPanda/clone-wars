@@ -880,3 +880,125 @@ cw_consult_targets_to_header_pair() {
   printf '**Target Hub(s):** %s\n' "$hubs"
   printf '**Target Sub-Project(s):** %s\n' "$leaves"
 }
+
+# cw_consult_dag_validate <art-dir>
+# Reads stdin (the ## Execution DAG body), validates strict grammar:
+#   Step <N>: <repo>  <description>
+#           depends: Step <M>[, Step <K>...] | none
+# Rejects: free-form prose, unknown step refs, cycles, repos outside
+# targets.txt leaf set. Stderr carries human-readable ERROR: messages.
+# rc=0 on success, rc=1 on validation failure, rc=2 on missing args.
+cw_consult_dag_validate() {
+  local art="${1:-}"
+  [[ -n "$art" ]] || { echo "cw_consult_dag_validate: missing art-dir" >&2; return 2; }
+  local -a leaves=()
+  if [[ -s "$art/targets.txt" ]]; then
+    while IFS= read -r line; do
+      leaves+=("${line#*/}")
+    done < "$art/targets.txt"
+  fi
+
+  local body
+  body=$(cat)
+  [[ -n "$body" ]] || { echo "ERROR: DAG body is empty" >&2; return 1; }
+
+  # Parse: walk lines, alternating Step + depends. Allow blank lines
+  # between Step blocks. Reject anything else.
+  local -A step_repo step_desc
+  local -A step_deps   # value: comma-separated dep ids
+  local -a step_ids=()
+  local current=""
+  local lineno=0
+  local raw
+  while IFS= read -r raw; do
+    lineno=$((lineno + 1))
+    # Trim trailing CR (POSIX)
+    raw="${raw%$'\r'}"
+    # Skip blank lines.
+    [[ -z "${raw// }" ]] && { current=""; continue; }
+    if [[ "$raw" =~ ^Step\ ([0-9]+):\ +([A-Za-z0-9._-]+)\ +(.+)$ ]]; then
+      current="${BASH_REMATCH[1]}"
+      step_repo[$current]="${BASH_REMATCH[2]}"
+      step_desc[$current]="${BASH_REMATCH[3]}"
+      step_ids+=("$current")
+      continue
+    fi
+    if [[ "$raw" =~ ^[[:space:]]+depends:[[:space:]]*(.+)$ ]]; then
+      [[ -n "$current" ]] || { echo "ERROR: line $lineno depends without preceding Step" >&2; return 1; }
+      local deps="${BASH_REMATCH[1]}"
+      if [[ "$deps" == "none" ]]; then
+        step_deps[$current]=""
+      else
+        # "Step 1, Step 2" -> "1,2"
+        local norm
+        norm=$(echo "$deps" | sed -E 's/Step[[:space:]]+([0-9]+)/\1/g; s/[[:space:]]//g')
+        if [[ ! "$norm" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+          echo "ERROR: line $lineno bad depends syntax: '$deps'" >&2
+          return 1
+        fi
+        step_deps[$current]="$norm"
+      fi
+      current=""
+      continue
+    fi
+    echo "ERROR: line $lineno is invalid (free-form prose or bad grammar): '$raw'" >&2
+    return 1
+  done <<< "$body"
+
+  (( ${#step_ids[@]} > 0 )) || { echo "ERROR: no Step blocks found" >&2; return 1; }
+
+  # Reference + repo-membership check.
+  local id dep
+  declare -A id_set=()
+  for id in "${step_ids[@]}"; do id_set[$id]=1; done
+  for id in "${step_ids[@]}"; do
+    [[ -n "${step_deps[$id]+x}" ]] || { echo "ERROR: Step $id missing depends:" >&2; return 1; }
+    if (( ${#leaves[@]} > 0 )); then
+      local repo="${step_repo[$id]}"
+      local found=0 leaf
+      for leaf in "${leaves[@]}"; do
+        [[ "$leaf" == "$repo" ]] && { found=1; break; }
+      done
+      (( found == 1 )) || { echo "ERROR: Step $id repo '$repo' not in targets" >&2; return 1; }
+    fi
+    if [[ -n "${step_deps[$id]}" ]]; then
+      IFS=',' read -ra _deps <<< "${step_deps[$id]}"
+      for dep in "${_deps[@]}"; do
+        [[ -n "${id_set[$dep]+x}" ]] || { echo "ERROR: Step $id depends on unknown Step $dep" >&2; return 1; }
+      done
+    fi
+  done
+
+  # Kahn topological sort to detect cycles.
+  declare -A indeg=()
+  declare -A adj=()
+  for id in "${step_ids[@]}"; do indeg[$id]=0; done
+  for id in "${step_ids[@]}"; do
+    if [[ -n "${step_deps[$id]}" ]]; then
+      IFS=',' read -ra _deps <<< "${step_deps[$id]}"
+      for dep in "${_deps[@]}"; do
+        adj[$dep]+="$id "
+        indeg[$id]=$((indeg[$id] + 1))
+      done
+    fi
+  done
+  local -a queue=()
+  for id in "${step_ids[@]}"; do
+    (( indeg[$id] == 0 )) && queue+=("$id")
+  done
+  local processed=0 head nbr
+  while (( ${#queue[@]} > 0 )); do
+    head="${queue[0]}"
+    queue=("${queue[@]:1}")
+    processed=$((processed + 1))
+    for nbr in ${adj[$head]:-}; do
+      indeg[$nbr]=$((indeg[$nbr] - 1))
+      (( indeg[$nbr] == 0 )) && queue+=("$nbr")
+    done
+  done
+  if (( processed != ${#step_ids[@]} )); then
+    echo "ERROR: DAG has a cycle (processed $processed of ${#step_ids[@]} steps)" >&2
+    return 1
+  fi
+  return 0
+}
