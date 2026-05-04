@@ -4,6 +4,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 source lib/assert.sh
+source ../lib/log.sh
+source ../lib/state.sh
 source ../lib/consult.sh
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT

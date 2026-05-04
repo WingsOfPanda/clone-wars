@@ -1,12 +1,10 @@
 # lib/deploy.sh — /clone-wars:deploy helpers.
-# Sourced. Depends on lib/state.sh, lib/consult.sh (for slug regex re-use).
+# Sourced. Depends on lib/state.sh, lib/log.sh.
 
-cw_deploy_topic_dir() {
-  printf '%s/state/%s/%s\n' "$(cw_state_root)" "$(cw_repo_hash)" "$1"
-}
+cw_deploy_topic_dir() { cw_topic_state_dir "$1"; }
 
 cw_deploy_art_dir() {
-  printf '%s/state/%s/%s/_deploy\n' "$(cw_state_root)" "$(cw_repo_hash)" "$1"
+  printf '%s/_deploy\n' "$(cw_topic_state_dir "$1")"
 }
 
 # cw_deploy_assert_topic <topic>

@@ -3,8 +3,8 @@
 
 # cw_consult_topic_dir <topic> — absolute path to the consult topic dir.
 # cw_consult_art_dir   <topic> — same, plus /_consult (where artifacts live).
-cw_consult_topic_dir() { printf '%s/state/%s/%s\n'          "$(cw_state_root)" "$(cw_repo_hash)" "$1"; }
-cw_consult_art_dir()   { printf '%s/state/%s/%s/_consult\n' "$(cw_state_root)" "$(cw_repo_hash)" "$1"; }
+cw_consult_topic_dir() { cw_topic_state_dir "$1"; }
+cw_consult_art_dir()   { printf '%s/_consult\n' "$(cw_topic_state_dir "$1")"; }
 
 cw_consult_findings_path() { printf '%s/findings.md\n' "$(cw_trooper_dir "$1" "$2" "$3")"; }
 cw_consult_verify_path()   { printf '%s/verify.md\n'   "$(cw_trooper_dir "$1" "$2" "$3")"; }
@@ -379,18 +379,16 @@ cw_consult_skill_hint_append() {
 }
 
 # cw_consult_question_payload_write <file> <text> <options-pipe-or-empty> <phase>
-# Atomic write (tmp + mv). Multi-line TEXT is percent-encoded via %0A.
+# Atomic write (tmp + mv) via cw_atomic_write. Multi-line TEXT is percent-encoded via %0A.
 cw_consult_question_payload_write() {
   local file="$1" text="$2" options="$3" phase="$4"
   local encoded=${text//$'\n'/%0A}
-  local tmp="$file.tmp.$$"
   {
     printf 'TEXT=%s\n'     "$encoded"
     [[ -n "$options" ]] && printf 'OPTIONS=%s\n' "$options"
     printf 'PHASE=%s\n'    "$phase"
     printf 'ASKED_AT=%s\n' "$(date +%s)"
-  } > "$tmp"
-  mv "$tmp" "$file"
+  } | cw_atomic_write "$file"
 }
 
 # cw_consult_question_payload_read <file> <key>

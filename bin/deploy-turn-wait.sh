@@ -36,11 +36,10 @@ log_info "[turn-wait] cody round=$ROUND offset=$OFFSET timeout=${TIMEOUT}s"
 
 cw_outbox_wait_since cody codex "$TOPIC" "$OFFSET" done error "$TIMEOUT" >/dev/null || true
 
-TROOPER_DIR=$(cw_trooper_dir cody codex "$TOPIC")
-OUTBOX="$TROOPER_DIR/outbox.jsonl"
+OUTBOX=$(cw_outbox_path cody codex "$TOPIC")
 TAIL=$(tail -c "+$(( OFFSET + 1 ))" "$OUTBOX" 2>/dev/null || true)
 MATCHED=$(printf '%s\n' "$TAIL" | grep -m1 -E '"event":"(done|error)"' || true)
-EVENT=$(printf '%s' "$MATCHED" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p')
+EVENT=$(cw_event_name_extract "$MATCHED")
 
 VERIFY_OUT="$ART_DIR/verify-report-$ROUND.md"
 

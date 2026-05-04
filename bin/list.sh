@@ -32,7 +32,7 @@ fi
 
 TOPIC_FILTER="${1:-}"
 
-REPO_DIR="$(cw_state_root)/state/$(cw_repo_hash)"
+REPO_DIR="$(cw_repo_state_dir)"
 if [[ ! -d "$REPO_DIR" ]]; then
   echo "no troopers deployed (state dir absent: $REPO_DIR)"
   exit 0
@@ -49,10 +49,8 @@ for topic_dir in "$REPO_DIR"/*/; do
   [[ -z "$TOPIC_FILTER" || "$topic" == "$TOPIC_FILTER" ]] || continue
   for trooper_dir in "$topic_dir"*/; do
     [[ -d "$trooper_dir" ]] || continue
-    # Skip _-prefixed sibling dirs (e.g. _consult/ from /clone-wars:consult);
-    # they're not trooper state and have no pane.json.
-    base="${trooper_dir%/}"; base="${base##*/}"
-    [[ "$base" == _* ]] && continue
+    # Skip _-prefixed sibling dirs (e.g. _consult/) — not trooper state.
+    cw_is_artifact_dir "$trooper_dir" && continue
     mapfile -t META < <(cw_pane_meta_read_for_dir "$trooper_dir")
     commander="${META[0]}"
     model="${META[1]}"

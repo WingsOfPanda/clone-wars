@@ -30,9 +30,8 @@ ART_DIR="$(cw_deploy_art_dir "$TOPIC")"
 STATE_FILE="$ART_DIR/turn-cody-$ROUND.txt"
 [[ ! -e "$STATE_FILE" ]] || { log_error "$STATE_FILE already exists; rm to retry"; exit 1; }
 
-TROOPER_DIR=$(cw_trooper_dir cody codex "$TOPIC")
-OUTBOX="$TROOPER_DIR/outbox.jsonl"
-STATUS="$TROOPER_DIR/status.json"
+OUTBOX=$(cw_outbox_path cody codex "$TOPIC")
+STATUS=$(cw_status_path cody codex "$TOPIC")
 [[ -f "$OUTBOX" ]] || { log_error "outbox not found at $OUTBOX — was cody spawned?"; exit 1; }
 
 # Trooper-not-idle gate (prevents racing the previous turn's mid-write).

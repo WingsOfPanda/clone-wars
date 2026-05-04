@@ -1,5 +1,5 @@
 # lib/contracts.sh — read provider rows from $CLONE_WARS_HOME/contracts.yaml.
-# Parser is awk/grep — no yq dependency. Only structures medic and Plan B need.
+# Parser is awk/grep — no yq dependency. Only the fields medic + spawn need.
 # Sourced. Depends on lib/state.sh.
 
 cw_contracts_path() {

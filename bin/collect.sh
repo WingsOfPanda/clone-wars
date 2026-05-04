@@ -42,7 +42,7 @@ done
 
 # ------------------------------------------------------------ Resolve model
 
-TOPIC_DIR="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC"
+TOPIC_DIR="$(cw_topic_state_dir "$TOPIC")"
 MODEL_HINT=""
 if [[ -d "$TOPIC_DIR" ]]; then
   for d in "$TOPIC_DIR"/${COMMANDER}-*; do
