@@ -651,23 +651,47 @@ cw_consult_design_doc_self_review() {
   return $found
 }
 
-# cw_consult_design_doc_drilldown_prompt <section> <synthesis-path> <commander> <dd-dir> <focus>
+# cw_consult_design_doc_drilldown_prompt <section> <synthesis-path> <commander> <dd-dir> <focus> [subproject]
 # Builds a focused inbox payload asking <commander> to drill into <section>.
 # Trooper writes to <dd-dir>/_scratch/drilldown-<section-slug>-<commander>.md
 # (the _scratch/ subdir keeps per-section trooper output out of the user-facing
 # design-doc directory, which should contain only the final assembled spec).
 # <focus> is optional pushback text from the user; default applies if empty.
+# If <subproject> is non-empty, the output path becomes
+# <dd-dir>/_scratch/drilldown-<section-slug>-<subproject>-<commander>.md and
+# the prompt scope-narrows to that sub-project. Empty/omitted preserves
+# v0.5.3 byte-equal output (single-repo).
 cw_consult_design_doc_drilldown_prompt() {
-  local section="$1" syn="$2" commander="$3" dd_dir="$4" focus="${5:-}"
+  local section="$1" syn="$2" commander="$3" dd_dir="$4" focus="${5:-}" subproject="${6:-}"
   local section_slug
   section_slug=$(printf '%s' "$section" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
-  local out_path="$dd_dir/_scratch/drilldown-${section_slug}-${commander}.md"
+  local out_path
+  if [[ -n "$subproject" ]]; then
+    out_path="$dd_dir/_scratch/drilldown-${section_slug}-${subproject}-${commander}.md"
+  else
+    out_path="$dd_dir/_scratch/drilldown-${section_slug}-${commander}.md"
+  fi
   local resolved_focus="${focus:-Provide more depth, citations, and concrete trade-offs for the $section section.}"
-  cw_consult_load_prompt consult/drilldown.md \
-    "SECTION=$section" \
-    "SYN=$syn" \
-    "FOCUS=$resolved_focus" \
-    "OUT_PATH=$out_path"
+  local out
+  out=$(cw_consult_load_prompt consult/drilldown.md \
+          "SECTION=$section" \
+          "SYN=$syn" \
+          "FOCUS=$resolved_focus" \
+          "OUT_PATH=$out_path" \
+          "SUBPROJECT_BLOCK_START=" "SUBPROJECT_BLOCK_END=" \
+          "SUBPROJECT=${subproject:-N/A}")
+  if [[ -z "$subproject" ]]; then
+    # Single-repo: strip the per-sub-project block to match v0.5.3 baseline byte-for-byte.
+    # Sentinels render as empty inline tokens, so the Scope and "Other sub-projects"
+    # lines bracket the block; getline consumes the trailing blank line for byte-equality.
+    printf '%s\n' "$out" | awk '
+      /^Scope: drill specifically into/ { skipping=1; next }
+      skipping && /^Other sub-projects/ { skipping=0; getline; next }
+      !skipping { print }
+    '
+  else
+    printf '%s\n' "$out"
+  fi
 }
 
 # cw_consult_design_doc_resume_state <design-doc-dir>

@@ -6,7 +6,7 @@ Read the synthesis you produced: /path/to/synthesis.md
 Focus: Add more depth on the IPC contract.
 
 Write your expanded notes (with [citation] anchors) to:
-  /path/to/dd-dir/drilldown-architecture-rex.md
+  /path/to/dd-dir/_scratch/drilldown-architecture-rex.md
 
 When done, append a {"event":"done"} line to your outbox as usual.
 
