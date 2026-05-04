@@ -25,3 +25,12 @@ grep -q '_scratch/drilldown-architecture-rex.md' <<< "$out" \
 grep -q 'ARS-' <<< "$out" \
   && { echo "FAIL: legacy mode should not mention any subproject"; exit 1; } || true
 pass "no subproject: legacy path unchanged"
+
+# (c) Path-traversal subproject rejected
+if cw_consult_design_doc_drilldown_prompt \
+     "Architecture" "/path/to/synthesis.md" "rex" \
+     "/path/to/dd-dir" "Add IPC depth." "../../../etc/passwd" 2>/dev/null; then
+  echo "FAIL: traversal subproject should be rejected"
+  exit 1
+fi
+pass "(c) traversal subproject rejected with rc=2"

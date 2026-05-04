@@ -143,6 +143,21 @@ cw_consult_diff() {
   } > "$out"
 }
 
+# cw_consult_strip_block <begin-regex> <end-regex>
+# Reads stdin, drops lines between (and including) the first match of
+# begin-regex through the first subsequent match of end-regex, plus one
+# trailing line (the consumed terminator). Used by template-builder helpers
+# to remove sentinel-bracketed optional blocks while preserving byte-equality
+# with v0.4.2 baselines for the empty-input case.
+cw_consult_strip_block() {
+  local begin_re="$1" end_re="$2"
+  awk -v b="$begin_re" -v e="$end_re" '
+    $0 ~ b               { skipping=1; next }
+    skipping && $0 ~ e   { skipping=0; getline; next }
+    !skipping            { print }
+  '
+}
+
 # cw_consult_build_verify_prompt <items_file> <write_to> [targets]
 # Build the verify-round prompt body. Reads <items_file> (one `[cite] text` per
 # line) and emits a self-contained instruction, terminated by END_OF_INSTRUCTION.
@@ -161,11 +176,7 @@ cw_consult_build_verify_prompt() {
     # Single-repo: strip the per-sub-project block to match v0.4.2 baseline byte-for-byte.
     # Sentinels render as empty inline tokens, so the heading and closing lines
     # bracket the block; getline consumes the trailing blank line for byte-equality.
-    printf '%s\n' "$out" | awk '
-      /^## Per-sub-project structure$/ { skipping=1; next }
-      skipping && /^verify pass downstream\.$/ { skipping=0; getline; next }
-      !skipping { print }
-    '
+    printf '%s\n' "$out" | cw_consult_strip_block '^## Per-sub-project structure$' '^verify pass downstream\\.$'
   else
     printf '%s\n' "$out"
   fi
@@ -228,11 +239,7 @@ cw_consult_build_research_prompt() {
     # Single-repo: strip the per-sub-project block to match v0.4.2 baseline byte-for-byte.
     # Sentinels render as empty inline tokens, so the heading and closing lines
     # bracket the block; getline consumes the trailing blank line for byte-equality.
-    printf '%s\n' "$out" | awk '
-      /^## Per-sub-project structure$/ { skipping=1; next }
-      skipping && /^verify pass downstream\.$/ { skipping=0; getline; next }
-      !skipping { print }
-    '
+    printf '%s\n' "$out" | cw_consult_strip_block '^## Per-sub-project structure$' '^verify pass downstream\\.$'
   else
     printf '%s\n' "$out"
   fi
@@ -663,6 +670,12 @@ cw_consult_design_doc_self_review() {
 # v0.5.3 byte-equal output (single-repo).
 cw_consult_design_doc_drilldown_prompt() {
   local section="$1" syn="$2" commander="$3" dd_dir="$4" focus="${5:-}" subproject="${6:-}"
+  if [[ -n "$subproject" ]]; then
+    if [[ ! "$subproject" =~ ^[A-Za-z0-9._-]+$ ]]; then
+      echo "cw_consult_design_doc_drilldown_prompt: invalid subproject '$subproject' (need [A-Za-z0-9._-]+)" >&2
+      return 2
+    fi
+  fi
   local section_slug
   section_slug=$(printf '%s' "$section" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
   local out_path
@@ -684,11 +697,7 @@ cw_consult_design_doc_drilldown_prompt() {
     # Single-repo: strip the per-sub-project block to match v0.5.3 baseline byte-for-byte.
     # Sentinels render as empty inline tokens, so the Scope and "Other sub-projects"
     # lines bracket the block; getline consumes the trailing blank line for byte-equality.
-    printf '%s\n' "$out" | awk '
-      /^Scope: drill specifically into/ { skipping=1; next }
-      skipping && /^Other sub-projects/ { skipping=0; getline; next }
-      !skipping { print }
-    '
+    printf '%s\n' "$out" | cw_consult_strip_block '^Scope: drill specifically into' '^Other sub-projects'
   else
     printf '%s\n' "$out"
   fi
