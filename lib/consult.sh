@@ -820,6 +820,8 @@ cw_consult_hub_mode_load() {
   local art="${1:-}"
   [[ -n "$art" ]] || { echo "cw_consult_hub_mode_load: missing art-dir" >&2; return 2; }
   if [[ -f "$art/hub-mode.txt" ]]; then
+    # tr -d strips defensively in case the file was hand-edited with CR/LF
+    # or trailing whitespace; printf '\n' re-adds the canonical terminator.
     tr -d '[:space:]' < "$art/hub-mode.txt"
     printf '\n'
   else
