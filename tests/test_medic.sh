@@ -64,9 +64,10 @@ echo "$out" | grep -qi 'CW_DEPLOY_FIX_TIMEOUT.*deprecated\|CW_DEPLOY_FIX_TIMEOUT
   || { echo "FAIL: medic should warn on CW_DEPLOY_FIX_TIMEOUT" >&2; exit 1; }
 pass "medic warns on legacy CW_DEPLOY_FIX_TIMEOUT env var"
 
-# Probe still passes after the refactor. As of v0.9 the probe ALSO
-# smoke-tests cw_deploy_detect_provider; if that helper breaks, this
-# assertion will catch it.
+# Probe still passes after the refactor. As of v0.10 the probe ALSO
+# smoke-tests cw_deploy_resolve_target (in addition to v0.9's
+# cw_deploy_detect_provider); if either helper breaks, this assertion
+# will catch it.
 out=$(bash ../bin/medic.sh 2>&1) || true
 echo "$out" | grep -q 'deploy helpers load clean' \
   || { echo "FAIL: medic deploy-helpers probe regressed" >&2; exit 1; }

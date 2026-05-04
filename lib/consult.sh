@@ -718,3 +718,24 @@ cw_consult_load_prompt() {
 
   printf '%s\n' "$rendered"
 }
+
+# cw_consult_detect_hub <cwd>
+# Returns 0 + prints names of immediate sub-repos (one per line) when:
+#   <cwd> itself is a git repo (has .git/ dir or file), AND
+#   at least one immediate child of <cwd> contains a .git/ directory or file.
+# Returns 1 (no output) otherwise.
+cw_consult_detect_hub() {
+  local cwd="${1:-}"
+  [[ -n "$cwd" ]] || return 1
+  [[ -d "$cwd/.git" || -f "$cwd/.git" ]] || return 1
+  local found=0 child base
+  for child in "$cwd"/*/; do
+    [[ -d "$child" ]] || continue
+    if [[ -d "$child/.git" || -f "$child/.git" ]]; then
+      base="${child%/}"
+      printf '%s\n' "${base##*/}"
+      found=1
+    fi
+  done
+  (( found == 1 )) && return 0 || return 1
+}

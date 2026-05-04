@@ -97,3 +97,41 @@ OUT_REL2=$(cd "$EREPO" && bash "$PLUGIN_ROOT/bin/consult-design-doc.sh" consult-
   || { echo "FAIL c4: rc nonzero"; cat "$TMP/err4" >&2; exit 1; }
 [[ "$OUT_REL2" != "$OUT_REL" ]] || { echo "FAIL c4: same hash for different topic-text"; exit 1; }
 pass "v0.4.2: different topic-text → different hash → different filename"
+
+# v0.10 — Case 5: CW_CONSULT_TARGET_HEADER set → assembled doc has the header
+# as the second non-blank line.
+DD5=$(mk_topic consult-orch-hub "orch test topic hub mode")
+clean_sections "$DD5"
+OUT_REL5=$(cd "$EREPO" && CW_CONSULT_TARGET_HEADER="**Target Sub-Project:** ARS-Perfusion" \
+  bash "$PLUGIN_ROOT/bin/consult-design-doc.sh" consult-orch-hub 2>"$TMP/err5") \
+  || { echo "FAIL c5: rc nonzero"; cat "$TMP/err5" >&2; exit 1; }
+ASSEMBLED5="$EREPO/$OUT_REL5"
+[[ -f "$ASSEMBLED5" ]] || { echo "FAIL c5: output not at $OUT_REL5"; exit 1; }
+second_line=$(awk 'NF{n++; if(n==2){print; exit}}' "$ASSEMBLED5")
+[[ "$second_line" == "**Target Sub-Project:** ARS-Perfusion" ]] \
+  || { echo "FAIL c5: header not at second non-blank line; got '$second_line'" >&2; exit 1; }
+pass "v0.10: consult-design-doc prepends Target Sub-Project header when CW_CONSULT_TARGET_HEADER set"
+
+# v0.10 — Case 6: CW_CONSULT_TARGET_HEADER unset → no header in output.
+DD6=$(mk_topic consult-orch-nohub "orch test topic no hub mode")
+clean_sections "$DD6"
+unset CW_CONSULT_TARGET_HEADER
+OUT_REL6=$(cd "$EREPO" && bash "$PLUGIN_ROOT/bin/consult-design-doc.sh" consult-orch-nohub 2>"$TMP/err6") \
+  || { echo "FAIL c6: rc nonzero"; cat "$TMP/err6" >&2; exit 1; }
+ASSEMBLED6="$EREPO/$OUT_REL6"
+[[ -f "$ASSEMBLED6" ]] || { echo "FAIL c6: output not at $OUT_REL6"; exit 1; }
+if grep -q 'Target Sub-Project' "$ASSEMBLED6"; then
+  echo "FAIL c6: header should NOT be present when CW_CONSULT_TARGET_HEADER unset" >&2; exit 1
+fi
+pass "v0.10: consult-design-doc omits header when CW_CONSULT_TARGET_HEADER unset"
+
+# v0.10 — Case 7: invalid slug in CW_CONSULT_TARGET_HEADER → script exits 1.
+DD7=$(mk_topic consult-orch-badhdr "orch test topic bad header")
+clean_sections "$DD7"
+if (cd "$EREPO" && CW_CONSULT_TARGET_HEADER="**Target Sub-Project:** Bad/Slug!" \
+    bash "$PLUGIN_ROOT/bin/consult-design-doc.sh" consult-orch-badhdr) >"$TMP/out7" 2>"$TMP/err7"; then
+  echo "FAIL c7: invalid slug should exit nonzero"; exit 1
+fi
+grep -q "invalid Target Sub-Project slug" "$TMP/err7" \
+  || { echo "FAIL c7: expected slug-validation error in stderr"; cat "$TMP/err7" >&2; exit 1; }
+pass "v0.10: consult-design-doc rejects invalid Target Sub-Project slug"

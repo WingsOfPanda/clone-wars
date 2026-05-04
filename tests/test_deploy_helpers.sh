@@ -176,3 +176,180 @@ err=$(cw_deploy_detect_provider 2>&1) && rc=0 || rc=$?
 echo "$err" | grep -qi 'missing.*repo-root\|repo-root.*missing\|repo-root arg' \
   || { echo "FAIL: no-arg error message unclear: $err" >&2; exit 1; }
 pass "detect_provider rc=2 + clear error when no arg"
+
+# --- cw_deploy_extract_target ---
+TMP_ET=$(mktemp -d); trap 'rm -rf "$TMP_ET" "${TMP_DETECT:-}"' EXIT
+
+# Case 1: no header → empty + rc=0
+echo "# Spec
+no header here.
+
+## Goal
+foo
+" > "$TMP_ET/no-header.md"
+out=$(cw_deploy_extract_target "$TMP_ET/no-header.md") && rc=0 || rc=$?
+[[ "$rc" -eq 0 ]] || { echo "FAIL: no-header should rc=0 (got $rc)" >&2; exit 1; }
+[[ -z "$out" ]] || { echo "FAIL: no-header should print empty (got '$out')" >&2; exit 1; }
+pass "extract_target returns empty + rc=0 when no header"
+
+# Case 2: valid header → slug + rc=0
+echo "# Spec
+
+**Target Sub-Project:** ARS-Perfusion
+
+## Goal
+foo
+" > "$TMP_ET/valid.md"
+out=$(cw_deploy_extract_target "$TMP_ET/valid.md")
+[[ "$out" == "ARS-Perfusion" ]] || { echo "FAIL: expected 'ARS-Perfusion' (got '$out')" >&2; exit 1; }
+pass "extract_target returns slug for valid header"
+
+# Case 3: malformed (slug with /) → rc=1
+echo "# Spec
+
+**Target Sub-Project:** ../escape
+
+## Goal
+foo
+" > "$TMP_ET/malformed.md"
+err=$(cw_deploy_extract_target "$TMP_ET/malformed.md" 2>&1) && rc=0 || rc=$?
+[[ "$rc" -eq 1 ]] || { echo "FAIL: malformed slug should rc=1 (got $rc)" >&2; exit 1; }
+echo "$err" | grep -qi 'invalid\|malformed\|slug' \
+  || { echo "FAIL: malformed error message unclear: $err" >&2; exit 1; }
+pass "extract_target rc=1 + clear error on malformed slug"
+
+# Case 4: missing arg → rc=2
+err=$(cw_deploy_extract_target 2>&1) && rc=0 || rc=$?
+[[ "$rc" -eq 2 ]] || { echo "FAIL: no arg should rc=2 (got $rc)" >&2; exit 1; }
+pass "extract_target rc=2 on missing arg"
+
+# Case 5: tolerates leading whitespace + double space after colon
+echo "# Spec
+
+   **Target Sub-Project:**   web-frontend
+
+## Goal
+foo
+" > "$TMP_ET/whitespace.md"
+out=$(cw_deploy_extract_target "$TMP_ET/whitespace.md")
+[[ "$out" == "web-frontend" ]] || { echo "FAIL: whitespace-tolerance failed (got '$out')" >&2; exit 1; }
+pass "extract_target tolerates leading/trailing whitespace"
+
+# Case 6: multiple headers → rc=1
+cat > "$TMP_ET/multiple.md" <<'EOF'
+# Spec
+
+**Target Sub-Project:** ARS-Perfusion
+**Target Sub-Project:** ARS-CppOps
+
+## Goal
+foo
+EOF
+err=$(cw_deploy_extract_target "$TMP_ET/multiple.md" 2>&1) && rc=0 || rc=$?
+[[ "$rc" -eq 1 ]] || { echo "FAIL: multiple headers should rc=1 (got $rc)" >&2; exit 1; }
+echo "$err" | grep -qi 'multiple' \
+  || { echo "FAIL: multiple-header error message unclear: $err" >&2; exit 1; }
+pass "extract_target rc=1 + clear error on multiple headers"
+
+# --- cw_deploy_resolve_target ---
+TMP_RT=$(mktemp -d); trap 'rm -rf "$TMP_RT" "$TMP_ET" "${TMP_DETECT:-}"' EXIT
+
+# Build a hub-style fixture: hub/ has .git; hub/sub-a/ has .git; hub/sub-b/ exists but no .git.
+mkdir -p "$TMP_RT/hub/.git" "$TMP_RT/hub/sub-a/.git" "$TMP_RT/hub/sub-b"
+
+# Case 1: no header → returns conductor-cwd verbatim
+echo "# spec, no header" > "$TMP_RT/no-header.md"
+out=$(cw_deploy_resolve_target "$TMP_RT/no-header.md" "$TMP_RT/hub")
+[[ "$out" == "$TMP_RT/hub" ]] || { echo "FAIL: no-header should return cwd verbatim (got '$out')" >&2; exit 1; }
+pass "resolve_target returns cwd verbatim when no header"
+
+# Case 2: header + valid sub-repo → returns sub-repo path
+echo "# spec
+
+**Target Sub-Project:** sub-a
+" > "$TMP_RT/valid.md"
+out=$(cw_deploy_resolve_target "$TMP_RT/valid.md" "$TMP_RT/hub")
+[[ "$out" == "$TMP_RT/hub/sub-a" ]] || { echo "FAIL: valid header should return sub-repo path (got '$out')" >&2; exit 1; }
+pass "resolve_target returns sub-repo path when header valid"
+
+# Case 3: header + missing sub-repo → rc=1
+echo "# spec
+
+**Target Sub-Project:** sub-missing
+" > "$TMP_RT/missing.md"
+err=$(cw_deploy_resolve_target "$TMP_RT/missing.md" "$TMP_RT/hub" 2>&1) && rc=0 || rc=$?
+[[ "$rc" -eq 1 ]] || { echo "FAIL: missing sub-repo should rc=1 (got $rc)" >&2; exit 1; }
+echo "$err" | grep -qi 'not found\|missing' \
+  || { echo "FAIL: missing-sub-repo error message unclear: $err" >&2; exit 1; }
+pass "resolve_target rc=1 when sub-repo dir missing"
+
+# Case 4: header + sub-repo dir exists but no .git → rc=1
+echo "# spec
+
+**Target Sub-Project:** sub-b
+" > "$TMP_RT/no-git.md"
+err=$(cw_deploy_resolve_target "$TMP_RT/no-git.md" "$TMP_RT/hub" 2>&1) && rc=0 || rc=$?
+[[ "$rc" -eq 1 ]] || { echo "FAIL: no-.git sub-repo should rc=1 (got $rc)" >&2; exit 1; }
+echo "$err" | grep -qi 'not a git repo' \
+  || { echo "FAIL: no-.git error message unclear: $err" >&2; exit 1; }
+pass "resolve_target rc=1 when sub-repo exists but not a git repo"
+
+# --- audit gate target_subproject_when_invalid ---
+TMP_AG=$(mktemp -d); trap 'rm -rf "$TMP_AG" "$TMP_RT" "$TMP_ET" "${TMP_DETECT:-}"' EXIT
+
+# Case 1: invalid slug (path traversal) → audit RC=1 with the new ISSUE
+cat > "$TMP_AG/invalid.md" <<'EOF'
+# Spec
+
+**Target Sub-Project:** ../escape
+
+## Goal
+foo
+## Architecture
+foo
+## Testing
+foo
+## Success
+foo
+EOF
+out=$(cw_deploy_audit_doc "$TMP_AG/invalid.md") && rc=0 || rc=$?
+[[ "$rc" -eq 1 ]] || { echo "FAIL: invalid header should audit FAIL (got $rc)" >&2; exit 1; }
+echo "$out" | grep -q 'ISSUE=target_subproject_when_invalid' \
+  || { echo "FAIL: audit must emit target_subproject_when_invalid ISSUE; got: $out" >&2; exit 1; }
+pass "audit emits target_subproject_when_invalid for malformed slug"
+
+# Case 2: valid header → audit PASS
+cat > "$TMP_AG/valid.md" <<'EOF'
+# Spec
+
+**Target Sub-Project:** ARS-Perfusion
+
+## Goal
+foo
+## Architecture
+foo
+## Testing
+foo
+## Success
+foo
+EOF
+out=$(cw_deploy_audit_doc "$TMP_AG/valid.md") && rc=0 || rc=$?
+[[ "$rc" -eq 0 ]] || { echo "FAIL: valid header should PASS (got $rc; out: $out)" >&2; exit 1; }
+pass "audit PASSes for valid Target Sub-Project header"
+
+# Case 3: no header → audit PASS (single-repo case unchanged)
+cat > "$TMP_AG/none.md" <<'EOF'
+# Spec
+
+## Goal
+foo
+## Architecture
+foo
+## Testing
+foo
+## Success
+foo
+EOF
+out=$(cw_deploy_audit_doc "$TMP_AG/none.md") && rc=0 || rc=$?
+[[ "$rc" -eq 0 ]] || { echo "FAIL: no-header should PASS (got $rc; out: $out)" >&2; exit 1; }
+pass "audit PASSes when no Target Sub-Project header (single-repo case)"

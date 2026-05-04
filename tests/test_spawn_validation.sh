@@ -40,4 +40,35 @@ out=$(bash "$SPAWN" rex codex demo 2>&1); code=$?
 assert_contains "$out" "tmux" "tmux-not-running error reaches stderr"
 pass "valid args reach tmux check"
 
+
+# --- --cwd flag (v0.10) ---
+TMP_CWD=$(mktemp -d); trap 'rm -rf "$TMP_CWD"' EXIT
+mkdir -p "$TMP_CWD/sub"
+
+# Case 1: --cwd <existing-abs-path> accepted (static-wiring)
+grep -q '\-\-cwd' ../bin/spawn.sh \
+  || { echo "FAIL: spawn.sh must parse --cwd flag" >&2; exit 1; }
+grep -qE 'split-window.*-c[ ]+"?\$' ../bin/spawn.sh \
+  || { echo "FAIL: spawn.sh must pass -c <cwd> to tmux split-window" >&2; exit 1; }
+pass "spawn.sh wires --cwd into tmux split-window -c"
+
+# Case 2: --cwd <missing-path> rejected
+err=$(../bin/spawn.sh cody codex some-topic --cwd "$TMP_CWD/does-not-exist" 2>&1) && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] || { echo "FAIL: --cwd <missing> should rc!=0 (got $rc)" >&2; exit 1; }
+echo "$err" | grep -qi 'cwd.*not exist\|cwd.*does not exist\|cwd.*not a dir' \
+  || { echo "FAIL: --cwd missing-path error unclear: $err" >&2; exit 1; }
+pass "spawn rejects --cwd <missing-path>"
+
+# Case 3: --cwd without value rejected
+err=$(../bin/spawn.sh cody codex some-topic --cwd 2>&1) && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] || { echo "FAIL: --cwd without value should rc!=0 (got $rc)" >&2; exit 1; }
+pass "spawn rejects bare --cwd without value"
+
+# Case 4: --cwd with relative path rejected (must be absolute)
+err=$(../bin/spawn.sh cody codex some-topic --cwd "relative/path" 2>&1) && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] || { echo "FAIL: --cwd <relative> should rc!=0 (got $rc)" >&2; exit 1; }
+echo "$err" | grep -qi 'absolute' \
+  || { echo "FAIL: --cwd relative-path error should mention 'absolute'; got: $err" >&2; exit 1; }
+pass "spawn rejects relative --cwd path"
+
 echo "  ALL: ok"

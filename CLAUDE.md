@@ -309,5 +309,7 @@ This repo follows Conventional Commits loosely: `feat:`, `fix:`, `docs:`, `test:
 - [ ] v0.8.0 strict-dogfood pass on a real machine (release gate)
 - [x] v0.9.0: deploy auto-detects trooper provider (codex default; claude with confirmation when .claude-plugin/plugin.json present); cw_deploy_detect_provider helper + auto_provider.txt/provider.txt state files; medic probe extended; static-wiring test for the directive
 - [ ] v0.9.0 strict-dogfood pass on a real machine (release gate — see tests/test_deploy_v07_dogfood.sh scenarios 4-6)
+- [x] v0.10.0: deploy sub-repo redirect — `**Target Sub-Project:** <name>` header in design doc redirects trooper pane / branch / state / provider auto-detect into `<conductor-cwd>/<name>/`; mirrors /executeorder66 git -C / tmux -c discipline; consult design-doc walk asks for the header in hub repos
+- [ ] v0.10.0 strict-dogfood pass on a real machine (release gate — see tests/test_deploy_v07_dogfood.sh scenarios 7-9)
 - [ ] v0.6: drop config/identity-template.md back-compat symlink + sweep tracer/*.sh + README.md legacy refs
 - [ ] Submit to claude-plugins-official (post v0.5.x dogfood)

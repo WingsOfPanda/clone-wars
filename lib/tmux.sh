@@ -6,28 +6,33 @@
 #   @cw_color      — primary Morandi color (used by active-border hook)
 #   @cw_label_fmt  — pre-rendered colored label (read by pane-border-format)
 
-# cw_pane_spawn_right <commander> <model> <topic> <launch_cmd> [<target_pane>]
+# cw_pane_spawn_right <commander> <model> <topic> <launch_cmd> [<target_pane>] [<cwd>]
 # Splits horizontally (right) of <target_pane> if given, else of Master Yoda's pane.
-# Sets the three @cw_* user-options. Returns: pane id on stdout (e.g. "%62").
+# If <cwd> is non-empty, the new pane starts in that directory (must be absolute);
+# otherwise it inherits cw_repo_root. Sets the three @cw_* user-options.
+# Returns: pane id on stdout (e.g. "%62").
 cw_pane_spawn_right() {
-  local commander="$1" model="$2" topic="$3" launch="$4" target="${5:-}"
+  local commander="$1" model="$2" topic="$3" launch="$4" target="${5:-}" cwd="${6:-}"
+  local start_dir="${cwd:-$(cw_repo_root)}"
   local pane
   if [[ -n "$target" ]]; then
-    pane=$(tmux split-window -P -F '#{pane_id}' -h -t "$target" -c "$(cw_repo_root)" "$launch")
+    pane=$(tmux split-window -P -F '#{pane_id}' -h -t "$target" -c "$start_dir" "$launch")
   else
-    pane=$(tmux split-window -P -F '#{pane_id}' -h -c "$(cw_repo_root)" "$launch")
+    pane=$(tmux split-window -P -F '#{pane_id}' -h -c "$start_dir" "$launch")
   fi
   cw_pane_label_set "$pane" "$commander" "$model" "$topic"
   printf '%s\n' "$pane"
 }
 
-# cw_pane_spawn_down <commander> <model> <topic> <launch_cmd> <target_pane>
+# cw_pane_spawn_down <commander> <model> <topic> <launch_cmd> <target_pane> [<cwd>]
 # Splits vertically (down) of <target_pane> — used for second-and-later
-# troopers in the same topic per docs/DESIGN.md §Pane layout.
+# troopers in the same topic per docs/DESIGN.md §Pane layout. If <cwd> is
+# non-empty, the new pane starts there; otherwise inherits cw_repo_root.
 cw_pane_spawn_down() {
-  local commander="$1" model="$2" topic="$3" launch="$4" target="$5"
+  local commander="$1" model="$2" topic="$3" launch="$4" target="$5" cwd="${6:-}"
+  local start_dir="${cwd:-$(cw_repo_root)}"
   local pane
-  pane=$(tmux split-window -P -F '#{pane_id}' -v -t "$target" -c "$(cw_repo_root)" "$launch")
+  pane=$(tmux split-window -P -F '#{pane_id}' -v -t "$target" -c "$start_dir" "$launch")
   cw_pane_label_set "$pane" "$commander" "$model" "$topic"
   printf '%s\n' "$pane"
 }

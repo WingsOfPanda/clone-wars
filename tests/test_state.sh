@@ -75,3 +75,25 @@ TMP_LEAKS=("$TMP"/atomic-write-test.txt.tmp.*)
 (( ${#TMP_LEAKS[@]} == 0 )) || { echo "FAIL: tmp leaked after concurrent writes: ${TMP_LEAKS[*]}" >&2; exit 1; }
 shopt -u nullglob
 pass "atomic_write survives $N concurrent writers"
+
+# --- cw_repo_hash_for ---
+TMP_RH=$(mktemp -d); trap 'rm -rf "$TMP_RH" "${OLD_TRAP:-}"' EXIT
+mkdir -p "$TMP_RH/dir-a" "$TMP_RH/dir-b"
+
+# Case 1: explicit cwd produces deterministic hash
+h1=$(cw_repo_hash_for "$TMP_RH/dir-a")
+h2=$(cw_repo_hash_for "$TMP_RH/dir-a")
+[[ "$h1" == "$h2" ]] || { echo "FAIL: cw_repo_hash_for must be deterministic (got '$h1' vs '$h2')" >&2; exit 1; }
+[[ ${#h1} -eq 64 ]] || { echo "FAIL: cw_repo_hash_for must return 64-char SHA256 (got len ${#h1})" >&2; exit 1; }
+pass "cw_repo_hash_for is deterministic + 64-char SHA256"
+
+# Case 2: equivalence with cw_repo_hash when cwd matches $PWD
+( cd "$TMP_RH/dir-a" && [[ "$(cw_repo_hash)" == "$(cw_repo_hash_for "$PWD")" ]] ) \
+  || { echo "FAIL: cw_repo_hash and cw_repo_hash_for \$PWD must agree" >&2; exit 1; }
+pass "cw_repo_hash equals cw_repo_hash_for \$PWD"
+
+# Case 3: distinct cwds produce distinct hashes
+h_a=$(cw_repo_hash_for "$TMP_RH/dir-a")
+h_b=$(cw_repo_hash_for "$TMP_RH/dir-b")
+[[ "$h_a" != "$h_b" ]] || { echo "FAIL: distinct cwds must hash differently" >&2; exit 1; }
+pass "cw_repo_hash_for distinguishes different cwds"

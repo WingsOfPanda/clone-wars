@@ -126,18 +126,26 @@ if [[ -f "$state_root/identity-template.md" ]]; then
   log_warn "stale: $state_root/identity-template.md is no longer consulted; safe to delete"
 fi
 
-# 4d. deploy helpers source-load sanity (turn-based deploy + provider detect).
+# 4d. deploy helpers source-load sanity (turn-based deploy + provider/target detect).
+# Use a self-contained mktemp dummy doc rather than $PLUGIN_ROOT/LICENSE so the
+# probe doesn't depend on a specific file existing in a partial install.
+_smoke_doc=$(mktemp 2>/dev/null) && {
+  printf '# smoke\nno header here.\n' > "$_smoke_doc"
+}
 if ( source "$PLUGIN_ROOT/lib/state.sh" \
      && source "$PLUGIN_ROOT/lib/log.sh" \
      && source "$PLUGIN_ROOT/lib/consult.sh" \
      && source "$PLUGIN_ROOT/lib/deploy.sh" \
      && cw_deploy_build_turn_prompt_round1 /a /b /c >/dev/null \
-     && cw_deploy_detect_provider /tmp >/dev/null ) 2>/dev/null; then
+     && cw_deploy_detect_provider /tmp >/dev/null \
+     && cw_deploy_resolve_target "$_smoke_doc" /tmp >/dev/null ) 2>/dev/null; then
   log_ok "deploy helpers load clean"
 else
   log_warn "deploy helpers FAILED to load"
   warn=1
 fi
+[[ -f "$_smoke_doc" ]] && rm -f "$_smoke_doc"
+unset _smoke_doc
 
 # 4e. legacy deploy env vars (now ignored — CW_DEPLOY_TURN_TIMEOUT is the single knob).
 for legacy_var in CW_DEPLOY_PLAN_TIMEOUT CW_DEPLOY_IMPLEMENT_TIMEOUT \

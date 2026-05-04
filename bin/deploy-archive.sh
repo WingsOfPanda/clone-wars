@@ -16,7 +16,7 @@ TOPIC_DIR="$(cw_deploy_topic_dir "$TOPIC")"
 ART_DIR="$TOPIC_DIR/_deploy"
 [[ -d "$ART_DIR" ]] || { log_error "$ART_DIR missing — already archived?"; exit 1; }
 
-ARCHIVE_BASE="$(cw_state_root)/archive/$(cw_repo_hash)/$TOPIC"
+ARCHIVE_BASE="$(cw_state_root)/archive/$(cw_topic_repo_hash)/$TOPIC"
 mkdir -p "$ARCHIVE_BASE" || { log_error "mkdir failed: $ARCHIVE_BASE"; exit 1; }
 TS=$(date -u +'%Y%m%dT%H%M%SZ')
 DEST="$ARCHIVE_BASE/_deploy-$TS"

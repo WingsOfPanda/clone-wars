@@ -1,8 +1,13 @@
 # lib/deploy.sh — /clone-wars:deploy helpers.
 # Sourced. Depends on lib/state.sh, lib/log.sh.
 
+# cw_deploy_topic_dir <topic>
+# Honors $CW_TOPIC_REPO_CWD (sub-repo redirect) via cw_topic_state_dir →
+# cw_topic_repo_hash. Single-repo mode unchanged (env var unset → $PWD-based hash).
 cw_deploy_topic_dir() { cw_topic_state_dir "$1"; }
 
+# cw_deploy_art_dir <topic>
+# Same env-var contract as cw_deploy_topic_dir.
 cw_deploy_art_dir() {
   printf '%s/_deploy\n' "$(cw_topic_state_dir "$1")"
 }
@@ -54,6 +59,12 @@ cw_deploy_audit_doc() {
   grep -qE '\bTODO\b'                           "$doc" && { issues+=("todo_marker"); fail=1; }
   grep -qiE 'fill in later'                     "$doc" && { issues+=("fill_in_later_marker"); fail=1; }
   grep -qiE 'to be determined'                  "$doc" && { issues+=("to_be_determined_marker"); fail=1; }
+  # Target Sub-Project header: if present, slug must be valid (matches ^[A-Za-z0-9._-]+$).
+  # Use cw_deploy_extract_target which returns rc=1 on invalid slug.
+  if grep -qE '^[[:space:]]*\*\*Target Sub-Project:\*\*[[:space:]]+' "$doc"; then
+    cw_deploy_extract_target "$doc" >/dev/null 2>&1 \
+      || { issues+=("target_subproject_when_invalid"); fail=1; }
+  fi
   if (( fail == 0 )); then
     printf 'VERDICT=PASS\n'
     return 0
@@ -226,5 +237,72 @@ cw_deploy_detect_provider() {
   else
     printf 'codex\n'
   fi
+}
+
+# cw_deploy_extract_target <design-path>
+# Extracts the slug from a `**Target Sub-Project:** <slug>` header line.
+# Slug must match ^[A-Za-z0-9._-]+$ — rejects path-traversal attempts
+# (`../escape`) and other invalid forms.
+# - No header in doc → prints empty + rc=0
+# - Valid header → prints slug + rc=0
+# - Header present but slug invalid → rc=1 + log_error
+# - Missing/unreadable doc OR no arg → rc=2
+cw_deploy_extract_target() {
+  local doc="${1:-}"
+  [[ -n "$doc" ]] || { log_error "cw_deploy_extract_target: missing design-path arg"; return 2; }
+  [[ -f "$doc" && -r "$doc" ]] || { log_error "cw_deploy_extract_target: doc unreadable: $doc"; return 2; }
+  # Multi-header guard: a doc with 2+ Target Sub-Project headers is ambiguous —
+  # refuse rather than silently picking the first match. Catches accidental
+  # paste-duplication when authoring hub specs.
+  # NB: `grep -c` exits 1 when there are zero matches AND emits "0", so
+  # `... || echo 0` would concatenate "0\n0". Use a plain assignment + pipe:
+  # grep + wc -l never errors on zero matches.
+  local matches
+  matches=$(grep -cE '^[[:space:]]*\*\*Target Sub-Project:\*\*[[:space:]]+' "$doc" 2>/dev/null) || matches=0
+  if (( matches > 1 )); then
+    log_error "cw_deploy_extract_target: multiple Target Sub-Project headers found in $doc (got $matches; expected 0 or 1)"
+    return 1
+  fi
+  local line
+  line=$(grep -m1 -E '^[[:space:]]*\*\*Target Sub-Project:\*\*[[:space:]]+' "$doc" || true)
+  if [[ -z "$line" ]]; then
+    return 0  # no header → empty stdout
+  fi
+  local slug
+  slug=$(printf '%s' "$line" | sed -E 's/^[[:space:]]*\*\*Target Sub-Project:\*\*[[:space:]]+([^[:space:]]+).*/\1/')
+  if [[ ! "$slug" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    log_error "cw_deploy_extract_target: invalid slug '$slug' (must match ^[A-Za-z0-9._-]+$)"
+    return 1
+  fi
+  printf '%s\n' "$slug"
+}
+
+# cw_deploy_resolve_target <design-path> <conductor-cwd>
+# Resolves the target cwd for a /clone-wars:deploy invocation:
+#   - If design-doc has no Target Sub-Project header → returns <conductor-cwd>.
+#   - If header present + <conductor-cwd>/<slug>/.git/ exists → returns <conductor-cwd>/<slug>.
+#   - If header present + <conductor-cwd>/<slug> missing → rc=1 + log_error.
+#   - If header present + <conductor-cwd>/<slug> exists but no .git → rc=1 + log_error.
+# rc=2 on missing args.
+cw_deploy_resolve_target() {
+  local doc="${1:-}" cwd="${2:-}"
+  [[ -n "$doc" ]] || { log_error "cw_deploy_resolve_target: missing design-path arg"; return 2; }
+  [[ -n "$cwd" ]] || { log_error "cw_deploy_resolve_target: missing cwd arg"; return 2; }
+  local slug
+  slug=$(cw_deploy_extract_target "$doc") || return $?
+  if [[ -z "$slug" ]]; then
+    printf '%s\n' "$cwd"
+    return 0
+  fi
+  local sub="$cwd/$slug"
+  if [[ ! -d "$sub" ]]; then
+    log_error "target sub-project '$slug' not found at $sub (no directory; check spelling or that the sub-repo is checked out)"
+    return 1
+  fi
+  if [[ ! -d "$sub/.git" && ! -f "$sub/.git" ]]; then
+    log_error "target sub-project '$slug' is a directory but not a git repo (no .git/ at $sub)"
+    return 1
+  fi
+  printf '%s\n' "$sub"
 }
 
