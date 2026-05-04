@@ -43,12 +43,16 @@ fi
 
 usage() {
   cat >&2 <<EOF
-Usage: $0 <commander|random> <model> <topic> [--mode full|read-only] [initial-prompt]
+Usage: $0 <commander|random> <model> <topic> [--mode full|read-only] [--cwd <abs-path>] [initial-prompt]
 
   commander       — name from \$CLONE_WARS_HOME/commanders.yaml, or "random"
   model           — provider key in contracts.yaml (codex / gemini / claude)
   topic           — operation slug, [a-z0-9-] (≤ 32 chars)
   --mode          — full (default) or read-only; selects contracts.yaml mode
+  --cwd <abs-path> — start the trooper pane in the given absolute directory
+                     (default: inherit conductor's repo root). Used by
+                     /clone-wars:deploy when the design doc declares
+                     **Target Sub-Project**.
   initial-prompt  — optional first task to send via inbox after spawn
 EOF
 }
@@ -58,14 +62,24 @@ EOF
 COMMANDER="$1"; MODEL="$2"; TOPIC="$3"; shift 3
 MODE=""
 INITIAL_PROMPT=""
+SPAWN_CWD=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode)        MODE="$2"; shift 2 ;;
     --mode=*)      MODE="${1#*=}"; shift ;;
+    --cwd)         [[ -n "${2:-}" ]] || { echo "--cwd requires a value" >&2; exit 2; }
+                   SPAWN_CWD="$2"; shift 2 ;;
+    --cwd=*)       SPAWN_CWD="${1#*=}"; shift ;;
     -h|--help)     usage; exit 0 ;;
     *)             INITIAL_PROMPT="$*"; break ;;
   esac
 done
+
+# --cwd validation (must precede tmux/state work so it fails fast).
+if [[ -n "$SPAWN_CWD" ]]; then
+  [[ "$SPAWN_CWD" == /* ]] || { log_error "spawn --cwd must be an absolute path: $SPAWN_CWD"; exit 1; }
+  [[ -d "$SPAWN_CWD" ]] || { log_error "spawn --cwd target does not exist: $SPAWN_CWD"; exit 1; }
+fi
 
 # ------------------------------------------------------------ Input validation
 # Run this FIRST so malformed args fail fast without depending on tmux/state.
@@ -136,13 +150,16 @@ log_info "spawning $COMMANDER-$MODEL with: $LAUNCH"
 
 # First trooper in topic = right-split of Master Yoda; subsequent = down-split of
 # the most-recently-spawned trooper on the same topic (per DESIGN.md §Pane layout).
+# When --cwd <abs-path> is set, the new pane is launched there via
+# `tmux split-window ... -c "$SPAWN_CWD"`; otherwise the helpers default to
+# cw_repo_root (the conductor's repo root).
 PRIOR_FILE="$(cw_topic_state_dir "$TOPIC")/.last_pane"
 PRIOR_PANE=""
 [[ -f "$PRIOR_FILE" ]] && PRIOR_PANE=$(cat "$PRIOR_FILE")
 if [[ -n "$PRIOR_PANE" ]] && cw_pane_alive "$PRIOR_PANE"; then
-  PANE=$(cw_pane_spawn_down "$COMMANDER" "$MODEL" "$TOPIC" "$LAUNCH" "$PRIOR_PANE")
+  PANE=$(cw_pane_spawn_down "$COMMANDER" "$MODEL" "$TOPIC" "$LAUNCH" "$PRIOR_PANE" "$SPAWN_CWD")
 else
-  PANE=$(cw_pane_spawn_right "$COMMANDER" "$MODEL" "$TOPIC" "$LAUNCH")
+  PANE=$(cw_pane_spawn_right "$COMMANDER" "$MODEL" "$TOPIC" "$LAUNCH" "" "$SPAWN_CWD")
 fi
 mkdir -p "$(dirname "$PRIOR_FILE")"
 printf '%s\n' "$PANE" > "$PRIOR_FILE"
