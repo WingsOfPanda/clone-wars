@@ -176,3 +176,61 @@ err=$(cw_deploy_detect_provider 2>&1) && rc=0 || rc=$?
 echo "$err" | grep -qi 'missing.*repo-root\|repo-root.*missing\|repo-root arg' \
   || { echo "FAIL: no-arg error message unclear: $err" >&2; exit 1; }
 pass "detect_provider rc=2 + clear error when no arg"
+
+# --- cw_deploy_extract_target ---
+TMP_ET=$(mktemp -d); trap 'rm -rf "$TMP_ET" "${TMP_DETECT:-}"' EXIT
+
+# Case 1: no header → empty + rc=0
+echo "# Spec
+no header here.
+
+## Goal
+foo
+" > "$TMP_ET/no-header.md"
+out=$(cw_deploy_extract_target "$TMP_ET/no-header.md") && rc=0 || rc=$?
+[[ "$rc" -eq 0 ]] || { echo "FAIL: no-header should rc=0 (got $rc)" >&2; exit 1; }
+[[ -z "$out" ]] || { echo "FAIL: no-header should print empty (got '$out')" >&2; exit 1; }
+pass "extract_target returns empty + rc=0 when no header"
+
+# Case 2: valid header → slug + rc=0
+echo "# Spec
+
+**Target Sub-Project:** ARS-Perfusion
+
+## Goal
+foo
+" > "$TMP_ET/valid.md"
+out=$(cw_deploy_extract_target "$TMP_ET/valid.md")
+[[ "$out" == "ARS-Perfusion" ]] || { echo "FAIL: expected 'ARS-Perfusion' (got '$out')" >&2; exit 1; }
+pass "extract_target returns slug for valid header"
+
+# Case 3: malformed (slug with /) → rc=1
+echo "# Spec
+
+**Target Sub-Project:** ../escape
+
+## Goal
+foo
+" > "$TMP_ET/malformed.md"
+err=$(cw_deploy_extract_target "$TMP_ET/malformed.md" 2>&1) && rc=0 || rc=$?
+[[ "$rc" -eq 1 ]] || { echo "FAIL: malformed slug should rc=1 (got $rc)" >&2; exit 1; }
+echo "$err" | grep -qi 'invalid\|malformed\|slug' \
+  || { echo "FAIL: malformed error message unclear: $err" >&2; exit 1; }
+pass "extract_target rc=1 + clear error on malformed slug"
+
+# Case 4: missing arg → rc=2
+err=$(cw_deploy_extract_target 2>&1) && rc=0 || rc=$?
+[[ "$rc" -eq 2 ]] || { echo "FAIL: no arg should rc=2 (got $rc)" >&2; exit 1; }
+pass "extract_target rc=2 on missing arg"
+
+# Case 5: tolerates leading whitespace + double space after colon
+echo "# Spec
+
+   **Target Sub-Project:**   web-frontend
+
+## Goal
+foo
+" > "$TMP_ET/whitespace.md"
+out=$(cw_deploy_extract_target "$TMP_ET/whitespace.md")
+[[ "$out" == "web-frontend" ]] || { echo "FAIL: whitespace-tolerance failed (got '$out')" >&2; exit 1; }
+pass "extract_target tolerates leading/trailing whitespace"

@@ -228,3 +228,29 @@ cw_deploy_detect_provider() {
   fi
 }
 
+# cw_deploy_extract_target <design-path>
+# Extracts the slug from a `**Target Sub-Project:** <slug>` header line.
+# Slug must match ^[A-Za-z0-9._-]+$ — rejects path-traversal attempts
+# (`../escape`) and other invalid forms.
+# - No header in doc → prints empty + rc=0
+# - Valid header → prints slug + rc=0
+# - Header present but slug invalid → rc=1 + log_error
+# - Missing/unreadable doc OR no arg → rc=2
+cw_deploy_extract_target() {
+  local doc="${1:-}"
+  [[ -n "$doc" ]] || { log_error "cw_deploy_extract_target: missing design-path arg"; return 2; }
+  [[ -f "$doc" && -r "$doc" ]] || { log_error "cw_deploy_extract_target: doc unreadable: $doc"; return 2; }
+  local line
+  line=$(grep -m1 -E '^[[:space:]]*\*\*Target Sub-Project:\*\*[[:space:]]+' "$doc" || true)
+  if [[ -z "$line" ]]; then
+    return 0  # no header → empty stdout
+  fi
+  local slug
+  slug=$(printf '%s' "$line" | sed -E 's/^[[:space:]]*\*\*Target Sub-Project:\*\*[[:space:]]+([^[:space:]]+).*/\1/')
+  if [[ ! "$slug" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    log_error "cw_deploy_extract_target: invalid slug '$slug' (must match ^[A-Za-z0-9._-]+$)"
+    return 1
+  fi
+  printf '%s\n' "$slug"
+}
+
