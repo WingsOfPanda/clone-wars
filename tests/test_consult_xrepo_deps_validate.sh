@@ -58,3 +58,21 @@ X
 err=$(cw_consult_xrepo_deps_validate "$ART" < "$TMPROOT/x5.md" 2>&1) && { echo "FAIL (e)"; exit 1; } || true
 grep -qi "Producer 'Z'" <<< "$err" || { echo "FAIL (e) msg: $err"; exit 1; }
 pass "(e) non-target internal Producer rejected"
+
+# (f) Missing art-dir arg → rc=2
+if cw_consult_xrepo_deps_validate < /dev/null 2>/dev/null; then
+  echo "FAIL (f): missing arg should rc=2"; exit 1
+fi
+pass "(f) missing art-dir → rc=2"
+
+# (g) internal row passes when targets.txt is absent (graceful)
+ART2=$(mktemp -d -t cw-xrepo-no-targets.XXXXXX)
+cat > "$TMPROOT/x6.md" <<'X'
+| Producer | Artifact | Consumer | Type |
+|----------|----------|----------|------|
+| Z | foo | W | internal |
+X
+cw_consult_xrepo_deps_validate "$ART2" < "$TMPROOT/x6.md" \
+  || { echo "FAIL (g): internal should pass when targets.txt absent"; exit 1; }
+rm -rf "$ART2"
+pass "(g) internal Producer/Consumer skip-checked when targets.txt absent"

@@ -1050,11 +1050,12 @@ cw_consult_xrepo_deps_validate() {
       saw_sep=1
       continue
     fi
-    # Data row: split on '|' and trim each cell. Append a sentinel char
-    # before splitting so a trailing '|' yields a final empty cell that
-    # `read -ra` would otherwise strip — keeps column counting consistent.
+    # X-sentinel: bash's `read -ra` strips a single trailing empty field, so a row
+    # like `| A | B | C | D |` would yield 5 cells instead of the 6 we count on
+    # (1 leading empty + 4 data + 1 trailing empty). Appending an `X` before
+    # splitting preserves the trailing empty (it becomes ` X`), keeping cell
+    # count at 6 and arithmetic stable. cells[5] holds ` X`, never used.
     IFS='|' read -ra cells <<< "${raw}X"
-    # Expect 6 cells: leading empty + 4 data + trailing 'X' sentinel.
     if (( ${#cells[@]} != 6 )); then
       echo "ERROR: line $lineno: expected 4 columns, got $((${#cells[@]} - 2))" >&2
       return 1
@@ -1070,6 +1071,8 @@ cw_consult_xrepo_deps_validate() {
       internal|external) ;;
       *) echo "ERROR: line $lineno: Type='$typ' must be 'internal' or 'external'" >&2; return 1 ;;
     esac
+    # external rows skip membership: producer/consumer may live outside the deploy
+    # (already-shipped dependency that's still a real prereq).
     if [[ "$typ" == "internal" ]] && (( ${#leaves[@]} > 0 )); then
       local found_p=0 found_c=0 leaf
       for leaf in "${leaves[@]}"; do
