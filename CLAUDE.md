@@ -311,5 +311,7 @@ This repo follows Conventional Commits loosely: `feat:`, `fix:`, `docs:`, `test:
 - [ ] v0.9.0 strict-dogfood pass on a real machine (release gate — see tests/test_deploy_v07_dogfood.sh scenarios 4-6)
 - [x] v0.10.0: deploy sub-repo redirect — `**Target Sub-Project:** <name>` header in design doc redirects trooper pane / branch / state / provider auto-detect into `<conductor-cwd>/<name>/`; mirrors /executeorder66 git -C / tmux -c discipline; consult design-doc walk asks for the header in hub repos
 - [ ] v0.10.0 strict-dogfood pass on a real machine (release gate — see tests/test_deploy_v07_dogfood.sh scenarios 7-9)
+- [x] v0.11.0: consult hub-mode — Target Hub(s) + Target Sub-Project(s) headers, Execution DAG, Cross-Repo Dependencies table, Step-tagged Acceptance Tests; cw_consult_detect_hub returns MODE/HUBS/LEAVES; 3 new validators (dag/xrepo-deps/acceptance-tests); single-repo behavior byte-identical to v0.10
+- [ ] v0.11.0 strict-dogfood pass on a real machine (release gate — see tests/test_consult_v011_dogfood.sh scenarios CW-DF-CONS-1..4)
 - [ ] v0.6: drop config/identity-template.md back-compat symlink + sweep tracer/*.sh + README.md legacy refs
 - [ ] Submit to claude-plugins-official (post v0.5.x dogfood)
