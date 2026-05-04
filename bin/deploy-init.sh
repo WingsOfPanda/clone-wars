@@ -82,8 +82,7 @@ fi
 # at the repo root → claude; else → codex). Used by commands/deploy.md
 # Step 0 to pick the trooper for spawn. Runs after branch-create so a
 # failed branch (auto-rollback above) doesn't leave an orphan file.
-REPO_ROOT_DETECT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-AUTO_PROVIDER=$(cw_deploy_detect_provider "$REPO_ROOT_DETECT")
+AUTO_PROVIDER=$(cw_deploy_detect_provider "$(cw_repo_root)")
 printf '%s\n' "$AUTO_PROVIDER" > "$ART_DIR/auto_provider.txt.tmp" \
   || { log_error "failed to write auto_provider.txt"; exit 1; }
 mv "$ART_DIR/auto_provider.txt.tmp" "$ART_DIR/auto_provider.txt" \
