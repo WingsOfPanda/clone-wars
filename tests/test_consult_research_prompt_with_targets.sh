@@ -36,6 +36,14 @@ grep -q 'hub_a/leaf2' <<< "$out" \
   || { echo "FAIL: build_research_prompt(targets) leaf2 missing"; exit 1; }
 pass "build_research_prompt(topic, write_to, targets) emits per-sub-project block"
 
+# Bullet-shape regression guard: every leaf must render as a markdown bullet,
+# including the first one (the comma-substitution used to leave it bare).
+grep -qE '^- hub_a/leaf1' <<< "$out" \
+  || { echo "FAIL: first leaf must render as bullet"; exit 1; }
+grep -qE '^- hub_a/leaf2' <<< "$out" \
+  || { echo "FAIL: subsequent leaf must render as bullet"; exit 1; }
+pass "all leaves render as markdown bullets (no bare first leaf)"
+
 # Single-repo via load_prompt: TARGETS empty → instruction absent
 out=$(cw_consult_load_prompt consult/research.md \
         TOPIC="decide between X and Y" \

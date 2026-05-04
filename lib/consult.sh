@@ -156,7 +156,7 @@ cw_consult_build_verify_prompt() {
   out=$(cw_consult_load_prompt consult/verify.md \
           "ITEMS=$items" "WRITE_TO=$write_to" \
           "TARGETS_BLOCK_START=" "TARGETS_BLOCK_END=" \
-          "TARGETS=${targets//,/$'\n'- }")
+          "TARGETS=- ${targets//,/$'\n'- }")
   if [[ -z "$targets" ]]; then
     # Single-repo: strip the per-sub-project block to match v0.4.2 baseline byte-for-byte.
     # Sentinels render as empty inline tokens, so the heading and closing lines
@@ -223,7 +223,7 @@ cw_consult_build_research_prompt() {
   out=$(cw_consult_load_prompt consult/research.md \
           "TOPIC=$topic" "WRITE_TO=$write_to" \
           "TARGETS_BLOCK_START=" "TARGETS_BLOCK_END=" \
-          "TARGETS=${targets//,/$'\n'- }")
+          "TARGETS=- ${targets//,/$'\n'- }")
   if [[ -z "$targets" ]]; then
     # Single-repo: strip the per-sub-project block to match v0.4.2 baseline byte-for-byte.
     # Sentinels render as empty inline tokens, so the heading and closing lines

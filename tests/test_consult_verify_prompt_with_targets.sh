@@ -23,6 +23,14 @@ grep -q 'hub/B' <<< "$out" \
   || { echo "FAIL: build_verify_prompt(targets) leaf B missing"; exit 1; }
 pass "build_verify_prompt(items, write_to, targets) emits per-sub-project block"
 
+# Bullet-shape regression guard: every leaf must render as a markdown bullet,
+# including the first one (the comma-substitution used to leave it bare).
+grep -qE '^- hub/A' <<< "$out" \
+  || { echo "FAIL: first leaf must render as bullet"; exit 1; }
+grep -qE '^- hub/B' <<< "$out" \
+  || { echo "FAIL: subsequent leaf must render as bullet"; exit 1; }
+pass "all leaves render as markdown bullets (no bare first leaf)"
+
 # Single-repo: explicit empty 3rd arg
 out=$(cw_consult_build_verify_prompt "$TMP" /tmp/v.md "")
 grep -q 'Per-sub-project structure' <<< "$out" \
