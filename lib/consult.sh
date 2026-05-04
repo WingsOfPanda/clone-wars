@@ -720,22 +720,70 @@ cw_consult_load_prompt() {
 }
 
 # cw_consult_detect_hub <cwd>
-# Returns 0 + prints names of immediate sub-repos (one per line) when:
-#   <cwd> itself is a git repo (has .git/ dir or file), AND
-#   at least one immediate child of <cwd> contains a .git/ directory or file.
-# Returns 1 (no output) otherwise.
+# Classifies <cwd> into one of three modes and prints structured stdout:
+#   MODE=single-repo|hub-subrepo|super-hub
+#   HUBS=<comma-list>      (only when super-hub)
+#   LEAVES=<comma-list>    (always when rc=0; <hub>/<leaf> form for super-hub,
+#                           <self>/<leaf> form for hub-subrepo)
+# Returns 0 when hub-mode (hub-subrepo or super-hub); rc=1 for single-repo
+# (preserves v0.10 caller expectation).
 cw_consult_detect_hub() {
   local cwd="${1:-}"
   [[ -n "$cwd" ]] || return 1
   [[ -d "$cwd/.git" || -f "$cwd/.git" ]] || return 1
-  local found=0 child base
+
+  local self_name child base
+  self_name="${cwd##*/}"
+  local -a immediate_git=() leaves_subrepo=() hubs=() leaves_super=()
   for child in "$cwd"/*/; do
     [[ -d "$child" ]] || continue
     if [[ -d "$child/.git" || -f "$child/.git" ]]; then
       base="${child%/}"
-      printf '%s\n' "${base##*/}"
-      found=1
+      immediate_git+=("${base##*/}")
     fi
   done
-  (( found == 1 )) && return 0 || return 1
+  [[ ${#immediate_git[@]} -gt 0 ]] || return 1
+
+  # For each immediate git child, scan its subdirectories:
+  #   - any git grandchild  → child is a hub (collect each leaf)
+  #   - no git grandchild but has at least one non-git subdir → child is a leaf
+  #   - no subdirectories at all → drop (not a meaningful sub-project node)
+  local hub leaf grandchild has_grand has_any_subdir
+  for hub in "${immediate_git[@]}"; do
+    has_grand=0
+    has_any_subdir=0
+    for grandchild in "$cwd/$hub"/*/; do
+      [[ -d "$grandchild" ]] || continue
+      has_any_subdir=1
+      if [[ -d "$grandchild/.git" || -f "$grandchild/.git" ]]; then
+        leaf="${grandchild%/}"
+        leaves_super+=("$hub/${leaf##*/}")
+        has_grand=1
+      fi
+    done
+    if (( has_grand == 1 )); then
+      hubs+=("$hub")
+    elif (( has_any_subdir == 1 )); then
+      leaves_subrepo+=("$self_name/$hub")
+    fi
+    # has_any_subdir == 0 → bare git repo; drop per spec error-handling
+  done
+
+  # Classification:
+  # - any immediate git child is a hub (has git grandchildren) → super-hub
+  # - all immediate git children are leaves → hub-subrepo
+  # - mixed: super-hub mode, leaf-less hubs are dropped (per spec error-handling)
+  if (( ${#hubs[@]} > 0 )); then
+    [[ ${#leaves_super[@]} -gt 0 ]] || return 1
+    printf 'MODE=super-hub\n'
+    printf 'HUBS=%s\n' "$(IFS=,; echo "${hubs[*]}")"
+    printf 'LEAVES=%s\n' "$(IFS=,; echo "${leaves_super[*]}")"
+    return 0
+  fi
+  if (( ${#leaves_subrepo[@]} > 0 )); then
+    printf 'MODE=hub-subrepo\n'
+    printf 'LEAVES=%s\n' "$(IFS=,; echo "${leaves_subrepo[*]}")"
+    return 0
+  fi
+  return 1
 }
