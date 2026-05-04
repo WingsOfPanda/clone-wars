@@ -1014,3 +1014,73 @@ cw_consult_dag_validate() {
   fi
   return 0
 }
+
+# cw_consult_xrepo_deps_validate <art-dir>
+# Reads stdin (Cross-Repo Deps pipe-table body). Validates header row +
+# 4 columns + Type ∈ {internal, external} + internal Producer/Consumer
+# both in targets.txt leaf set. Stderr ERROR: messages; rc=0/1/2.
+cw_consult_xrepo_deps_validate() {
+  local art="${1:-}"
+  [[ -n "$art" ]] || { echo "cw_consult_xrepo_deps_validate: missing art-dir" >&2; return 2; }
+  local -a leaves=()
+  if [[ -s "$art/targets.txt" ]]; then
+    while IFS= read -r line; do
+      leaves+=("${line#*/}")
+    done < "$art/targets.txt"
+  fi
+  local body
+  body=$(cat)
+  [[ -n "$body" ]] || { echo "ERROR: xrepo-deps body empty" >&2; return 1; }
+
+  local lineno=0 saw_header=0 saw_sep=0
+  local raw
+  while IFS= read -r raw; do
+    lineno=$((lineno + 1))
+    raw="${raw%$'\r'}"
+    [[ -z "${raw// }" ]] && continue
+    if (( saw_header == 0 )); then
+      [[ "$raw" =~ ^\|[[:space:]]*Producer[[:space:]]*\|[[:space:]]*Artifact[[:space:]]*\|[[:space:]]*Consumer[[:space:]]*\|[[:space:]]*Type[[:space:]]*\|$ ]] \
+        || { echo "ERROR: line $lineno: missing or wrong header (need | Producer | Artifact | Consumer | Type |)" >&2; return 1; }
+      saw_header=1
+      continue
+    fi
+    if (( saw_sep == 0 )); then
+      [[ "$raw" =~ ^\|[-:[:space:]|]+\|$ ]] \
+        || { echo "ERROR: line $lineno: missing separator row" >&2; return 1; }
+      saw_sep=1
+      continue
+    fi
+    # Data row: split on '|' and trim each cell. Append a sentinel char
+    # before splitting so a trailing '|' yields a final empty cell that
+    # `read -ra` would otherwise strip — keeps column counting consistent.
+    IFS='|' read -ra cells <<< "${raw}X"
+    # Expect 6 cells: leading empty + 4 data + trailing 'X' sentinel.
+    if (( ${#cells[@]} != 6 )); then
+      echo "ERROR: line $lineno: expected 4 columns, got $((${#cells[@]} - 2))" >&2
+      return 1
+    fi
+    local producer artifact consumer typ
+    producer=$(echo "${cells[1]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    artifact=$(echo "${cells[2]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    consumer=$(echo "${cells[3]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    typ=$(echo      "${cells[4]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    [[ -n "$producer" && -n "$artifact" && -n "$consumer" && -n "$typ" ]] \
+      || { echo "ERROR: line $lineno: empty cell" >&2; return 1; }
+    case "$typ" in
+      internal|external) ;;
+      *) echo "ERROR: line $lineno: Type='$typ' must be 'internal' or 'external'" >&2; return 1 ;;
+    esac
+    if [[ "$typ" == "internal" ]] && (( ${#leaves[@]} > 0 )); then
+      local found_p=0 found_c=0 leaf
+      for leaf in "${leaves[@]}"; do
+        [[ "$leaf" == "$producer" ]] && found_p=1
+        [[ "$leaf" == "$consumer" ]] && found_c=1
+      done
+      (( found_p == 1 )) || { echo "ERROR: line $lineno: Producer '$producer' marked internal but not in targets" >&2; return 1; }
+      (( found_c == 1 )) || { echo "ERROR: line $lineno: Consumer '$consumer' marked internal but not in targets" >&2; return 1; }
+    fi
+  done <<< "$body"
+  (( saw_header == 1 && saw_sep == 1 )) \
+    || { echo "ERROR: xrepo-deps missing header or separator" >&2; return 1; }
+  return 0
+}
