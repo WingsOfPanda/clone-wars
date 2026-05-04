@@ -103,13 +103,19 @@ Set task `0` → `in_progress`.
               --args-file "$ARGS_DIR/deploy.txt")
    TOPIC_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$TOPIC"
    ART_DIR="$TOPIC_DIR/_deploy"
+   # Pull TARGET_CWD up here so the branch-base rev-parse below runs in the
+   # right working tree. Sub-step 9 logs/re-reads it for downstream steps;
+   # this early read is harmless because deploy-init.sh has already written
+   # target_cwd.txt by the time it returns.
+   TARGET_CWD=$(cat "$ART_DIR/target_cwd.txt")
    # Record branch base for cross-verify diff range (used in Step 2 + Step 4).
-   # init.sh creates feat/deploy-<topic> from HEAD, so HEAD right now IS the
-   # commit the new branch was created from — exactly the diff base we want.
+   # init.sh creates feat/deploy-<topic> from HEAD on the *trooper's* working
+   # tree, so HEAD inside $TARGET_CWD right now IS the commit the new branch
+   # was created from — exactly the diff base we want.
    # Do NOT use `git merge-base HEAD main` here: when invoked from a topic
    # branch that already diverged from main, merge-base returns the prior
    # branch's divergence point (over-counting unrelated commits).
-   git rev-parse HEAD > "$ART_DIR/branch-base.sha"
+   git -C "$TARGET_CWD" rev-parse HEAD > "$ART_DIR/branch-base.sha"
    BRANCH_BASE=$(cat "$ART_DIR/branch-base.sha")
    ```
 6. Run audit and persist verdict:
@@ -171,6 +177,19 @@ Set task `0` → `in_progress`.
    mv "$ART_DIR/provider.txt.tmp" "$ART_DIR/provider.txt"
    ```
 
+9. Read the target cwd resolved by `deploy-init.sh`:
+
+   ```
+   TARGET_CWD=$(cat "$ART_DIR/target_cwd.txt")
+   log_info "trooper target cwd: $TARGET_CWD"
+   ```
+
+   For single-repo deploys (no `Target Sub-Project` header in the design doc),
+   `$TARGET_CWD` equals the conductor's cwd. For hub deploys with a header,
+   `$TARGET_CWD` is the absolute path to the named sub-repo. Step 1.1 passes
+   this to `spawn.sh --cwd`, and Step 2's cross-verify uses it as the
+   `git -C` working tree.
+
 Set task `0` → `completed`.
 
 ### Step 1.1 — Spawn cody-$PROVIDER
@@ -178,9 +197,15 @@ Set task `0` → `completed`.
 Set task `1.1` → `in_progress`.
 ```
 PROVIDER=$(cat "$ART_DIR/provider.txt")
-"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" cody "$PROVIDER" "$TOPIC"
+TARGET_CWD=$(cat "$ART_DIR/target_cwd.txt")
+"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" cody "$PROVIDER" "$TOPIC" --cwd "$TARGET_CWD"
 ```
 Set task `1.1` → `completed`. If spawn fails, archive `_deploy/` and exit.
+
+The `--cwd "$TARGET_CWD"` flag tells `spawn.sh` to launch the trooper TUI
+inside `$TARGET_CWD` (via `tmux split-window -c`). For single-repo deploys
+this is the conductor's cwd; for hub deploys with a `Target Sub-Project`
+header it is the sub-repo path resolved by `deploy-init.sh`.
 
 ### Step 1 — Run trooper turn (round-aware, auto-retry-once)
 
@@ -274,12 +299,16 @@ Set task `2` → `in_progress`.
 Yoda's reads (capped):
 - `$ART_DIR/verify-report-$ROUND.md`
 - `$ART_DIR/test-output-$ROUND.log` (grep tail for pass/fail counts)
-- `git log --oneline "$BRANCH_BASE"..HEAD`
-- `git diff --stat "$BRANCH_BASE"..HEAD`
+- `git -C "$TARGET_CWD" log --oneline "$BRANCH_BASE"..HEAD`
+- `git -C "$TARGET_CWD" diff --stat "$BRANCH_BASE"..HEAD`
 - Up to 3 spot-checks: pick the highest-stakes diff hunk per critical
-  requirement and Read just that hunk.
+  requirement and Read just that hunk. File paths reported by
+  `git -C "$TARGET_CWD" diff` are RELATIVE to `$TARGET_CWD`; the Read tool
+  needs absolute paths, so prefix with `$TARGET_CWD/<path>` (e.g.
+  `$TARGET_CWD/lib/foo.sh`).
 
-(`$BRANCH_BASE` was captured into `$ART_DIR/branch-base.sha` in Step 0.)
+(`$BRANCH_BASE` was captured into `$ART_DIR/branch-base.sha` in Step 0,
+and `$TARGET_CWD` was loaded alongside it from `$ART_DIR/target_cwd.txt`.)
 
 Write the verdict to `$ART_DIR/cross-verify-$ROUND.md`:
 - Top-line `VERDICT: PASS` or `VERDICT: FAIL`.
@@ -342,7 +371,7 @@ Set task `4` → `in_progress`.
 ```
 
 Print final summary to the user:
-- Branch name (with commit count from `git log --oneline "$BRANCH_BASE"..HEAD`).
+- Branch name (with commit count from `git -C "$TARGET_CWD" log --oneline "$BRANCH_BASE"..HEAD`).
 - Final cross-verify verdict (PASS or hand-off note).
 - Archive path.
 
@@ -364,6 +393,28 @@ when set):
 - `CW_DEPLOY_VERIFY_TIMEOUT`
 - `CW_DEPLOY_FIX_TIMEOUT`
 
+## State files (per topic)
+
+Files written under `$ART_DIR` (= `$TOPIC_DIR/_deploy/`):
+
+- `_deploy/target_cwd.txt` — absolute path to the trooper's working dir. Equal to the
+  conductor's cwd in single-repo mode; equal to `<conductor-cwd>/<sub-repo>` when the
+  design doc declares `**Target Sub-Project:** <sub-repo>`. Set by `bin/deploy-init.sh`,
+  read by Step 0 + Step 1.1 + Step 2.
+- `_deploy/auto_provider.txt` — what `cw_deploy_detect_provider` chose (codex/claude).
+- `_deploy/provider.txt` — what was actually used (after any user override).
+- `_deploy/branch-base.sha` — the commit SHA the deploy branch was created from
+  (captured by Step 0; consumed by Step 2 + Step 4 as the diff range base).
+- `_deploy/design.md` — the design doc init.sh copied into place.
+- `_deploy/design-audit.md` — verdict from `cw_deploy_audit_doc`.
+- `_deploy/turn-cody-N.txt` — per-round trooper-turn status (TS=ok/failed/timeout).
+- `_deploy/verify-report-N.md` — trooper's own verification report for round N.
+- `_deploy/cross-verify-N.md` — Yoda's verdict for round N (PASS / FAIL + issues).
+- `_deploy/fix-prompt-N.md` — fix bundle Yoda authored for round N (Step 3 output;
+  Step 1 input on the next round).
+- `_deploy/RESUME.md` — written on hand-off (5 rounds exhausted or auto-retry
+  abandoned); documents how to take over manually.
+
 ## Intervention patterns
 
 ### Abandoned run cleanup
@@ -383,7 +434,9 @@ Use the cody session directly. RESUME.md in `$ART_DIR/` documents context.
 ### Auto-created branch survives audit-FAIL and spawn-FAIL
 If the audit or spawn fails, the directive aborts and archives `_deploy/`
 but the auto-created `feat/deploy-<topic>` branch is left in place. Clean up
-manually if undesired:
+manually if undesired (run inside the trooper's working tree — the conductor's
+cwd for single-repo deploys, the sub-repo path for hub deploys):
 ```
-git checkout - && git branch -D feat/deploy-<topic>
+git -C "$TARGET_CWD" checkout - \
+  && git -C "$TARGET_CWD" branch -D feat/deploy-<topic>
 ```
