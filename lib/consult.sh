@@ -799,3 +799,82 @@ cw_consult_detect_hub() {
   fi
   return 1
 }
+
+# cw_consult_hub_mode_persist <art-dir> <mode>
+# Atomic-writes <art-dir>/hub-mode.txt. Mode must be one of the three
+# detector outputs: single-repo | hub-subrepo | super-hub.
+cw_consult_hub_mode_persist() {
+  local art="${1:-}" mode="${2:-}"
+  [[ -n "$art" ]]  || { echo "cw_consult_hub_mode_persist: missing art-dir" >&2; return 2; }
+  [[ -n "$mode" ]] || { echo "cw_consult_hub_mode_persist: missing mode" >&2; return 2; }
+  case "$mode" in
+    single-repo|hub-subrepo|super-hub) ;;
+    *) echo "cw_consult_hub_mode_persist: invalid mode '$mode'" >&2; return 2 ;;
+  esac
+  printf '%s\n' "$mode" | cw_atomic_write "$art/hub-mode.txt"
+}
+
+# cw_consult_hub_mode_load <art-dir>
+# Echoes the persisted mode; defaults to single-repo when file is absent.
+cw_consult_hub_mode_load() {
+  local art="${1:-}"
+  [[ -n "$art" ]] || { echo "cw_consult_hub_mode_load: missing art-dir" >&2; return 2; }
+  if [[ -f "$art/hub-mode.txt" ]]; then
+    tr -d '[:space:]' < "$art/hub-mode.txt"
+    printf '\n'
+  else
+    printf 'single-repo\n'
+  fi
+}
+
+# cw_consult_targets_persist <art-dir>
+# Reads stdin (one <hub>/<leaf> line per target), validates each line
+# against ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$, atomic-writes <art-dir>/targets.txt.
+# Empty stdin or any invalid line → rc=1 + log_error, no file written.
+cw_consult_targets_persist() {
+  local art="${1:-}"
+  [[ -n "$art" ]] || { echo "cw_consult_targets_persist: missing art-dir" >&2; return 2; }
+  local -a lines=()
+  local line
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    if [[ ! "$line" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+      echo "cw_consult_targets_persist: invalid target '$line' (need <hub>/<leaf>)" >&2
+      return 1
+    fi
+    lines+=("$line")
+  done
+  (( ${#lines[@]} > 0 )) \
+    || { echo "cw_consult_targets_persist: stdin empty" >&2; return 1; }
+  printf '%s\n' "${lines[@]}" | cw_atomic_write "$art/targets.txt"
+}
+
+# cw_consult_targets_load <art-dir>
+# Echoes targets one per line. rc=1 if file missing or empty.
+cw_consult_targets_load() {
+  local art="${1:-}"
+  [[ -n "$art" ]] || { echo "cw_consult_targets_load: missing art-dir" >&2; return 2; }
+  [[ -s "$art/targets.txt" ]] || return 1
+  cat "$art/targets.txt"
+}
+
+# cw_consult_targets_to_header_pair <art-dir>
+# Reads targets.txt and emits exactly two lines suitable for design-doc
+# header insertion:
+#   **Target Hub(s):** <comma-separated unique hubs>
+#   **Target Sub-Project(s):** <comma-separated unique leaves>
+# Hubs are extracted as the prefix before '/'; leaves as the suffix after.
+# rc=1 if targets.txt is missing/empty.
+cw_consult_targets_to_header_pair() {
+  local art="${1:-}"
+  [[ -n "$art" ]] || { echo "cw_consult_targets_to_header_pair: missing art-dir" >&2; return 2; }
+  [[ -s "$art/targets.txt" ]] || return 1
+  local hubs leaves
+  hubs=$(cut -d/ -f1 "$art/targets.txt" | awk '!seen[$0]++' | paste -sd, -)
+  leaves=$(cut -d/ -f2- "$art/targets.txt" | awk '!seen[$0]++' | paste -sd, -)
+  # Convert "a,b" → "a, b" for human-readable headers.
+  hubs=$(echo "$hubs" | sed 's/,/, /g')
+  leaves=$(echo "$leaves" | sed 's/,/, /g')
+  printf '**Target Hub(s):** %s\n' "$hubs"
+  printf '**Target Sub-Project(s):** %s\n' "$leaves"
+}
