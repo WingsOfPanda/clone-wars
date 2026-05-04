@@ -941,6 +941,18 @@ cw_consult_dag_validate() {
       current=""
       continue
     fi
+    if [[ "$raw" =~ ^[[:space:]]+Step\ [0-9]+: ]]; then
+      echo "ERROR: line $lineno: Step lines must not be indented (got leading whitespace): '$raw'" >&2
+      return 1
+    fi
+    if [[ "$raw" =~ ^[[:space:]]+depends:[[:space:]]*$ ]]; then
+      echo "ERROR: line $lineno: depends value missing (use 'none' for no dependencies): '$raw'" >&2
+      return 1
+    fi
+    if [[ "$raw" =~ ^Step\ [0-9]+:\ +[A-Za-z0-9._-]+[[:space:]]*$ ]]; then
+      echo "ERROR: line $lineno: Step line missing description: '$raw'" >&2
+      return 1
+    fi
     echo "ERROR: line $lineno is invalid (free-form prose or bad grammar): '$raw'" >&2
     return 1
   done <<< "$body"

@@ -79,3 +79,30 @@ D
 err=$(cw_consult_dag_validate "$ART" < "$TMPROOT/dag6.md" 2>&1) && { echo "FAIL (f)"; exit 1; } || true
 grep -qi 'free-form\|invalid' <<< "$err" || { echo "FAIL (f) msg: $err"; exit 1; }
 pass "(f) free-form prose rejected"
+
+# (g) Indented Step line
+cat > "$TMPROOT/dag7.md" <<'D'
+  Step 1: ARS-TaskServe  base
+        depends: none
+D
+err=$(cw_consult_dag_validate "$ART" < "$TMPROOT/dag7.md" 2>&1) && { echo "FAIL (g)"; exit 1; } || true
+grep -qi 'must not be indented' <<< "$err" || { echo "FAIL (g) msg: $err"; exit 1; }
+pass "(g) indented Step line — specific error"
+
+# (h) Empty depends value
+cat > "$TMPROOT/dag8.md" <<'D'
+Step 1: ARS-TaskServe  base
+        depends:
+D
+err=$(cw_consult_dag_validate "$ART" < "$TMPROOT/dag8.md" 2>&1) && { echo "FAIL (h)"; exit 1; } || true
+grep -qi 'depends value missing' <<< "$err" || { echo "FAIL (h) msg: $err"; exit 1; }
+pass "(h) empty depends value — specific error"
+
+# (i) Step line with no description
+cat > "$TMPROOT/dag9.md" <<'D'
+Step 1: ARS-TaskServe
+        depends: none
+D
+err=$(cw_consult_dag_validate "$ART" < "$TMPROOT/dag9.md" 2>&1) && { echo "FAIL (i)"; exit 1; } || true
+grep -qi 'missing description' <<< "$err" || { echo "FAIL (i) msg: $err"; exit 1; }
+pass "(i) Step line missing description — specific error"
