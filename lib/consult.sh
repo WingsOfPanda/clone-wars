@@ -658,34 +658,25 @@ cw_consult_design_doc_assemble() {
       fi
     done
 
-    # Tests section: hub-mode uses acceptance-tests.md, single-repo uses testing.md.
+    # Tail sections: hub-mode emits Acceptance Tests + Execution DAG +
+    # Cross-Repo Dependencies; single-repo emits Testing.
+    local -a tail_pairs
     if (( hub_mode == 1 )); then
-      printf '## Acceptance Tests\n\n'
-      if [[ -f "$section_dir/acceptance-tests.md" ]]; then
-        cat "$section_dir/acceptance-tests.md"; printf '\n'
-      else
-        printf '_(skipped)_\n\n'
-      fi
-      printf '## Execution DAG\n\n'
-      if [[ -f "$section_dir/dag.md" ]]; then
-        cat "$section_dir/dag.md"; printf '\n'
-      else
-        printf '_(skipped)_\n\n'
-      fi
-      printf '## Cross-Repo Dependencies\n\n'
-      if [[ -f "$section_dir/xrepo-deps.md" ]]; then
-        cat "$section_dir/xrepo-deps.md"; printf '\n'
-      else
-        printf '_(skipped)_\n\n'
-      fi
+      tail_pairs=('acceptance-tests|Acceptance Tests' 'dag|Execution DAG' 'xrepo-deps|Cross-Repo Dependencies')
     else
-      printf '## Testing\n\n'
-      if [[ -f "$section_dir/testing.md" ]]; then
-        cat "$section_dir/testing.md"; printf '\n'
+      tail_pairs=('testing|Testing')
+    fi
+    for pair in "${tail_pairs[@]}"; do
+      key="${pair%%|*}"
+      heading="${pair##*|}"
+      printf '## %s\n\n' "$heading"
+      if [[ -f "$section_dir/$key.md" ]]; then
+        cat "$section_dir/$key.md"
+        printf '\n'
       else
         printf '_(skipped)_\n\n'
       fi
-    fi
+    done
   } > "$out"
 }
 
