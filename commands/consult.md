@@ -575,6 +575,18 @@ The script assembles, self-reviews, and commits. Failure modes:
   section boundaries), and re-enters the per-section walk for the
   offending section ONLY. After fix, re-invoke `consult-design-doc.sh`.
   Loop until clean or user aborts.
+- **Hub-mode validator failed**: when `targets.txt` exists, `consult-design-doc.sh`
+  runs three validators sequentially before commit: `dag` → `xrepo-deps` →
+  `acceptance-tests`. On failure the script exits 1 with stderr
+  `validator <fn> rejected <section>.md (see stderr above)` followed by the
+  validator's own `ERROR:` line(s). Yoda parses the rejected section name
+  (`dag`, `xrepo-deps`, or `acceptance-tests`) and re-enters that section's
+  per-section walk for revision (skip the other 7 sections). After the user
+  re-approves the offending section, re-invoke `consult-design-doc.sh`. Loop
+  until clean or user aborts. Section-to-validator mapping:
+  - `dag.md` → `## Execution DAG` walk
+  - `xrepo-deps.md` → `## Cross-Repo Dependencies` walk
+  - `acceptance-tests.md` → `## Acceptance Tests` walk
 - **Git commit failed**: script exits 1, design.md exists uncommitted.
   Yoda surfaces the git error verbatim and asks user to resolve.
 
