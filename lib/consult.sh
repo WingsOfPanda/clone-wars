@@ -732,14 +732,19 @@ cw_consult_detect_hub() {
   [[ -n "$cwd" ]] || return 1
   [[ -d "$cwd/.git" || -f "$cwd/.git" ]] || return 1
 
-  local self_name child base
+  local self_name child base child_name
   self_name="${cwd##*/}"
   local -a immediate_git=() leaves_subrepo=() hubs=() leaves_super=()
   for child in "$cwd"/*/; do
     [[ -d "$child" ]] || continue
     if [[ -d "$child/.git" || -f "$child/.git" ]]; then
       base="${child%/}"
-      immediate_git+=("${base##*/}")
+      child_name="${base##*/}"
+      if [[ ! "$child_name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+        log_warn "cw_consult_detect_hub: dropped '$child_name' (non-slug-safe directory name)"
+        continue
+      fi
+      immediate_git+=("$child_name")
     fi
   done
   [[ ${#immediate_git[@]} -gt 0 ]] || return 1
@@ -748,7 +753,7 @@ cw_consult_detect_hub() {
   #   - any git grandchild  → child is a hub (collect each leaf)
   #   - no git grandchild but has at least one non-git subdir → child is a leaf
   #   - no subdirectories at all → drop (not a meaningful sub-project node)
-  local hub leaf grandchild has_grand has_any_subdir
+  local hub leaf grandchild has_grand has_any_subdir grand_name
   for hub in "${immediate_git[@]}"; do
     has_grand=0
     has_any_subdir=0
@@ -757,7 +762,12 @@ cw_consult_detect_hub() {
       has_any_subdir=1
       if [[ -d "$grandchild/.git" || -f "$grandchild/.git" ]]; then
         leaf="${grandchild%/}"
-        leaves_super+=("$hub/${leaf##*/}")
+        grand_name="${leaf##*/}"
+        if [[ ! "$grand_name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+          log_warn "cw_consult_detect_hub: dropped '$grand_name' (non-slug-safe directory name)"
+          continue
+        fi
+        leaves_super+=("$hub/$grand_name")
         has_grand=1
       fi
     done
@@ -765,8 +775,10 @@ cw_consult_detect_hub() {
       hubs+=("$hub")
     elif (( has_any_subdir == 1 )); then
       leaves_subrepo+=("$self_name/$hub")
+    else
+      # bare git repo (no subdirectories) → drop per spec error-handling
+      log_warn "cw_consult_detect_hub: dropped '$hub' (bare git child with no subdirectories)"
     fi
-    # has_any_subdir == 0 → bare git repo; drop per spec error-handling
   done
 
   # Classification:

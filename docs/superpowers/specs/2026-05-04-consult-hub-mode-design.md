@@ -306,6 +306,7 @@ user-review gate.
 | Detector classifies `super-hub` but a hub child has zero leaf sub-repos | Skip that hub from the AskUserQuestion options. If all hubs are empty, fall back to single-repo with a log note. |
 | User picks zero options in target-selection AskUserQuestion | Re-prompt once. Second empty selection → `AskUserQuestion("No targets chosen. Continue as single-repo / Abort?")`. Continue → write `hub-mode.txt = "single-repo"`, drop targets.txt, proceed v0.10 path. Abort → teardown + archive + exit. |
 | `targets.txt` validation fails (slug regex) | Hard fail before research dispatch — log the offending line, archive `_consult/`, exit 1. |
+| Immediate git child has no subdirectories (bare git repo) | Skip the child with `log_warn`; classification proceeds without it. Bare repos can't carry meaningful targets. |
 
 ### Trooper findings without per-sub-project structure (hub mode)
 
