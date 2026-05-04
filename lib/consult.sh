@@ -143,14 +143,32 @@ cw_consult_diff() {
   } > "$out"
 }
 
-# cw_consult_build_verify_prompt <items_file> <write_to>
+# cw_consult_build_verify_prompt <items_file> <write_to> [targets]
 # Build the verify-round prompt body. Reads <items_file> (one `[cite] text` per
 # line) and emits a self-contained instruction, terminated by END_OF_INSTRUCTION.
+# If <targets> is non-empty (comma-separated leaves), append a per-sub-project
+# structure block. Empty/omitted preserves v0.10 byte-equal output (single-repo).
 cw_consult_build_verify_prompt() {
-  local items_file="$1" write_to="$2"
+  local items_file="$1" write_to="$2" targets="${3:-}"
   local items
   items=$(nl -ba -w1 -s'. ' "$items_file")
-  cw_consult_load_prompt consult/verify.md "ITEMS=$items" "WRITE_TO=$write_to"
+  local out
+  out=$(cw_consult_load_prompt consult/verify.md \
+          "ITEMS=$items" "WRITE_TO=$write_to" \
+          "TARGETS_BLOCK_START=" "TARGETS_BLOCK_END=" \
+          "TARGETS=${targets//,/$'\n'- }")
+  if [[ -z "$targets" ]]; then
+    # Single-repo: strip the per-sub-project block to match v0.4.2 baseline byte-for-byte.
+    # Sentinels render as empty inline tokens, so the heading and closing lines
+    # bracket the block; getline consumes the trailing blank line for byte-equality.
+    printf '%s\n' "$out" | awk '
+      /^## Per-sub-project structure$/ { skipping=1; next }
+      skipping && /^verify pass downstream\.$/ { skipping=0; getline; next }
+      !skipping { print }
+    '
+  else
+    printf '%s\n' "$out"
+  fi
 }
 
 # cw_consult_parse_verdicts <verify.md>
@@ -193,13 +211,31 @@ cw_consult_parse_verdicts() {
   ' "$file"
 }
 
-# cw_consult_build_research_prompt <topic> <write_to>
+# cw_consult_build_research_prompt <topic> <write_to> [targets]
 # Build the research-round prompt body. Emits a self-contained instruction
 # with the required Findings structure and citation rules, terminated by
 # END_OF_INSTRUCTION.
+# If <targets> is non-empty (comma-separated leaves), append a per-sub-project
+# structure block. Empty/omitted preserves v0.10 byte-equal output (single-repo).
 cw_consult_build_research_prompt() {
-  local topic="$1" write_to="$2"
-  cw_consult_load_prompt consult/research.md "TOPIC=$topic" "WRITE_TO=$write_to"
+  local topic="$1" write_to="$2" targets="${3:-}"
+  local out
+  out=$(cw_consult_load_prompt consult/research.md \
+          "TOPIC=$topic" "WRITE_TO=$write_to" \
+          "TARGETS_BLOCK_START=" "TARGETS_BLOCK_END=" \
+          "TARGETS=${targets//,/$'\n'- }")
+  if [[ -z "$targets" ]]; then
+    # Single-repo: strip the per-sub-project block to match v0.4.2 baseline byte-for-byte.
+    # Sentinels render as empty inline tokens, so the heading and closing lines
+    # bracket the block; getline consumes the trailing blank line for byte-equality.
+    printf '%s\n' "$out" | awk '
+      /^## Per-sub-project structure$/ { skipping=1; next }
+      skipping && /^verify pass downstream\.$/ { skipping=0; getline; next }
+      !skipping { print }
+    '
+  else
+    printf '%s\n' "$out"
+  fi
 }
 
 # cw_consult_synthesize <topic> <diff.md> <adjudicated.md> \
