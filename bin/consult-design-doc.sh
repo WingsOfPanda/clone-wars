@@ -81,6 +81,24 @@ cw_consult_design_doc_assemble "$DD_DIR" "$OUT_TMP" "$TITLE" "$TOPIC_TEXT" "$SYN
   exit 1
 }
 
+# v0.10: when the directive's hub-detection block selected a sub-repo, it
+# exports CW_CONSULT_TARGET_HEADER (e.g. "**Target Sub-Project:** ARS-Perfusion").
+# Validate the slug and prepend the header as the second non-blank line — the
+# audit gate in deploy-init looks for it right after the # <title> line.
+if [[ -n "${CW_CONSULT_TARGET_HEADER:-}" ]]; then
+  CW_TARGET_SLUG=$(printf '%s' "$CW_CONSULT_TARGET_HEADER" \
+    | sed -E 's/^\*\*Target Sub-Project:\*\*[[:space:]]+([^[:space:]]+).*/\1/')
+  if [[ ! "$CW_TARGET_SLUG" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    log_error "consult-design-doc: invalid Target Sub-Project slug '$CW_TARGET_SLUG' from CW_CONSULT_TARGET_HEADER"
+    exit 1
+  fi
+  awk -v hdr="$CW_CONSULT_TARGET_HEADER" '
+    BEGIN { inserted = 0 }
+    /^# / && !inserted { print; print ""; print hdr; inserted = 1; next }
+    { print }
+  ' "$OUT_TMP" > "$OUT_TMP.hdr" && mv "$OUT_TMP.hdr" "$OUT_TMP"
+fi
+
 if ! cw_consult_design_doc_self_review "$OUT_TMP" 2>"$OUT_TMP.errs"; then
   log_error "self-review found placeholders:"
   while IFS= read -r line; do log_error "  $line"; done < "$OUT_TMP.errs"

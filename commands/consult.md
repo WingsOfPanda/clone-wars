@@ -337,6 +337,36 @@ If `DESIGN_DOC=0` after the gate, skip to Step 9.
 
 Set task `3.1.5` → `in_progress`.
 
+**Hub detection (v0.10).** Before the per-section walk, check whether the
+conductor's cwd is a hub repo (multiple sub-repos with their own `.git/`):
+
+```
+source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
+SUB_REPOS=$(cw_consult_detect_hub "$(pwd)") && IS_HUB=1 || IS_HUB=0
+```
+
+If `IS_HUB=1`: `AskUserQuestion` with one option per detected sub-repo, plus
+a "Hub-level / multi-target / not applicable" option:
+
+> "This looks like a hub repo (sub-repos: `<SUB_REPOS comma-list>`).
+> Which sub-repo will implement this design — or is it hub-level?"
+> Options: one per sub-repo + `Hub-level / multi-target / not applicable`.
+
+If the user picks a sub-repo `<name>`, persist it for the bin-script step
+that assembles the spec:
+
+```
+export CW_CONSULT_TARGET_HEADER="**Target Sub-Project:** <name>"
+```
+
+If the user picks `Hub-level / multi-target / not applicable`, leave
+`CW_CONSULT_TARGET_HEADER` unset.
+
+When `bin/consult-design-doc.sh` finalizes the spec, it reads
+`CW_CONSULT_TARGET_HEADER` from the environment and prepends it (if set,
+slug-validated) as the second non-blank line of the assembled doc — the
+deploy audit gate looks for it right after the `# <title>` line.
+
 **Setup:**
 
 ```
