@@ -89,6 +89,57 @@ Persist `$DESIGN_DOC` for Step 8.5.
 
 Set task `0` → `completed`. Set tasks `1.1` and `1.2` → `in_progress`.
 
+### Step 0.5 — Hub-mode classification
+
+After `consult-init.sh` returns `$CONSULT_TOPIC`, the init script has already
+persisted `_consult/hub-mode.txt`. Read it back and surface to the rest of
+the directive:
+
+```
+HUB_MODE=$(cw_consult_hub_mode_load "$TOPIC_DIR/_consult")
+log_info "hub mode: $HUB_MODE"
+```
+
+When `HUB_MODE != single-repo`, Step 1.5 (below) runs target selection
+before research dispatch. When `HUB_MODE == single-repo`, the directive
+proceeds to Step 1 unchanged from v0.10.
+
+### Step 1.5 — Target selection (hub mode only)
+
+Skip this step when `HUB_MODE == single-repo`. Otherwise the conductor
+must let the user pick which leaf sub-projects this consultation should
+cover, BEFORE research dispatch (the research prompt needs the list).
+
+1. Re-run the detector to grab `LEAVES=` (and `HUBS=` for super-hub):
+
+   ```
+   HUB_OUT=$(cw_consult_detect_hub "$(pwd)")
+   LEAVES=$(grep '^LEAVES=' <<< "$HUB_OUT" | cut -d= -f2 | tr ',' '\n')
+   HUBS=$(grep '^HUBS='   <<< "$HUB_OUT" | cut -d= -f2 | tr ',' '\n' || true)
+   ```
+
+2. **hub-subrepo mode:** single `AskUserQuestion` (multi-select), options =
+   `LEAVES` (one option per `<self>/<leaf>`).
+
+3. **super-hub mode:** two-step.
+   - `AskUserQuestion` #1 (multi-select) over `HUBS`.
+   - For each chosen hub, filter `LEAVES` to entries starting `<hub>/`.
+   - `AskUserQuestion` #2 (multi-select) over the filtered leaf list.
+
+4. **Empty-selection re-prompt:** if user selects nothing, re-prompt once.
+   Second empty selection → `AskUserQuestion`: "No targets chosen. Continue
+   as single-repo / Abort?". On Continue, overwrite `_consult/hub-mode.txt`
+   with `single-repo` (re-export `HUB_MODE=single-repo` in this shell so
+   downstream Step 8.5 picks it up) and skip persisting `targets.txt`. On
+   Abort, teardown + archive + exit.
+
+5. Persist the chosen targets:
+
+   ```
+   printf '%s\n' "${CHOSEN_LEAVES[@]}" \
+     | cw_consult_targets_persist "$TOPIC_DIR/_consult"
+   ```
+
 ### Step 1 — Parallel spawn (with rollback)
 
 Invoke BOTH spawn calls as PARALLEL Bash tool calls in a single message.
@@ -122,11 +173,22 @@ After both parallel spawn calls return, evaluate:
 
 Set tasks `1.3` and `1.4` → `in_progress`.
 
+Hub-mode threading: when `_consult/targets.txt` exists, pass the comma-list
+to research-send via `CW_CONSULT_TARGETS=` env so the prompt builder emits
+the per-sub-project structure block. Single-repo runs leave `TARGETS=""`
+(builder strips the block).
+
 PARALLEL Bash tool calls:
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" rex  codex
-"$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" cody claude
+TARGETS=""
+if [[ -s "$TOPIC_DIR/_consult/targets.txt" ]]; then
+  TARGETS=$(cw_consult_targets_load "$TOPIC_DIR/_consult" | paste -sd, -)
+fi
+CW_CONSULT_TARGETS="$TARGETS" \
+  "$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" rex  codex
+CW_CONSULT_TARGETS="$TARGETS" \
+  "$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" cody claude
 ```
 
 ### Step 3 — Parallel research wait (with question loop)
@@ -226,11 +288,20 @@ Set task `1.5` → `completed`.
 
 Set tasks `1.6` and `1.7` → `in_progress`.
 
-Send phase — keep parallel sends as foreground (sends complete in <1s):
+Send phase — keep parallel sends as foreground (sends complete in <1s).
+Hub-mode threading mirrors Step 2: `CW_CONSULT_TARGETS=` env carries the
+comma-list into verify-send so the verify prompt also embeds the
+per-sub-project structure block.
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" rex  codex
-"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" cody claude
+TARGETS=""
+if [[ -s "$TOPIC_DIR/_consult/targets.txt" ]]; then
+  TARGETS=$(cw_consult_targets_load "$TOPIC_DIR/_consult" | paste -sd, -)
+fi
+CW_CONSULT_TARGETS="$TARGETS" \
+  "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" rex  codex
+CW_CONSULT_TARGETS="$TARGETS" \
+  "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" cody claude
 ```
 
 Wait phase — both wait-scripts run as background tasks (Yoda stays
@@ -337,52 +408,43 @@ If `DESIGN_DOC=0` after the gate, skip to Step 9.
 
 Set task `3.1.5` → `in_progress`.
 
-**Hub detection (v0.10).** Before the per-section walk, check whether the
-conductor's cwd is a hub repo (multiple sub-repos with their own `.git/`):
+**Hub-mode wiring (v0.11).** `HUB_MODE` is already loaded from
+`_consult/hub-mode.txt` at Step 0.5. When `HUB_MODE != single-repo`, the
+chosen leaf list lives in `_consult/targets.txt` (Step 1.5 persisted it).
+The design-doc bin script (`bin/consult-design-doc.sh`) reads the
+targets-dir directly to insert the `**Target Hub(s):**` /
+`**Target Sub-Project(s):**` header pair into the assembled spec — no
+`CW_CONSULT_TARGET_HEADER` env var needed.
 
-```
-source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
-SUB_REPOS=$(cw_consult_detect_hub "$(pwd)") && IS_HUB=1 || IS_HUB=0
-```
-
-If `IS_HUB=1`: `AskUserQuestion` with one option per detected sub-repo, plus
-a "Hub-level / multi-target / not applicable" option:
-
-> "This looks like a hub repo (sub-repos: `<SUB_REPOS comma-list>`).
-> Which sub-repo will implement this design — or is it hub-level?"
-> Options: one per sub-repo + `Hub-level / multi-target / not applicable`.
-
-If the user picks a sub-repo `<name>`, persist it for the bin-script step
-that assembles the spec:
-
-```
-export CW_CONSULT_TARGET_HEADER="**Target Sub-Project:** <name>"
-```
-
-If the user picks `Hub-level / multi-target / not applicable`, leave
-`CW_CONSULT_TARGET_HEADER` unset.
-
-When `bin/consult-design-doc.sh` finalizes the spec, it reads
-`CW_CONSULT_TARGET_HEADER` from the environment and prepends it (if set,
-slug-validated) as the second non-blank line of the assembled doc — the
-deploy audit gate looks for it right after the `# <title>` line.
+For backward compatibility with v0.10 single-sub-repo flows, when
+`HUB_MODE == single-repo` and the conductor's cwd happens to look like a
+hub-subrepo repo, you MAY still ask which sub-project will implement and
+export `CW_CONSULT_TARGET_HEADER="**Target Sub-Project:** <name>"`. v0.11
+hub-mode runs ignore that env var (targets.txt wins).
 
 **Setup:**
 
 ```
 DD_DIR="$TOPIC_DIR/_consult/design-doc"
 mkdir -p "$DD_DIR"
-SECTIONS=(architecture components data-flow error-handling testing)
-SECTION_TITLES=(Architecture Components "Data Flow" "Error Handling" Testing)
+if [[ "$HUB_MODE" == "single-repo" ]]; then
+  SECTIONS=(architecture components data-flow error-handling testing)
+  SECTION_TITLES=(Architecture Components "Data Flow" "Error Handling" Testing)
+else
+  SECTIONS=(architecture components data-flow error-handling acceptance-tests dag xrepo-deps)
+  SECTION_TITLES=(Architecture Components "Data Flow" "Error Handling" \
+                  "Acceptance Tests" "Execution DAG" "Cross-Repo Dependencies")
+fi
 mapfile -t APPROVED < <(
   source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
   cw_consult_design_doc_resume_state "$DD_DIR"
 )
 ```
 
-**Per-section loop** (5 iterations — one per section):
+**Per-section loop** (5 iterations in single-repo mode, 7 in hub modes —
+one per section):
 
-For each `i` in `0..4`:
+For each `i` in `0..$((${#SECTIONS[@]}-1))`:
 
 1. `key=${SECTIONS[$i]}; title=${SECTION_TITLES[$i]}`.
 2. **Resume check.** If `$key` appears in `${APPROVED[@]}`:
@@ -426,14 +488,25 @@ which contains only the final assembled spec).
 
 ```
 # AskUserQuestion: "Which trooper to drill into '<TITLE>'?"
-#   options: rex (codex) / cody (claude) / both (parallel)
-TROOPER_CHOICE=<chosen>
+#   Base options: rex (codex) / cody (claude) / both (parallel)
+#   In hub mode (HUB_MODE != single-repo), expand the option list with a
+#   per-sub-project axis so the user can scope a drill to one leaf:
+TROOPER_OPTIONS=("rex (codex)" "cody (claude)" "both (parallel)")
+if [[ "$HUB_MODE" != "single-repo" ]]; then
+  while IFS= read -r leaf; do
+    SP="${leaf#*/}"
+    TROOPER_OPTIONS+=("rex on $SP" "cody on $SP" "both on $SP")
+  done < "$TOPIC_DIR/_consult/targets.txt"
+fi
+TROOPER_CHOICE=<chosen from $TROOPER_OPTIONS>
 
 # AskUserQuestion: "What's the focus? (e.g., 'trade-offs feel hand-wavy')"
 FOCUS=<free-form>
 ```
 
-Then invoke the drill script. One trooper:
+Then invoke the drill script. The optional 6th positional arg is
+`<subproject>` — pass it through ONLY when the user chose a per-sub-project
+option (parse `SP` out of the option label). Single-trooper, no sub-project:
 
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
@@ -441,13 +514,25 @@ Then invoke the drill script. One trooper:
   rex codex                  # OR: cody claude
 ```
 
-Both troopers (parallel):
+Both troopers (parallel), no sub-project:
 
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
   "$CONSULT_TOPIC" "<TITLE>" "$DD_DIR" "<FOCUS>" \
   rex codex cody claude
 ```
+
+Single-trooper, per-sub-project (`rex on $SP`):
+
+```
+"$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
+  "$CONSULT_TOPIC" "<TITLE>" "$DD_DIR" "<FOCUS>" \
+  rex codex "$SP"
+```
+
+Both troopers (parallel) per-sub-project — the bin script accepts the
+sub-project as the LAST positional after the second commander/model pair
+(see `bin/consult-drilldown.sh` for the canonical arg-count rules).
 
 Script emits `[drilldown] $commander: wrote …` per success, and exits:
 - `rc=0` if at least one trooper produced a non-empty drilldown file

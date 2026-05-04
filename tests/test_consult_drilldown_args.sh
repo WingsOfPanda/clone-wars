@@ -23,11 +23,17 @@ err=$(bash "$DRILL" 2>&1 >/dev/null) && { echo "FAIL c1: expected rc!=0"; exit 1
 [[ "$err" == *"Usage:"* ]] || { echo "FAIL c1 stderr: $err"; exit 1; }
 pass "no args → rc=2 + usage"
 
-# Case 2: 7 args (between single-trooper-6 and both-trooper-8) → rc=2.
-if bash "$DRILL" t1 t2 t3 t4 t5 t6 t7 2>/dev/null; then
-  echo "FAIL c2: expected rc=2 on 7 args"; exit 1
-fi
-pass "7 args (between valid 6 and 8) → rc=2"
+# Case 2: invalid arg counts.
+# Valid shapes: 6 (single, no subproject), 7 (single + subproject),
+# 8 (both, no subproject), 9 (both + subproject). Anything else → rc=2.
+for n in 5 10; do
+  args=()
+  for ((i=1;i<=n;i++)); do args+=("t$i"); done
+  if bash "$DRILL" "${args[@]}" 2>/dev/null; then
+    echo "FAIL c2: expected rc=2 on $n args"; exit 1
+  fi
+done
+pass "invalid arg counts (5, 10) → rc=2"
 
 # Case 3: invalid topic → rc=2 with topic-validation message.
 mkdir -p "$SANDBOX/dd"
@@ -68,5 +74,20 @@ pass "6 args (single trooper) passes arg validation"
 err=$(bash "$DRILL" "$TOPIC" "Title" "$SANDBOX/dd" "focus" rex codex cody claude 2>&1 >/dev/null) || true
 [[ "$err" != *"Usage:"* ]] || { echo "FAIL c7: arg validation rejected 8-arg call"; exit 1; }
 pass "8 args (both troopers) passes arg validation"
+
+# Case 8: 7 args (single trooper + sub-project) passes arg validation.
+# Use invalid topic to fail fast before send.sh is reached, so we observe
+# arg-count acceptance via "no Usage: line" + "invalid topic" message.
+err=$(bash "$DRILL" "Bad Topic" "Title" "$SANDBOX/dd" "focus" rex codex backend 2>&1 >/dev/null) || true
+[[ "$err" != *"Usage:"* ]] || { echo "FAIL c8: arg validation rejected 7-arg call"; exit 1; }
+[[ "$err" == *"invalid topic"* ]] || { echo "FAIL c8 stderr: $err"; exit 1; }
+pass "7 args (single trooper + sub-project) passes arg validation"
+
+# Case 9: 9 args (both troopers + sub-project) passes arg validation. Same
+# fast-fail trick via invalid topic.
+err=$(bash "$DRILL" "Bad Topic" "Title" "$SANDBOX/dd" "focus" rex codex cody claude backend 2>&1 >/dev/null) || true
+[[ "$err" != *"Usage:"* ]] || { echo "FAIL c9: arg validation rejected 9-arg call"; exit 1; }
+[[ "$err" == *"invalid topic"* ]] || { echo "FAIL c9 stderr: $err"; exit 1; }
+pass "9 args (both troopers + sub-project) passes arg validation"
 
 echo "ALL PASS"
