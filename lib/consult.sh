@@ -1087,3 +1087,69 @@ cw_consult_xrepo_deps_validate() {
     || { echo "ERROR: xrepo-deps missing header or separator" >&2; return 1; }
   return 0
 }
+
+# cw_consult_acceptance_tests_validate <art-dir>
+# Reads stdin (## Acceptance Tests body). Each top-level entry
+# (line starting with `- `) must begin with `**Step N**` followed by
+# `[<sub-project>]`. Cross-references against $art/design-doc/dag.md
+# (Step ids, parsed via `^Step ([0-9]+):` regex — same shape as
+# cw_consult_dag_validate emits) and $art/targets.txt (leaf names).
+# Cross-refs are graceful: skipped when the source file is absent/empty.
+# stderr ERROR: messages include both entry number and line number.
+# rc=0 on success, rc=1 on validation failure, rc=2 on missing args.
+cw_consult_acceptance_tests_validate() {
+  local art="${1:-}"
+  [[ -n "$art" ]] || { echo "cw_consult_acceptance_tests_validate: missing art-dir" >&2; return 2; }
+
+  # Collect known Step ids from dag.md (if present) and known leaves.
+  local -A known_ids=() known_leaves=()
+  if [[ -s "$art/design-doc/dag.md" ]]; then
+    local dline
+    while IFS= read -r dline; do
+      dline="${dline%$'\r'}"
+      [[ "$dline" =~ ^Step\ ([0-9]+): ]] && known_ids[${BASH_REMATCH[1]}]=1
+    done < "$art/design-doc/dag.md"
+  fi
+  if [[ -s "$art/targets.txt" ]]; then
+    local tline
+    while IFS= read -r tline; do
+      tline="${tline%$'\r'}"
+      [[ -z "$tline" ]] && continue
+      known_leaves["${tline#*/}"]=1
+    done < "$art/targets.txt"
+  fi
+
+  local body lineno=0 entry_no=0 raw
+  body=$(cat)
+  [[ -n "$body" ]] || { echo "ERROR: acceptance-tests body empty" >&2; return 1; }
+
+  while IFS= read -r raw; do
+    lineno=$((lineno + 1))
+    raw="${raw%$'\r'}"
+    # Top-level entry line: starts with "- " (not "  -" sub-bullets).
+    [[ "$raw" =~ ^-\  ]] || continue
+    entry_no=$((entry_no + 1))
+    local content="${raw#- }"
+    if [[ ! "$content" =~ ^\*\*Step[[:space:]]+([0-9]+)\*\* ]]; then
+      echo "ERROR: entry $entry_no (line $lineno): missing **Step N** tag" >&2
+      return 1
+    fi
+    local sid="${BASH_REMATCH[1]}"
+    if (( ${#known_ids[@]} > 0 )) && [[ -z "${known_ids[$sid]+x}" ]]; then
+      echo "ERROR: entry $entry_no (line $lineno): tagged **Step $sid** which doesn't exist in DAG" >&2
+      return 1
+    fi
+    if [[ ! "$content" =~ \[([A-Za-z0-9._-]+)\] ]]; then
+      echo "ERROR: entry $entry_no (line $lineno): missing [sub-project] tag" >&2
+      return 1
+    fi
+    local repo="${BASH_REMATCH[1]}"
+    if (( ${#known_leaves[@]} > 0 )) && [[ -z "${known_leaves[$repo]+x}" ]]; then
+      echo "ERROR: entry $entry_no (line $lineno): tagged [$repo] which isn't in targets" >&2
+      return 1
+    fi
+  done <<< "$body"
+
+  (( entry_no > 0 )) || { echo "ERROR: no acceptance-test entries found" >&2; return 1; }
+  return 0
+}
