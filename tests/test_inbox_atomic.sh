@@ -27,15 +27,18 @@ LEAKS=("$DIR"/inbox.md.tmp*)
 shopt -u nullglob
 pass "no tmp file leaks after single write"
 
-# 3. Static wiring check: cw_inbox_write uses mktemp on a tmp under inbox dir
-#    AND mv -f into the final inbox path. Without per-call tmp the concurrent
-#    test below would fail intermittently — the static check is a quick
+# 3. Static wiring check: cw_inbox_write delegates to cw_atomic_write
+#    (lib/state.sh), which itself uses mktemp on a tmp beside the dest AND
+#    mv -f into the final path. Without per-call tmp the concurrent test
+#    below would fail intermittently — the static check is a quick
 #    regression guard against accidental reverts to a deterministic tmp path.
-grep -qE 'mktemp[[:space:]].*"\$\{?inbox\}?\.tmp\.XXXXXX"' ../lib/ipc.sh \
-  || { echo "FAIL: cw_inbox_write doesn't use mktemp \"\${inbox}.tmp.XXXXXX\"" >&2; exit 1; }
-grep -qE 'mv[[:space:]]-f[[:space:]]"\$tmp"[[:space:]]"\$inbox"' ../lib/ipc.sh \
-  || { echo "FAIL: cw_inbox_write doesn't mv -f \"\$tmp\" \"\$inbox\"" >&2; exit 1; }
-pass "atomic-write wired (mktemp per call + mv -f)"
+grep -qE 'cw_atomic_write[[:space:]]+"\$inbox"' ../lib/ipc.sh \
+  || { echo "FAIL: cw_inbox_write doesn't pipe heredoc through cw_atomic_write \"\$inbox\"" >&2; exit 1; }
+grep -qE 'mktemp[[:space:]].*"\$\{?dest\}?\.tmp\.XXXXXX"' ../lib/state.sh \
+  || { echo "FAIL: cw_atomic_write doesn't use mktemp \"\${dest}.tmp.XXXXXX\"" >&2; exit 1; }
+grep -qE 'mv[[:space:]]-f[[:space:]]"\$tmp"[[:space:]]"\$dest"' ../lib/state.sh \
+  || { echo "FAIL: cw_atomic_write doesn't mv -f \"\$tmp\" \"\$dest\"" >&2; exit 1; }
+pass "atomic-write wired (mktemp per call + mv -f via cw_atomic_write)"
 
 # 4. Sequential overwrites land cleanly (no race, just regression check).
 cw_inbox_write rex codex demo "first task"

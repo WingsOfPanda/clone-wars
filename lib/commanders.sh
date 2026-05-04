@@ -37,15 +37,13 @@ cw_commanders_pool() {
 # bin/list.sh and bin/teardown.sh use elsewhere via cw_pane_meta_read_for_dir.
 cw_commanders_in_use_in_topic() {
   local topic="$1"
-  local dir="$(cw_state_root)/state/$(cw_repo_hash)/$topic"
+  local dir; dir=$(cw_topic_state_dir "$topic")
   [[ -d "$dir" ]] || return 0
   shopt -s nullglob
   local trooper_dir _META
-  local _base
   for trooper_dir in "$dir"/*/; do
     [[ -d "$trooper_dir" ]] || continue
-    _base="${trooper_dir%/}"; _base="${_base##*/}"
-    [[ "$_base" == _* ]] && continue
+    cw_is_artifact_dir "$trooper_dir" && continue
     mapfile -t _META < <(cw_pane_meta_read_for_dir "$trooper_dir")
     [[ -n "${_META[0]:-}" ]] && printf '%s\n' "${_META[0]}"
   done | sort -u
@@ -61,16 +59,15 @@ cw_commander_in_use() {
 # cw_commanders_in_use_globally
 # Print every commander currently deployed across every topic in this repo.
 cw_commanders_in_use_globally() {
-  local root="$(cw_state_root)/state/$(cw_repo_hash)"
+  local root; root=$(cw_repo_state_dir)
   [[ -d "$root" ]] || return 0
   shopt -s nullglob
-  local topic_dir trooper_dir _META _base
+  local topic_dir trooper_dir _META
   for topic_dir in "$root"/*/; do
     [[ -d "$topic_dir" ]] || continue
     for trooper_dir in "$topic_dir"*/; do
       [[ -d "$trooper_dir" ]] || continue
-      _base="${trooper_dir%/}"; _base="${_base##*/}"
-      [[ "$_base" == _* ]] && continue
+      cw_is_artifact_dir "$trooper_dir" && continue
       mapfile -t _META < <(cw_pane_meta_read_for_dir "$trooper_dir")
       [[ -n "${_META[0]:-}" ]] && printf '%s\n' "${_META[0]}"
     done

@@ -84,7 +84,7 @@ _teardown_batch() {
   done
 
   # Phase 4: clean topic .last_pane if it pointed at a killed pane.
-  last_file="$(cw_state_root)/state/$(cw_repo_hash)/$topic/.last_pane"
+  last_file="$(cw_topic_state_dir "$topic")/.last_pane"
   if [[ -f "$last_file" ]]; then
     last_pane=$(cat "$last_file")
     for pane in "${pending_panes[@]}"; do
@@ -98,7 +98,8 @@ _teardown_batch() {
 
 teardown_topic() {
   local topic="$1"
-  local topic_dir="$(cw_state_root)/state/$(cw_repo_hash)/$topic"
+  local topic_dir
+  topic_dir=$(cw_topic_state_dir "$topic")
   [[ -d "$topic_dir" ]] || { log_warn "topic '$topic' has no state dir"; return; }
 
   shopt -s nullglob
@@ -106,10 +107,8 @@ teardown_topic() {
   local trooper_dir
   for trooper_dir in "$topic_dir"/*/; do
     [[ -d "$trooper_dir" ]] || continue
-    # Skip _-prefixed sibling dirs (e.g. _consult/ from /clone-wars:consult);
-    # they're not trooper state and consult-finalize.sh archives them itself.
-    local _base="${trooper_dir%/}"; _base="${_base##*/}"
-    [[ "$_base" == _* ]] && continue
+    # Skip _-prefixed sibling dirs (e.g. _consult/) — not trooper state.
+    cw_is_artifact_dir "$trooper_dir" && continue
     local _META; mapfile -t _META < <(cw_pane_meta_read_for_dir "$trooper_dir")
     pairs+=("${_META[0]}:${_META[1]}")
   done
@@ -133,7 +132,7 @@ case "${1:-}" in
     echo -n "type 'yes' to confirm: " >&2
     read -r confirm
     [[ "$confirm" == "yes" ]] || { log_info "aborted"; exit 0; }
-    repo_dir="$(cw_state_root)/state/$(cw_repo_hash)"
+    repo_dir="$(cw_repo_state_dir)"
     [[ -d "$repo_dir" ]] || { log_info "no state dirs to tear down"; exit 0; }
     shopt -s nullglob
     for tdir in "$repo_dir"/*/; do
@@ -149,7 +148,7 @@ case "${1:-}" in
     elif [[ $# -eq 2 ]]; then
       # Two args — commander + topic
       commander="$1" topic="$2"
-      topic_dir="$(cw_state_root)/state/$(cw_repo_hash)/$topic"
+      topic_dir="$(cw_topic_state_dir "$topic")"
       shopt -s nullglob
       pairs=()
       for d in "$topic_dir"/${commander}-*/; do

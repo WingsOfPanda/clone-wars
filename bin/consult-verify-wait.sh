@@ -43,16 +43,15 @@ log_info "[verify-wait] $COMMANDER offset=$OFFSET timeout=${TIMEOUT}s"
 # Block on done|error|question; capture nothing (re-scan tail below).
 cw_outbox_wait_since "$COMMANDER" "$MODEL" "$TOPIC" "$OFFSET" done error question "$TIMEOUT" >/dev/null || true
 
-TROOPER_DIR=$(cw_trooper_dir "$COMMANDER" "$MODEL" "$TOPIC")
-OUTBOX="$TROOPER_DIR/outbox.jsonl"
-VERIFY_FILE="$TROOPER_DIR/verify.md"
+OUTBOX=$(cw_outbox_path "$COMMANDER" "$MODEL" "$TOPIC")
+VERIFY_FILE=$(cw_consult_verify_path "$COMMANDER" "$MODEL" "$TOPIC")
 
 # Priority + race fix (mirror of research-wait).
 TAIL=$(tail -c "+$(( OFFSET + 1 ))" "$OUTBOX" 2>/dev/null || true)
 MATCHED=$(printf '%s\n' "$TAIL" | grep -m1 -E '"event":"(done|error)"' || true)
 [[ -z "$MATCHED" ]] \
   && MATCHED=$(printf '%s\n' "$TAIL" | grep -m1 '"event":"question"' || true)
-EVENT=$(printf '%s' "$MATCHED" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p')
+EVENT=$(cw_event_name_extract "$MATCHED")
 
 if [[ -n "$MATCHED" ]]; then
   NEW_OFFSET=$(cw_consult_outbox_match_endbyte "$OUTBOX" "$OFFSET" "$MATCHED" 2>/dev/null) \

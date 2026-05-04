@@ -11,7 +11,6 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && p
 source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/argsfile.sh"
-source "$PLUGIN_ROOT/lib/consult.sh"     # cw_consult_outbox_match_endbyte (later)
 source "$PLUGIN_ROOT/lib/deploy.sh"
 
 # --args-file passthrough (mirrors bin/spawn.sh / bin/send.sh).
@@ -82,12 +81,9 @@ fi
 # at the repo root → claude; else → codex). Used by commands/deploy.md
 # Step 0 to pick the trooper for spawn. Runs after branch-create so a
 # failed branch (auto-rollback above) doesn't leave an orphan file.
-REPO_ROOT_DETECT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-AUTO_PROVIDER=$(cw_deploy_detect_provider "$REPO_ROOT_DETECT")
-printf '%s\n' "$AUTO_PROVIDER" > "$ART_DIR/auto_provider.txt.tmp" \
+AUTO_PROVIDER=$(cw_deploy_detect_provider "$(cw_repo_root)")
+printf '%s\n' "$AUTO_PROVIDER" | cw_atomic_write "$ART_DIR/auto_provider.txt" \
   || { log_error "failed to write auto_provider.txt"; exit 1; }
-mv "$ART_DIR/auto_provider.txt.tmp" "$ART_DIR/auto_provider.txt" \
-  || { log_error "failed to commit auto_provider.txt"; exit 1; }
 
 log_info "topic:        $TOPIC"
 log_info "  artifacts:  $ART_DIR"

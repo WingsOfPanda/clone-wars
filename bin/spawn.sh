@@ -136,7 +136,7 @@ log_info "spawning $COMMANDER-$MODEL with: $LAUNCH"
 
 # First trooper in topic = right-split of Master Yoda; subsequent = down-split of
 # the most-recently-spawned trooper on the same topic (per DESIGN.md §Pane layout).
-PRIOR_FILE="$(cw_state_root)/state/$(cw_repo_hash)/$TOPIC/.last_pane"
+PRIOR_FILE="$(cw_topic_state_dir "$TOPIC")/.last_pane"
 PRIOR_PANE=""
 [[ -f "$PRIOR_FILE" ]] && PRIOR_PANE=$(cat "$PRIOR_FILE")
 if [[ -n "$PRIOR_PANE" ]] && cw_pane_alive "$PRIOR_PANE"; then
@@ -163,26 +163,29 @@ cw_pane_send "$PANE" "Read $IDENTITY and follow its instructions exactly."
 
 # ------------------------------------------------------------ Wait for {ready}
 
+# _spawn_bootstrap_fail — shared cleanup for both timeout and {error} paths:
+# capture the pane's last 25 lines (BEFORE kill so the buffer is still live),
+# hard-kill the pane, archive state with FAILED suffix, and exit 1.
+_spawn_bootstrap_fail() {
+  log_error "pane content (last 25 lines, captured BEFORE kill):"
+  tmux capture-pane -p -t "$PANE" 2>/dev/null | tail -n 25 >&2 || true
+  cw_pane_kill_now "$PANE"
+  local failed_archive
+  failed_archive=$(cw_state_archive "$COMMANDER" "$MODEL" "$TOPIC" FAILED)
+  log_error "state archived to: $failed_archive"
+  exit 1
+}
+
 log_info "waiting for {ready,error} in outbox (timeout ${READY_TIMEOUT}s)"
 event_line=$(cw_outbox_wait "$COMMANDER" "$MODEL" "$TOPIC" ready error "$READY_TIMEOUT") || event_line=""
 if [[ -z "$event_line" ]]; then
   log_error "$COMMANDER timed out on {ready,error}"
   log_error "outbox:"; cw_outbox_dump "$COMMANDER" "$MODEL" "$TOPIC" >&2
-  log_error "pane content (last 25 lines, captured BEFORE kill):"
-  tmux capture-pane -p -t "$PANE" 2>/dev/null | tail -n 25 >&2 || true
-  cw_pane_kill_now "$PANE"
-  failed_archive=$(cw_state_archive "$COMMANDER" "$MODEL" "$TOPIC" FAILED)
-  log_error "state archived to: $failed_archive"
-  exit 1
+  _spawn_bootstrap_fail
 fi
 if [[ "$event_line" == *'"event":"error"'* ]]; then
   log_error "$COMMANDER reported {error} during bootstrap: $event_line"
-  log_error "pane content (last 25 lines, captured BEFORE kill):"
-  tmux capture-pane -p -t "$PANE" 2>/dev/null | tail -n 25 >&2 || true
-  cw_pane_kill_now "$PANE"
-  failed_archive=$(cw_state_archive "$COMMANDER" "$MODEL" "$TOPIC" FAILED)
-  log_error "state archived to: $failed_archive"
-  exit 1
+  _spawn_bootstrap_fail
 fi
 log_ok "$COMMANDER is ready"
 

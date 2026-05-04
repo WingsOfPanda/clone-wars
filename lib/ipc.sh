@@ -11,8 +11,18 @@
 
 # cw_trooper_dir <commander> <model> <topic> — print absolute state-dir path.
 cw_trooper_dir() {
-  printf '%s/state/%s/%s/%s-%s\n' \
-    "$(cw_state_root)" "$(cw_repo_hash)" "$3" "$1" "$2"
+  printf '%s/%s-%s\n' "$(cw_topic_state_dir "$3")" "$1" "$2"
+}
+
+# cw_is_artifact_dir <dir-path>
+# Return 0 (true) if <dir-path>'s last segment starts with `_` — those are
+# artifact siblings (e.g. _consult/, _deploy/, .last_pane lives elsewhere)
+# that consult/deploy own and should NOT be treated as trooper state by
+# list/teardown/commanders iterations. Use with `&& continue` in trooper-dir
+# walks; the strip handles trailing slash from glob-with-trailing-slash.
+cw_is_artifact_dir() {
+  local name="${1%/}"; name="${name##*/}"
+  [[ "$name" == _* ]]
 }
 
 cw_inbox_path()    { printf '%s/inbox.md\n'      "$(cw_trooper_dir "$1" "$2" "$3")"; }
@@ -104,13 +114,10 @@ EOF
 # parser-friendly and to prevent shell-metacharacter injection into the
 # heredoc.
 #
-# Atomic via per-call mktemp + rename: each invocation gets its OWN tmp file
-# at "${inbox}.tmp.XXXXXX" (so concurrent callers can't truncate each other's
-# in-flight content), then mv -f into place. POSIX rename within the same
-# directory is atomic — readers and competing writers see exactly one of the
-# completed versions, never a partial one. The trap unlinks the tmp on any
-# abnormal exit (e.g. shell signal mid-write) so we don't leak in the
-# trooper's state dir.
+# Atomic via cw_atomic_write (tmp + rename). Each invocation gets its own
+# mktemp suffix so concurrent callers can't truncate each other's in-flight
+# content; POSIX rename within the same directory is atomic so readers and
+# competing writers see exactly one completed version, never a partial one.
 cw_inbox_write() {
   local sender="master-yoda"
   if [[ "${1:-}" == "--from" ]]; then
@@ -121,12 +128,10 @@ cw_inbox_write() {
       || { echo "cw_inbox_write: invalid sender name '$sender' (allowed: [a-zA-Z0-9_-])" >&2; return 2; }
   fi
   local commander="$1" model="$2" topic="$3" task="$4"
-  local inbox outbox tmp
+  local inbox outbox
   inbox=$(cw_inbox_path "$commander" "$model" "$topic")
   outbox=$(cw_outbox_path "$commander" "$model" "$topic")
-  tmp=$(mktemp "${inbox}.tmp.XXXXXX")
-  trap 'rm -f "$tmp"' EXIT
-  cat > "$tmp" <<EOF
+  cw_atomic_write "$inbox" <<EOF
 From: $sender
 
 $task
@@ -137,17 +142,6 @@ When done, append a single JSONL line to $outbox:
 
 END_OF_INSTRUCTION
 EOF
-  # Check rc on mv: under `set -uo pipefail` (no -e) a silent mv failure
-  # would otherwise leave the inbox stale and `cw_inbox_write` returning 0,
-  # making bin/send.sh log "wrote inbox" and nudge the pane to read content
-  # that never landed. Surface the failure loudly and propagate non-zero rc.
-  if ! mv -f "$tmp" "$inbox"; then
-    log_error "cw_inbox_write: mv tmp -> inbox failed (tmp=$tmp inbox=$inbox)"
-    rm -f "$tmp"
-    trap - EXIT
-    return 1
-  fi
-  trap - EXIT
 }
 
 # cw_event_match_pattern <event_name>
@@ -160,6 +154,14 @@ cw_event_match_pattern() {
   local event="$1"
   [[ -n "$event" ]] || { echo "cw_event_match_pattern: empty event" >&2; return 1; }
   printf '^\\{"event":"%s"[,}]' "$event"
+}
+
+# cw_event_name_extract <jsonl-line>
+# Echo the value of the first `"event":"..."` field. Empty stdin → empty output
+# (no error). Used by wait-scripts after they grep a tail block — `case
+# "$EVENT" in done|error|question)` is the canonical downstream shape.
+cw_event_name_extract() {
+  printf '%s' "$1" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p'
 }
 
 # cw_outbox_wait <commander> <model> <topic> <event1> [<event2> ...] <timeout>
