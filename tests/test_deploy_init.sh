@@ -140,3 +140,70 @@ got=$(cat "$ART_CLAUDE/auto_provider.txt")
 assert_eq "$got" "claude" "claude case auto_provider.txt content"
 pass "deploy-init writes auto_provider.txt=claude when .claude-plugin/plugin.json present"
 rm -rf "$TMP_AP_CLAUDE"
+
+# --- v0.10: sub-repo redirect ---
+TMP_HUB=$(mktemp -d)
+trap 'rm -rf "$TMP_HUB" "${TMP_AP_CODEX:-}" "${TMP_AP_CLAUDE:-}"' EXIT
+export CLONE_WARS_HOME="$TMP_HUB/cw"
+
+# Build hub fixture: hub/ has .git; hub/sub-a/ has .git + .claude-plugin/plugin.json (forces claude detect).
+mkdir -p "$TMP_HUB/hub/sub-a/.claude-plugin"
+touch "$TMP_HUB/hub/sub-a/.claude-plugin/plugin.json"
+( cd "$TMP_HUB/hub" && git init -q . && git config user.email t@t && git config user.name t \
+    && git commit -q --allow-empty -m hub-init )
+( cd "$TMP_HUB/hub/sub-a" && git init -q . && git config user.email t@t && git config user.name t \
+    && git commit -q --allow-empty -m sub-init )
+
+cat > "$TMP_HUB/spec.md" <<'EOF'
+# Hub Spec
+
+**Target Sub-Project:** sub-a
+
+## Goal
+foo
+## Architecture
+foo
+## Testing
+foo
+## Success
+foo
+EOF
+
+BIN_INIT="$(cd .. && pwd)/bin/deploy-init.sh"
+TOPIC=$( cd "$TMP_HUB/hub" && bash "$BIN_INIT" --no-branch --topic v10-redirect "$TMP_HUB/spec.md" 2>/dev/null | tail -1 )
+[[ -n "$TOPIC" ]] || { echo "FAIL: deploy-init produced no topic" >&2; exit 1; }
+
+SUB_HASH=$(bash -c 'source ../lib/state.sh; cw_repo_hash_for "'"$TMP_HUB/hub/sub-a"'"')
+ART="$CLONE_WARS_HOME/state/$SUB_HASH/$TOPIC/_deploy"
+[[ -f "$ART/target_cwd.txt" ]] \
+  || { echo "FAIL: hub case missing target_cwd.txt at $ART" >&2; exit 1; }
+[[ "$(cat "$ART/target_cwd.txt")" == "$TMP_HUB/hub/sub-a" ]] \
+  || { echo "FAIL: target_cwd.txt should be sub-a path (got '$(cat "$ART/target_cwd.txt")')" >&2; exit 1; }
+[[ "$(cat "$ART/auto_provider.txt")" == "claude" ]] \
+  || { echo "FAIL: auto_provider should be 'claude' (sub-repo has plugin.json); got '$(cat "$ART/auto_provider.txt")'" >&2; exit 1; }
+pass "deploy-init redirects state + provider into sub-repo when header present"
+
+# Case 2: header points at missing sub-repo → rc!=0 + auto-rollback
+cat > "$TMP_HUB/spec-bad.md" <<'EOF'
+# Hub Spec
+
+**Target Sub-Project:** sub-missing
+
+## Goal
+foo
+## Architecture
+foo
+## Testing
+foo
+## Success
+foo
+EOF
+
+err=$( cd "$TMP_HUB/hub" && bash "$BIN_INIT" --no-branch --topic v10-bad "$TMP_HUB/spec-bad.md" 2>&1 ) && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] || { echo "FAIL: missing sub-repo should rc!=0 (got $rc; out: $err)" >&2; exit 1; }
+echo "$err" | grep -qi 'not found\|missing' \
+  || { echo "FAIL: missing-sub-repo error message unclear: $err" >&2; exit 1; }
+# Auto-rollback: ART_DIR should NOT exist after the failure.
+ART_BAD="$CLONE_WARS_HOME/state/$SUB_HASH/v10-bad/_deploy"
+[[ ! -d "$ART_BAD" ]] || { echo "FAIL: missing-sub-repo case left orphan ART_DIR at $ART_BAD" >&2; exit 1; }
+pass "deploy-init rejects + auto-rollbacks when header points at missing sub-repo"

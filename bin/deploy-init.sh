@@ -50,8 +50,19 @@ else
 fi
 cw_deploy_assert_topic "$TOPIC"
 
-TOPIC_DIR="$(cw_deploy_topic_dir "$TOPIC")"
-ART_DIR="$(cw_deploy_art_dir "$TOPIC")"
+# v0.10: resolve target cwd before computing ART_DIR (sub-repo redirect).
+# When the design doc has a `**Target Sub-Project:** <slug>` header, redirect
+# state + branch + provider-detect into <conductor-cwd>/<slug>. Otherwise
+# returns the conductor's cwd (backward-compat: single-repo case unchanged).
+TARGET_CWD=$(cw_deploy_resolve_target "$DESIGN_PATH" "$(cw_repo_root)") || {
+  log_error "could not resolve target cwd"; exit 1;
+}
+
+# State path keys off the TARGET (sub-repo) hash so artifacts land alongside
+# the code being modified, not the conductor's repo. cw_deploy_topic_dir/
+# cw_deploy_art_dir use cwd-based hashing; compute inline to anchor on TARGET.
+TOPIC_DIR="$(cw_state_root)/state/$(cw_repo_hash_for "$TARGET_CWD")/$TOPIC"
+ART_DIR="$TOPIC_DIR/_deploy"
 [[ ! -d "$ART_DIR" ]] || { log_error "topic _deploy dir already exists: $ART_DIR (pick a different --topic or run teardown)"; exit 1; }
 
 mkdir -p "$ART_DIR" \
@@ -61,10 +72,21 @@ cp "$DESIGN_PATH" "$ART_DIR/design.md" \
 printf '%s' "$TOPIC" > "$ART_DIR/topic.txt" \
   || { log_error "could not write $ART_DIR/topic.txt"; exit 1; }
 
-# Branch
+# Atomic-write target_cwd.txt so downstream consumers (commands/deploy.md
+# Step 0 export, bin/spawn.sh --cwd, git -C calls) read the resolved target.
+printf '%s\n' "$TARGET_CWD" | cw_atomic_write "$ART_DIR/target_cwd.txt" \
+  || { log_error "failed to write target_cwd.txt"; exit 1; }
+
+# Branch — runs in TARGET_CWD so the branch lands in the sub-repo (mirrors
+# /executeorder66's `git -C` discipline). Subshell `cd` is fine because
+# branch-create is a one-shot git operation, not a long-lived process.
 if (( NO_BRANCH == 0 )); then
-  if branch=$(cw_deploy_branch_create "$TOPIC" "$BRANCH_OVERRIDE"); then
-    log_info "branch: $branch"
+  if branch=$( cd "$TARGET_CWD" && cw_deploy_branch_create "$TOPIC" "$BRANCH_OVERRIDE" ); then
+    if [[ "$TARGET_CWD" != "$(pwd)" ]]; then
+      log_info "branch: $branch (in $TARGET_CWD)"
+    else
+      log_info "branch: $branch"
+    fi
   else
     # Auto-rollback: branch failed, remove the _deploy dir we just made.
     # Paranoia check: $ART_DIR must be under $CLONE_WARS_HOME/state.
@@ -78,16 +100,20 @@ if (( NO_BRANCH == 0 )); then
 fi
 
 # Auto-detect trooper provider (presence of .claude-plugin/plugin.json
-# at the repo root → claude; else → codex). Used by commands/deploy.md
-# Step 0 to pick the trooper for spawn. Runs after branch-create so a
-# failed branch (auto-rollback above) doesn't leave an orphan file.
-AUTO_PROVIDER=$(cw_deploy_detect_provider "$(cw_repo_root)")
+# at the TARGET (sub-repo) root → claude; else → codex). Used by
+# commands/deploy.md Step 0 to pick the trooper for spawn. Runs after
+# branch-create so a failed branch (auto-rollback above) doesn't leave an
+# orphan file.
+AUTO_PROVIDER=$(cw_deploy_detect_provider "$TARGET_CWD")
 printf '%s\n' "$AUTO_PROVIDER" | cw_atomic_write "$ART_DIR/auto_provider.txt" \
   || { log_error "failed to write auto_provider.txt"; exit 1; }
 
 log_info "topic:        $TOPIC"
 log_info "  artifacts:  $ART_DIR"
 log_info "  design.md:  $ART_DIR/design.md"
+if [[ "$TARGET_CWD" != "$(pwd)" ]]; then
+  log_info "  target:     $TARGET_CWD"
+fi
 log_info "  provider:   $AUTO_PROVIDER (auto-detected)"
 
 printf '%s\n' "$TOPIC"
