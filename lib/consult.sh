@@ -551,7 +551,7 @@ cw_consult_design_doc_filename() {
   fi
 }
 
-# cw_consult_design_doc_assemble <section-dir> <output-path> <title> [<topic-text>] [<synthesis-path>]
+# cw_consult_design_doc_assemble <section-dir> <output-path> <title> [<topic-text>] [<synthesis-path>] [<targets-dir>]
 # Concatenates 5 section files into a single design doc with a standard
 # header. Missing sections get a _(skipped)_ placeholder body.
 #
@@ -563,9 +563,17 @@ cw_consult_design_doc_filename() {
 #                       under "## Agreed findings" (then "## Cross-verified")
 #                       becomes **Goal:** (200-char trunc); falls back to
 #                       architecture.md head -n1.
+#   <targets-dir>     — path to the _consult/ art-dir; when set AND
+#                       <targets-dir>/targets.txt is non-empty, hub-mode
+#                       output is emitted: a Target Hub(s)/Sub-Project(s)
+#                       header pair after the H1, plus Acceptance Tests,
+#                       Execution DAG, and Cross-Repo Dependencies sections
+#                       (sourced from acceptance-tests.md, dag.md,
+#                       xrepo-deps.md). Single-repo path (empty 6th arg or
+#                       missing/empty targets.txt) is byte-equal to v0.10.
 cw_consult_design_doc_assemble() {
   local section_dir="$1" out="$2" title="$3"
-  local topic_text="${4:-}" synthesis_path="${5:-}"
+  local topic_text="${4:-}" synthesis_path="${5:-}" targets_dir="${6:-}"
   [[ -d "$section_dir" ]] || { echo "cw_consult_design_doc_assemble: missing $section_dir" >&2; return 1; }
   [[ -n "$title" ]] || { echo "cw_consult_design_doc_assemble: empty title" >&2; return 2; }
 
@@ -613,8 +621,19 @@ cw_consult_design_doc_assemble() {
     tech_block=$(awk '/^## Tech Stack$/{flag=1; next} /^## /{flag=0} flag' "$section_dir/architecture.md")
   fi
 
+  # Hub-mode header pair (when targets.txt exists and is non-empty).
+  local header_pair=""
+  local hub_mode=0
+  if [[ -n "$targets_dir" && -s "$targets_dir/targets.txt" ]]; then
+    hub_mode=1
+    header_pair=$(cw_consult_targets_to_header_pair "$targets_dir")
+  fi
+
   {
     printf '# %s Design\n\n' "$title"
+    if (( hub_mode == 1 )); then
+      printf '%s\n\n' "$header_pair"
+    fi
     printf '**Goal:** %s\n\n' "$goal"
     printf '**Architecture:** %s\n\n' "$arch_line"
     printf '**Tech Stack:**\n'
@@ -625,8 +644,9 @@ cw_consult_design_doc_assemble() {
     fi
     printf '\n---\n\n'
 
+    # Core 4 sections — same in both modes.
     local pair key heading
-    for pair in 'architecture|Architecture' 'components|Components' 'data-flow|Data Flow' 'error-handling|Error Handling' 'testing|Testing'; do
+    for pair in 'architecture|Architecture' 'components|Components' 'data-flow|Data Flow' 'error-handling|Error Handling'; do
       key="${pair%%|*}"
       heading="${pair##*|}"
       printf '## %s\n\n' "$heading"
@@ -637,6 +657,35 @@ cw_consult_design_doc_assemble() {
         printf '_(skipped)_\n\n'
       fi
     done
+
+    # Tests section: hub-mode uses acceptance-tests.md, single-repo uses testing.md.
+    if (( hub_mode == 1 )); then
+      printf '## Acceptance Tests\n\n'
+      if [[ -f "$section_dir/acceptance-tests.md" ]]; then
+        cat "$section_dir/acceptance-tests.md"; printf '\n'
+      else
+        printf '_(skipped)_\n\n'
+      fi
+      printf '## Execution DAG\n\n'
+      if [[ -f "$section_dir/dag.md" ]]; then
+        cat "$section_dir/dag.md"; printf '\n'
+      else
+        printf '_(skipped)_\n\n'
+      fi
+      printf '## Cross-Repo Dependencies\n\n'
+      if [[ -f "$section_dir/xrepo-deps.md" ]]; then
+        cat "$section_dir/xrepo-deps.md"; printf '\n'
+      else
+        printf '_(skipped)_\n\n'
+      fi
+    else
+      printf '## Testing\n\n'
+      if [[ -f "$section_dir/testing.md" ]]; then
+        cat "$section_dir/testing.md"; printf '\n'
+      else
+        printf '_(skipped)_\n\n'
+      fi
+    fi
   } > "$out"
 }
 
