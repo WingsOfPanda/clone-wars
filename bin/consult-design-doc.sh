@@ -91,9 +91,22 @@ cw_consult_design_doc_assemble \
   "$TARGETS_DIR" \
   || { log_error "assemble failed"; exit 1; }
 
+# Mode-toggle warn (#5): if both legacy testing.md and v0.11 acceptance-tests.md
+# exist in $DD_DIR, the user likely manually edited hub-mode.txt between runs.
+# Hub-mode wins (assemble uses acceptance-tests.md); testing.md is stale.
+if [[ -f "$DD_DIR/testing.md" && -f "$DD_DIR/acceptance-tests.md" ]]; then
+  log_warn "design-doc: both testing.md AND acceptance-tests.md present — likely manual hub-mode.txt edit between runs. Hub-mode wins (testing.md ignored)."
+fi
+
 # Hub-mode validators — run only when targets.txt is non-empty. Validator
 # stderr propagates verbatim so the directive (Task 11) can grep it and
 # re-enter the offending per-section walk.
+#
+# Validator order is load-bearing:
+#  1. dag        — gates the whole DAG block (cycle, unknown refs, repos in targets)
+#  2. xrepo-deps — independent of DAG
+#  3. acceptance-tests — cross-refs DAG step ids; MUST run AFTER dag validates
+# Reordering breaks the implicit step-id cross-ref check in acceptance-tests.
 if [[ -n "$TARGETS_DIR" ]]; then
   for v in dag:cw_consult_dag_validate \
            xrepo-deps:cw_consult_xrepo_deps_validate \
@@ -117,7 +130,7 @@ fi
 if [[ -n "${CW_CONSULT_TARGET_HEADER:-}" ]]; then
   CW_TARGET_SLUG=$(printf '%s' "$CW_CONSULT_TARGET_HEADER" \
     | sed -E 's/^\*\*Target Sub-Project:\*\*[[:space:]]+([^[:space:]]+).*/\1/')
-  if [[ ! "$CW_TARGET_SLUG" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  if [[ ! "$CW_TARGET_SLUG" =~ ^${CW_SLUG_REGEX_BASE}$ ]]; then
     log_error "consult-design-doc: invalid Target Sub-Project slug '$CW_TARGET_SLUG' from CW_CONSULT_TARGET_HEADER"
     exit 1
   fi

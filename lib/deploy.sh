@@ -59,7 +59,7 @@ cw_deploy_audit_doc() {
   grep -qE '\bTODO\b'                           "$doc" && { issues+=("todo_marker"); fail=1; }
   grep -qiE 'fill in later'                     "$doc" && { issues+=("fill_in_later_marker"); fail=1; }
   grep -qiE 'to be determined'                  "$doc" && { issues+=("to_be_determined_marker"); fail=1; }
-  # Target Sub-Project header: if present, slug must be valid (matches ^[A-Za-z0-9._-]+$).
+  # Target Sub-Project header: if present, slug must be valid (matches ^${CW_SLUG_REGEX_BASE}$).
   # Use cw_deploy_extract_target which returns rc=1 on invalid slug.
   if grep -qE '^[[:space:]]*\*\*Target Sub-Project:\*\*[[:space:]]+' "$doc"; then
     cw_deploy_extract_target "$doc" >/dev/null 2>&1 \
@@ -241,7 +241,7 @@ cw_deploy_detect_provider() {
 
 # cw_deploy_extract_target <design-path>
 # Extracts the slug from a `**Target Sub-Project:** <slug>` header line.
-# Slug must match ^[A-Za-z0-9._-]+$ — rejects path-traversal attempts
+# Slug must match ^${CW_SLUG_REGEX_BASE}$ — rejects path-traversal attempts
 # (`../escape`) and other invalid forms.
 # - No header in doc → prints empty + rc=0
 # - Valid header → prints slug + rc=0
@@ -270,8 +270,8 @@ cw_deploy_extract_target() {
   fi
   local slug
   slug=$(printf '%s' "$line" | sed -E 's/^[[:space:]]*\*\*Target Sub-Project:\*\*[[:space:]]+([^[:space:]]+).*/\1/')
-  if [[ ! "$slug" =~ ^[A-Za-z0-9._-]+$ ]]; then
-    log_error "cw_deploy_extract_target: invalid slug '$slug' (must match ^[A-Za-z0-9._-]+$)"
+  if [[ ! "$slug" =~ ^${CW_SLUG_REGEX_BASE}$ ]]; then
+    log_error "cw_deploy_extract_target: invalid slug '$slug' (must match ^${CW_SLUG_REGEX_BASE}$)"
     return 1
   fi
   printf '%s\n' "$slug"

@@ -115,8 +115,38 @@ cover, BEFORE research dispatch (the research prompt needs the list).
    ```
    HUB_OUT=$(cw_consult_detect_hub "$(pwd)")
    LEAVES=$(grep '^LEAVES=' <<< "$HUB_OUT" | cut -d= -f2 | tr ',' '\n')
+   LEAVES_CSV=$(grep '^LEAVES=' <<< "$HUB_OUT" | cut -d= -f2)
    HUBS=$(grep '^HUBS='   <<< "$HUB_OUT" | cut -d= -f2 | tr ',' '\n' || true)
    ```
+
+   **v0.11.1 auto-extract prelude** (runs BEFORE the legacy hub-subrepo /
+   super-hub picker below). Parse the user's topic text for sub-project
+   mentions; if any are inferred, offer a single confirm-or-edit gate
+   instead of forcing the full picker:
+
+   ```
+   EXTRACT=$(cw_consult_extract_targets_from_topic "$ARG_RAW" "$LEAVES_CSV") && EX_RC=0 || EX_RC=$?
+   INFERRED=$(grep '^INFERRED=' <<< "$EXTRACT" | cut -d= -f2)
+   KEYWORD_ALL=$(grep '^KEYWORD_ALL=' <<< "$EXTRACT" | cut -d= -f2 || echo 0)
+   ```
+
+   Branch on `(EX_RC, KEYWORD_ALL)`:
+
+   - **(0, 1) — KEYWORD_ALL hit:** `AskUserQuestion` with question
+     `"All leaves auto-selected (KEYWORD_ALL keyword in topic). Continue
+     or Edit selection?"` and options `[Continue: $LEAVES_CSV,
+     Edit selection (open picker)]`. On **Continue**: set
+     `CHOSEN_LEAVES=$LEAVES_CSV` and skip directly to the persist step
+     (item 5). On **Edit selection**: fall through to the legacy picker
+     (items 2-3 below).
+   - **(0, 0) — Inferred ≥1 leaf:** `AskUserQuestion` with question
+     `"Inferred targets from your topic: $INFERRED. Confirm or edit?"`
+     and options `[Confirm: $INFERRED, Edit selection (open picker),
+     Abort]`. On **Confirm**: set `CHOSEN_LEAVES=$INFERRED` and skip to
+     persist (item 5). On **Edit selection**: fall through to the
+     legacy picker (items 2-3). On **Abort**: teardown + archive + exit.
+   - **(1, *) — No inference:** fall through to the legacy hub-subrepo /
+     super-hub picker below (existing behavior unchanged).
 
 2. **hub-subrepo mode:** single `AskUserQuestion` (multi-select), options =
    `LEAVES` (one option per `<self>/<leaf>`).
@@ -133,10 +163,19 @@ cover, BEFORE research dispatch (the research prompt needs the list).
    downstream Step 8.5 picks it up) and skip persisting `targets.txt`. On
    Abort, teardown + archive + exit.
 
-5. Persist the chosen targets:
+5. Persist the chosen targets via `cw_consult_targets_persist`. When
+   `CHOSEN_LEAVES` is a bash array (legacy picker path):
 
    ```
    printf '%s\n' "${CHOSEN_LEAVES[@]}" \
+     | cw_consult_targets_persist "$TOPIC_DIR/_consult"
+   ```
+
+   When `CHOSEN_LEAVES` is a comma-separated string (v0.11.1 prelude
+   confirm path):
+
+   ```
+   printf '%s\n' "${CHOSEN_LEAVES//,/$'\n'}" \
      | cw_consult_targets_persist "$TOPIC_DIR/_consult"
    ```
 
@@ -241,10 +280,39 @@ a. Read the question payload — `_consult/question-<commander>.txt`. Use
    the Read tool, parse `TEXT=` and `OPTIONS=`. Decode any `%xx` you see.
 b. Read `$TOPIC_DIR/<commander>-<model>/findings.md` (if it exists) for
    findings-so-far context.
-c. Classify as critical / non-critical (same rules as Pattern 4 below).
+
+   **v0.11.1 active-subproject context (hub mode only):**
+
+   When `HUB_MODE != single-repo`, scope the answer-classification context
+   to the trooper's currently-active sub-project before classifying:
+
+   ```
+   FINDINGS_PATH="$TOPIC_DIR/<commander>-<model>/findings.md"
+   if [[ "$HUB_MODE" != "single-repo" ]]; then
+     ACTIVE_SP=$(cw_consult_findings_active_subproject "$FINDINGS_PATH") || ACTIVE_SP=""
+     if [[ -n "$ACTIVE_SP" ]]; then
+       log_info "active sub-project for question: $ACTIVE_SP"
+       CONTEXT_SLICE=$(awk -v leaf="$ACTIVE_SP" '
+         /^### / && $0 ~ leaf { in_block=1; print; next }
+         /^### / && in_block { in_block=0 }
+         in_block { print }
+       ' "$FINDINGS_PATH")
+     else
+       CONTEXT_SLICE=$(cat "$FINDINGS_PATH")
+     fi
+   else
+     CONTEXT_SLICE=$(cat "$FINDINGS_PATH")
+   fi
+   ```
+
+   Pass `$CONTEXT_SLICE` (NOT the full findings.md) into the
+   answer-classification step that follows.
+c. Classify as critical / non-critical (same rules as Pattern 4 below)
+   using `$CONTEXT_SLICE` (active sub-project slice in hub mode, full
+   findings otherwise).
 d. Get an answer:
    - critical → `AskUserQuestion` with TEXT + OPTIONS.
-   - non-critical → answer from topic + findings yourself.
+   - non-critical → answer from topic + `$CONTEXT_SLICE` yourself.
 e. Send the answer:
    ```
    /clone-wars:send --from master-yoda <commander> "$CONSULT_TOPIC" "ANSWER: <your answer>
@@ -332,6 +400,34 @@ Same 4-step parse as Step 3 (sentinel check + grep `^VS=`). Note that
 verify uses `VS=` (not `FS=` — that's research). The verify phase's
 question-loop semantics match Step 3's exactly — see Pattern 4 (updated
 below) for the re-arm recipe.
+
+For each commander whose `VS=question`, apply the **v0.11.1
+active-subproject context (hub mode only)** recipe before classifying.
+The verify phase's findings-so-far context source is the trooper's
+`verify.md` (not `findings.md`); the slice logic is otherwise identical
+to Step 3:
+
+```
+FINDINGS_PATH="$TOPIC_DIR/<commander>-<model>/verify.md"
+if [[ "$HUB_MODE" != "single-repo" ]]; then
+  ACTIVE_SP=$(cw_consult_findings_active_subproject "$FINDINGS_PATH") || ACTIVE_SP=""
+  if [[ -n "$ACTIVE_SP" ]]; then
+    log_info "active sub-project for verify question: $ACTIVE_SP"
+    CONTEXT_SLICE=$(awk -v leaf="$ACTIVE_SP" '
+      /^### / && $0 ~ leaf { in_block=1; print; next }
+      /^### / && in_block { in_block=0 }
+      in_block { print }
+    ' "$FINDINGS_PATH")
+  else
+    CONTEXT_SLICE=$(cat "$FINDINGS_PATH")
+  fi
+else
+  CONTEXT_SLICE=$(cat "$FINDINGS_PATH")
+fi
+```
+
+Pass `$CONTEXT_SLICE` (NOT the full verify.md) into the
+answer-classification prompt before invoking Pattern 4's relay.
 
 If all-UNCERTAIN, consider Pattern 3 intervention. Else set `1.6` and
 `1.7` → `completed`.

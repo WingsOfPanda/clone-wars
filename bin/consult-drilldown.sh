@@ -85,17 +85,41 @@ TIMEOUT=${TIMEOUT:-90}
 
 SECTION_SLUG=$(printf '%s' "$TITLE" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
 
-# dispatch_drill <commander> <model> — capture pre-send offset, send the drill
-# prompt, print the offset on stdout. Caller captures it for the await step.
+# dispatch_drill <commander> <model> <out_path> — capture pre-send offset, send
+# the drill prompt with the explicit out_path (collision-resolved by caller),
+# print the offset on stdout. Caller captures it for the await step.
 dispatch_drill() {
-  local commander="$1" model="$2"
+  local commander="$1" model="$2" out_path="$3"
   local trooper_dir offset prompt
   trooper_dir=$(cw_trooper_dir "$commander" "$model" "$TOPIC")
   offset=$(wc -c < "$trooper_dir/outbox.jsonl" 2>/dev/null || echo 0)
   prompt=$(cw_consult_design_doc_drilldown_prompt \
-    "$TITLE" "$SYNTHESIS" "$commander" "$DD_DIR" "$FOCUS" "$SUBPROJECT")
+    "$TITLE" "$SYNTHESIS" "$commander" "$DD_DIR" "$FOCUS" "$SUBPROJECT" "$out_path")
   "$PLUGIN_ROOT/bin/send.sh" "$commander" "$TOPIC" "$prompt" >/dev/null
   printf '%s\n' "$offset"
+}
+
+# resolve_out_path <commander> — compute the drilldown OUT_PATH for <commander>
+# applying the v0.11.1 collision counter. Mirrors bin/consult-archive.sh's
+# -N suffix pattern: first collision → -2, second → -3, ..., capped at -99.
+# Strips any prior -N suffix before re-appending so re-runs don't compound
+# (-2 → -2-3 → -2-3-4 ...). Echoes resolved path on stdout.
+resolve_out_path() {
+  local commander="$1"
+  local OUT_PATH="$DD_DIR/_scratch/drilldown-${DRILL_INFIX}-${commander}.md"
+  # Collision counter: append -N suffix when output file exists. Mirrors
+  # bin/consult-archive.sh's same-second collision pattern. Caps at -99 to
+  # prevent runaway loops.
+  local n=2 base
+  while [[ -e "$OUT_PATH" ]]; do
+    base="${OUT_PATH%.md}"
+    # Strip any prior -N suffix before re-appending (otherwise -2 → -2-3 → ...)
+    base="${base%-[0-9]*}"
+    OUT_PATH="${base}-${n}.md"
+    n=$((n + 1))
+    (( n > 99 )) && { log_error "too many same-section drilldown collisions; aborting"; exit 1; }
+  done
+  printf '%s\n' "$OUT_PATH"
 }
 
 # await_drill <commander> <model> <offset> — block until done|error event past
@@ -106,16 +130,6 @@ await_drill() {
     "$offset" done error "$TIMEOUT" >/dev/null
 }
 
-# Dispatch (parallel — sends are fast, both troopers receive nudges before
-# either response arrives).
-OFF1=$(dispatch_drill "$COMMANDER1" "$MODEL1")
-log_info "[drilldown] dispatched $COMMANDER1 (offset=$OFF1, timeout=${TIMEOUT}s)"
-
-if [[ -n "$COMMANDER2" ]]; then
-  OFF2=$(dispatch_drill "$COMMANDER2" "$MODEL2")
-  log_info "[drilldown] dispatched $COMMANDER2 (offset=$OFF2, timeout=${TIMEOUT}s)"
-fi
-
 # Output filename mirrors cw_consult_design_doc_drilldown_prompt: when a
 # sub-project is set, the slug is interpolated between section and commander.
 if [[ -n "$SUBPROJECT" ]]; then
@@ -124,9 +138,27 @@ else
   DRILL_INFIX="${SECTION_SLUG}"
 fi
 
+# Resolve per-trooper OUT_PATH BEFORE dispatch so the collision-counter
+# decisions are baked into the prompt the trooper receives. Without this,
+# both troopers would independently target the same path and clobber each
+# other on multi-round drills.
+DRILL1=$(resolve_out_path "$COMMANDER1")
+if [[ -n "$COMMANDER2" ]]; then
+  DRILL2=$(resolve_out_path "$COMMANDER2")
+fi
+
+# Dispatch (parallel — sends are fast, both troopers receive nudges before
+# either response arrives).
+OFF1=$(dispatch_drill "$COMMANDER1" "$MODEL1" "$DRILL1")
+log_info "[drilldown] dispatched $COMMANDER1 → $DRILL1 (offset=$OFF1, timeout=${TIMEOUT}s)"
+
+if [[ -n "$COMMANDER2" ]]; then
+  OFF2=$(dispatch_drill "$COMMANDER2" "$MODEL2" "$DRILL2")
+  log_info "[drilldown] dispatched $COMMANDER2 → $DRILL2 (offset=$OFF2, timeout=${TIMEOUT}s)"
+fi
+
 # Await — single OR both.
 SUCCESS=0
-DRILL1="$DD_DIR/_scratch/drilldown-${DRILL_INFIX}-${COMMANDER1}.md"
 if await_drill "$COMMANDER1" "$MODEL1" "$OFF1"; then
   if [[ -s "$DRILL1" ]]; then
     log_info "[drilldown] $COMMANDER1: wrote $DRILL1"
@@ -139,7 +171,6 @@ else
 fi
 
 if [[ -n "$COMMANDER2" ]]; then
-  DRILL2="$DD_DIR/_scratch/drilldown-${DRILL_INFIX}-${COMMANDER2}.md"
   if await_drill "$COMMANDER2" "$MODEL2" "$OFF2"; then
     if [[ -s "$DRILL2" ]]; then
       log_info "[drilldown] $COMMANDER2: wrote $DRILL2"
