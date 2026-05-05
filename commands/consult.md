@@ -280,10 +280,39 @@ a. Read the question payload — `_consult/question-<commander>.txt`. Use
    the Read tool, parse `TEXT=` and `OPTIONS=`. Decode any `%xx` you see.
 b. Read `$TOPIC_DIR/<commander>-<model>/findings.md` (if it exists) for
    findings-so-far context.
-c. Classify as critical / non-critical (same rules as Pattern 4 below).
+
+   **v0.11.1 active-subproject context (hub mode only):**
+
+   When `HUB_MODE != single-repo`, scope the answer-classification context
+   to the trooper's currently-active sub-project before classifying:
+
+   ```
+   FINDINGS_PATH="$TOPIC_DIR/<commander>-<model>/findings.md"
+   if [[ "$HUB_MODE" != "single-repo" ]]; then
+     ACTIVE_SP=$(cw_consult_findings_active_subproject "$FINDINGS_PATH") || ACTIVE_SP=""
+     if [[ -n "$ACTIVE_SP" ]]; then
+       log_info "active sub-project for question: $ACTIVE_SP"
+       CONTEXT_SLICE=$(awk -v leaf="$ACTIVE_SP" '
+         /^### / && $0 ~ leaf { in_block=1; print; next }
+         /^### / && in_block { in_block=0 }
+         in_block { print }
+       ' "$FINDINGS_PATH")
+     else
+       CONTEXT_SLICE=$(cat "$FINDINGS_PATH")
+     fi
+   else
+     CONTEXT_SLICE=$(cat "$FINDINGS_PATH")
+   fi
+   ```
+
+   Pass `$CONTEXT_SLICE` (NOT the full findings.md) into the
+   answer-classification step that follows.
+c. Classify as critical / non-critical (same rules as Pattern 4 below)
+   using `$CONTEXT_SLICE` (active sub-project slice in hub mode, full
+   findings otherwise).
 d. Get an answer:
    - critical → `AskUserQuestion` with TEXT + OPTIONS.
-   - non-critical → answer from topic + findings yourself.
+   - non-critical → answer from topic + `$CONTEXT_SLICE` yourself.
 e. Send the answer:
    ```
    /clone-wars:send --from master-yoda <commander> "$CONSULT_TOPIC" "ANSWER: <your answer>
@@ -371,6 +400,34 @@ Same 4-step parse as Step 3 (sentinel check + grep `^VS=`). Note that
 verify uses `VS=` (not `FS=` — that's research). The verify phase's
 question-loop semantics match Step 3's exactly — see Pattern 4 (updated
 below) for the re-arm recipe.
+
+For each commander whose `VS=question`, apply the **v0.11.1
+active-subproject context (hub mode only)** recipe before classifying.
+The verify phase's findings-so-far context source is the trooper's
+`verify.md` (not `findings.md`); the slice logic is otherwise identical
+to Step 3:
+
+```
+FINDINGS_PATH="$TOPIC_DIR/<commander>-<model>/verify.md"
+if [[ "$HUB_MODE" != "single-repo" ]]; then
+  ACTIVE_SP=$(cw_consult_findings_active_subproject "$FINDINGS_PATH") || ACTIVE_SP=""
+  if [[ -n "$ACTIVE_SP" ]]; then
+    log_info "active sub-project for verify question: $ACTIVE_SP"
+    CONTEXT_SLICE=$(awk -v leaf="$ACTIVE_SP" '
+      /^### / && $0 ~ leaf { in_block=1; print; next }
+      /^### / && in_block { in_block=0 }
+      in_block { print }
+    ' "$FINDINGS_PATH")
+  else
+    CONTEXT_SLICE=$(cat "$FINDINGS_PATH")
+  fi
+else
+  CONTEXT_SLICE=$(cat "$FINDINGS_PATH")
+fi
+```
+
+Pass `$CONTEXT_SLICE` (NOT the full verify.md) into the
+answer-classification prompt before invoking Pattern 4's relay.
 
 If all-UNCERTAIN, consider Pattern 3 intervention. Else set `1.6` and
 `1.7` → `completed`.
