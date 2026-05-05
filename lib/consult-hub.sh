@@ -236,3 +236,17 @@ cw_consult_extract_targets_from_topic() {
   fi
   return 0
 }
+
+# cw_consult_findings_active_subproject <findings-md>
+# Parses findings.md, returns the last `### <leaf>` heading text (just the
+# bare leaf name, no `### ` prefix). rc=0 + leaf name on stdout.
+# rc=1 when file missing or no ### headings found.
+cw_consult_findings_active_subproject() {
+  local file="${1:-}"
+  [[ -n "$file" ]] || { echo "cw_consult_findings_active_subproject: missing file arg" >&2; return 2; }
+  [[ -f "$file" ]] || return 1
+  local last
+  last=$(awk '/^### / { sub(/^### /, ""); name=$0 } END { if (name != "") print name }' "$file")
+  [[ -n "$last" ]] || return 1
+  printf '%s\n' "$last"
+}

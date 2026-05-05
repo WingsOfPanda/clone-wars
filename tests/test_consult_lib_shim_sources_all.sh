@@ -24,6 +24,7 @@ EXPECTED=(
   cw_consult_targets_persist cw_consult_targets_load
   cw_consult_targets_to_header_pair
   cw_consult_extract_targets_from_topic
+  cw_consult_findings_active_subproject
   # consult-validators.sh
   cw_consult_dag_validate cw_consult_xrepo_deps_validate
   cw_consult_acceptance_tests_validate
