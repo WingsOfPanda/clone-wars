@@ -164,3 +164,75 @@ cw_consult_targets_to_header_pair() {
   printf '**Target Hub(s):** %s\n' "$hubs"
   printf '**Target Sub-Project(s):** %s\n' "$leaves"
 }
+
+# cw_consult_extract_targets_from_topic <topic-text> <available-leaves-csv>
+# Heuristic target inference from the topic text. Returns 2-line stdout:
+#   INFERRED=<comma-leaves>
+#   KEYWORD_ALL=<0|1>
+# rc=0 when >=1 inference (or KEYWORD_ALL=1), rc=1 when no matches.
+#
+# Inference rules:
+# - Word-boundary match each leaf basename against topic text -> add to INFERRED
+# - Word-boundary match each hub name against topic text -> add ALL leaves
+#   under that hub to INFERRED
+# - "all" / "every" / "everything" / "across all" anywhere in topic ->
+#   KEYWORD_ALL=1
+# Word-boundary = surrounded by non-slug-character or string boundary.
+cw_consult_extract_targets_from_topic() {
+  local topic="${1:-}" leaves_csv="${2:-}"
+  [[ -n "$topic" && -n "$leaves_csv" ]] || { echo "cw_consult_extract_targets_from_topic: missing args" >&2; return 2; }
+
+  # Lowercase topic for case-insensitive keyword matching.
+  local topic_lower
+  topic_lower=$(printf '%s' "$topic" | tr '[:upper:]' '[:lower:]')
+
+  # KEYWORD_ALL detection -- surrounded by spaces or string boundaries.
+  local keyword_all=0
+  local fenced=" $topic_lower "
+  fenced=${fenced//[[:punct:]]/ }
+  fenced=$(printf '%s' "$fenced" | tr -s ' ')
+  if [[ "$fenced" =~ \ (all|every|everything|across\ all)\  ]]; then
+    keyword_all=1
+  fi
+
+  # Word-boundary match leaves and hubs.
+  local -a leaves=() hubs_seen=()
+  IFS=',' read -ra leaves <<< "$leaves_csv"
+  local leaf hub bare
+  declare -A inferred=()
+  for leaf in "${leaves[@]}"; do
+    hub="${leaf%%/*}"
+    bare="${leaf#*/}"
+    # Match bare leaf name with word boundary (surround by non-slug or boundary).
+    if [[ " $topic " =~ [^A-Za-z0-9._-]"$bare"[^A-Za-z0-9._-] ]]; then
+      inferred[$leaf]=1
+    fi
+    # Track unique hubs.
+    local seen=0 h
+    for h in "${hubs_seen[@]:-}"; do
+      [[ "$h" == "$hub" ]] && { seen=1; break; }
+    done
+    (( seen == 0 )) && hubs_seen+=("$hub")
+  done
+  # Hub-name match -> add all leaves under that hub
+  for hub in "${hubs_seen[@]}"; do
+    if [[ " $topic " =~ [^A-Za-z0-9._-]"$hub"[^A-Za-z0-9._-] ]]; then
+      for leaf in "${leaves[@]}"; do
+        [[ "${leaf%%/*}" == "$hub" ]] && inferred[$leaf]=1
+      done
+    fi
+  done
+
+  # Build INFERRED comma-list preserving original leaves order.
+  local result=""
+  for leaf in "${leaves[@]}"; do
+    [[ -n "${inferred[$leaf]+x}" ]] && result+="${result:+,}$leaf"
+  done
+
+  printf 'INFERRED=%s\n' "$result"
+  printf 'KEYWORD_ALL=%s\n' "$keyword_all"
+  if [[ -z "$result" && "$keyword_all" -eq 0 ]]; then
+    return 1
+  fi
+  return 0
+}
