@@ -115,8 +115,38 @@ cover, BEFORE research dispatch (the research prompt needs the list).
    ```
    HUB_OUT=$(cw_consult_detect_hub "$(pwd)")
    LEAVES=$(grep '^LEAVES=' <<< "$HUB_OUT" | cut -d= -f2 | tr ',' '\n')
+   LEAVES_CSV=$(grep '^LEAVES=' <<< "$HUB_OUT" | cut -d= -f2)
    HUBS=$(grep '^HUBS='   <<< "$HUB_OUT" | cut -d= -f2 | tr ',' '\n' || true)
    ```
+
+   **v0.11.1 auto-extract prelude** (runs BEFORE the legacy hub-subrepo /
+   super-hub picker below). Parse the user's topic text for sub-project
+   mentions; if any are inferred, offer a single confirm-or-edit gate
+   instead of forcing the full picker:
+
+   ```
+   EXTRACT=$(cw_consult_extract_targets_from_topic "$ARG_RAW" "$LEAVES_CSV") && EX_RC=0 || EX_RC=$?
+   INFERRED=$(grep '^INFERRED=' <<< "$EXTRACT" | cut -d= -f2)
+   KEYWORD_ALL=$(grep '^KEYWORD_ALL=' <<< "$EXTRACT" | cut -d= -f2 || echo 0)
+   ```
+
+   Branch on `(EX_RC, KEYWORD_ALL)`:
+
+   - **(0, 1) — KEYWORD_ALL hit:** `AskUserQuestion` with question
+     `"All leaves auto-selected (KEYWORD_ALL keyword in topic). Continue
+     or Edit selection?"` and options `[Continue: $LEAVES_CSV,
+     Edit selection (open picker)]`. On **Continue**: set
+     `CHOSEN_LEAVES=$LEAVES_CSV` and skip directly to the persist step
+     (item 5). On **Edit selection**: fall through to the legacy picker
+     (items 2-3 below).
+   - **(0, 0) — Inferred ≥1 leaf:** `AskUserQuestion` with question
+     `"Inferred targets from your topic: $INFERRED. Confirm or edit?"`
+     and options `[Confirm: $INFERRED, Edit selection (open picker),
+     Abort]`. On **Confirm**: set `CHOSEN_LEAVES=$INFERRED` and skip to
+     persist (item 5). On **Edit selection**: fall through to the
+     legacy picker (items 2-3). On **Abort**: teardown + archive + exit.
+   - **(1, *) — No inference:** fall through to the legacy hub-subrepo /
+     super-hub picker below (existing behavior unchanged).
 
 2. **hub-subrepo mode:** single `AskUserQuestion` (multi-select), options =
    `LEAVES` (one option per `<self>/<leaf>`).
@@ -133,10 +163,19 @@ cover, BEFORE research dispatch (the research prompt needs the list).
    downstream Step 8.5 picks it up) and skip persisting `targets.txt`. On
    Abort, teardown + archive + exit.
 
-5. Persist the chosen targets:
+5. Persist the chosen targets via `cw_consult_targets_persist`. When
+   `CHOSEN_LEAVES` is a bash array (legacy picker path):
 
    ```
    printf '%s\n' "${CHOSEN_LEAVES[@]}" \
+     | cw_consult_targets_persist "$TOPIC_DIR/_consult"
+   ```
+
+   When `CHOSEN_LEAVES` is a comma-separated string (v0.11.1 prelude
+   confirm path):
+
+   ```
+   printf '%s\n' "${CHOSEN_LEAVES//,/$'\n'}" \
      | cw_consult_targets_persist "$TOPIC_DIR/_consult"
    ```
 
