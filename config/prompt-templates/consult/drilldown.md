@@ -5,6 +5,9 @@ Read the synthesis you produced: {{SYN}}
 
 Focus: {{FOCUS}}
 
+{{SUBPROJECT_BLOCK_START}}Scope: drill specifically into **{{SUBPROJECT}}** within this section.
+Other sub-projects are out of scope for this drilldown.{{SUBPROJECT_BLOCK_END}}
+
 Write your expanded notes (with [citation] anchors) to:
   {{OUT_PATH}}
 

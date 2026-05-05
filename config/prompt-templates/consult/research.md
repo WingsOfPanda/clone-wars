@@ -39,6 +39,16 @@ primary sources (specifications, official docs, source repos) over blog
 posts. If a tool is not available in your environment, fall back to
 local-only investigation and note the gap as an [unverified] claim.
 
+{{TARGETS_BLOCK_START}}## Per-sub-project structure
+
+This consultation spans multiple sub-projects. Structure your `findings.md`
+with one `### <sub-project>` heading per sub-project, in this order:
+
+{{TARGETS}}
+
+Each sub-section's claims block contributes to the per-sub-project diff +
+verify pass downstream.{{TARGETS_BLOCK_END}}
+
 Then emit {"event":"done", "summary":"researched {{TOPIC}}", "ts":"<iso>"} to your outbox.
 
 END_OF_INSTRUCTION

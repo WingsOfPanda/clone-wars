@@ -36,14 +36,28 @@ while [[ -d "$TOPIC_DIR" ]]; do
 done
 
 mkdir -p "$TOPIC_DIR/_consult"
-printf '%s' "$TOPIC_TEXT" > "$TOPIC_DIR/_consult/topic.txt"
+ART_DIR="$TOPIC_DIR/_consult"
+printf '%s' "$TOPIC_TEXT" > "$ART_DIR/topic.txt"
 
 # Classify topic and persist skill hint for send-scripts.
 SKILL=$(cw_consult_classify_topic "$TOPIC_TEXT")
-printf '%s' "$SKILL" > "$TOPIC_DIR/_consult/skill.txt"
+printf '%s' "$SKILL" > "$ART_DIR/skill.txt"
+
+# Hub-mode classification (v0.11). Persist before any further work so
+# downstream sub-scripts can branch on it. Detector returns rc=1 for
+# single-repo (the default); rc=0 with MODE= line for hub-subrepo/super-hub.
+HUB_OUT=$(cw_consult_detect_hub "$(pwd)") && HUB_RC=0 || HUB_RC=$?
+if (( HUB_RC == 0 )); then
+  HUB_MODE=$(grep '^MODE=' <<< "$HUB_OUT" | head -1 | cut -d= -f2)
+else
+  HUB_MODE="single-repo"
+fi
+cw_consult_hub_mode_persist "$ART_DIR" "$HUB_MODE" \
+  || log_warn "hub-mode persist failed for $ART_DIR"
 
 log_info "consultation topic: $CONSULT_TOPIC"
-log_info "  artifacts dir:    $TOPIC_DIR/_consult"
+log_info "  artifacts dir:    $ART_DIR"
 log_info "  skill hint:       $SKILL"
+log_info "  hub mode:         $HUB_MODE"
 
 printf '%s\n' "$CONSULT_TOPIC"

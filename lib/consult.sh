@@ -143,14 +143,43 @@ cw_consult_diff() {
   } > "$out"
 }
 
-# cw_consult_build_verify_prompt <items_file> <write_to>
+# cw_consult_strip_block <begin-regex> <end-regex>
+# Reads stdin, drops lines between (and including) the first match of
+# begin-regex through the first subsequent match of end-regex, plus one
+# trailing line (the consumed terminator). Used by template-builder helpers
+# to remove sentinel-bracketed optional blocks while preserving byte-equality
+# with v0.4.2 baselines for the empty-input case.
+cw_consult_strip_block() {
+  local begin_re="$1" end_re="$2"
+  awk -v b="$begin_re" -v e="$end_re" '
+    $0 ~ b               { skipping=1; next }
+    skipping && $0 ~ e   { skipping=0; getline; next }
+    !skipping            { print }
+  '
+}
+
+# cw_consult_build_verify_prompt <items_file> <write_to> [targets]
 # Build the verify-round prompt body. Reads <items_file> (one `[cite] text` per
 # line) and emits a self-contained instruction, terminated by END_OF_INSTRUCTION.
+# If <targets> is non-empty (comma-separated leaves), append a per-sub-project
+# structure block. Empty/omitted preserves v0.10 byte-equal output (single-repo).
 cw_consult_build_verify_prompt() {
-  local items_file="$1" write_to="$2"
+  local items_file="$1" write_to="$2" targets="${3:-}"
   local items
   items=$(nl -ba -w1 -s'. ' "$items_file")
-  cw_consult_load_prompt consult/verify.md "ITEMS=$items" "WRITE_TO=$write_to"
+  local out
+  out=$(cw_consult_load_prompt consult/verify.md \
+          "ITEMS=$items" "WRITE_TO=$write_to" \
+          "TARGETS_BLOCK_START=" "TARGETS_BLOCK_END=" \
+          "TARGETS=- ${targets//,/$'\n'- }")
+  if [[ -z "$targets" ]]; then
+    # Single-repo: strip the per-sub-project block to match v0.4.2 baseline byte-for-byte.
+    # Sentinels render as empty inline tokens, so the heading and closing lines
+    # bracket the block; getline consumes the trailing blank line for byte-equality.
+    printf '%s\n' "$out" | cw_consult_strip_block '^## Per-sub-project structure$' '^verify pass downstream\\.$'
+  else
+    printf '%s\n' "$out"
+  fi
 }
 
 # cw_consult_parse_verdicts <verify.md>
@@ -193,13 +222,27 @@ cw_consult_parse_verdicts() {
   ' "$file"
 }
 
-# cw_consult_build_research_prompt <topic> <write_to>
+# cw_consult_build_research_prompt <topic> <write_to> [targets]
 # Build the research-round prompt body. Emits a self-contained instruction
 # with the required Findings structure and citation rules, terminated by
 # END_OF_INSTRUCTION.
+# If <targets> is non-empty (comma-separated leaves), append a per-sub-project
+# structure block. Empty/omitted preserves v0.10 byte-equal output (single-repo).
 cw_consult_build_research_prompt() {
-  local topic="$1" write_to="$2"
-  cw_consult_load_prompt consult/research.md "TOPIC=$topic" "WRITE_TO=$write_to"
+  local topic="$1" write_to="$2" targets="${3:-}"
+  local out
+  out=$(cw_consult_load_prompt consult/research.md \
+          "TOPIC=$topic" "WRITE_TO=$write_to" \
+          "TARGETS_BLOCK_START=" "TARGETS_BLOCK_END=" \
+          "TARGETS=- ${targets//,/$'\n'- }")
+  if [[ -z "$targets" ]]; then
+    # Single-repo: strip the per-sub-project block to match v0.4.2 baseline byte-for-byte.
+    # Sentinels render as empty inline tokens, so the heading and closing lines
+    # bracket the block; getline consumes the trailing blank line for byte-equality.
+    printf '%s\n' "$out" | cw_consult_strip_block '^## Per-sub-project structure$' '^verify pass downstream\\.$'
+  else
+    printf '%s\n' "$out"
+  fi
 }
 
 # cw_consult_synthesize <topic> <diff.md> <adjudicated.md> \
@@ -508,7 +551,7 @@ cw_consult_design_doc_filename() {
   fi
 }
 
-# cw_consult_design_doc_assemble <section-dir> <output-path> <title> [<topic-text>] [<synthesis-path>]
+# cw_consult_design_doc_assemble <section-dir> <output-path> <title> [<topic-text>] [<synthesis-path>] [<targets-dir>]
 # Concatenates 5 section files into a single design doc with a standard
 # header. Missing sections get a _(skipped)_ placeholder body.
 #
@@ -520,9 +563,17 @@ cw_consult_design_doc_filename() {
 #                       under "## Agreed findings" (then "## Cross-verified")
 #                       becomes **Goal:** (200-char trunc); falls back to
 #                       architecture.md head -n1.
+#   <targets-dir>     — path to the _consult/ art-dir; when set AND
+#                       <targets-dir>/targets.txt is non-empty, hub-mode
+#                       output is emitted: a Target Hub(s)/Sub-Project(s)
+#                       header pair after the H1, plus Acceptance Tests,
+#                       Execution DAG, and Cross-Repo Dependencies sections
+#                       (sourced from acceptance-tests.md, dag.md,
+#                       xrepo-deps.md). Single-repo path (empty 6th arg or
+#                       missing/empty targets.txt) is byte-equal to v0.10.
 cw_consult_design_doc_assemble() {
   local section_dir="$1" out="$2" title="$3"
-  local topic_text="${4:-}" synthesis_path="${5:-}"
+  local topic_text="${4:-}" synthesis_path="${5:-}" targets_dir="${6:-}"
   [[ -d "$section_dir" ]] || { echo "cw_consult_design_doc_assemble: missing $section_dir" >&2; return 1; }
   [[ -n "$title" ]] || { echo "cw_consult_design_doc_assemble: empty title" >&2; return 2; }
 
@@ -570,8 +621,19 @@ cw_consult_design_doc_assemble() {
     tech_block=$(awk '/^## Tech Stack$/{flag=1; next} /^## /{flag=0} flag' "$section_dir/architecture.md")
   fi
 
+  # Hub-mode header pair (when targets.txt exists and is non-empty).
+  local header_pair=""
+  local hub_mode=0
+  if [[ -n "$targets_dir" && -s "$targets_dir/targets.txt" ]]; then
+    hub_mode=1
+    header_pair=$(cw_consult_targets_to_header_pair "$targets_dir")
+  fi
+
   {
     printf '# %s Design\n\n' "$title"
+    if (( hub_mode == 1 )); then
+      printf '%s\n\n' "$header_pair"
+    fi
     printf '**Goal:** %s\n\n' "$goal"
     printf '**Architecture:** %s\n\n' "$arch_line"
     printf '**Tech Stack:**\n'
@@ -582,8 +644,29 @@ cw_consult_design_doc_assemble() {
     fi
     printf '\n---\n\n'
 
+    # Core 4 sections — same in both modes.
     local pair key heading
-    for pair in 'architecture|Architecture' 'components|Components' 'data-flow|Data Flow' 'error-handling|Error Handling' 'testing|Testing'; do
+    for pair in 'architecture|Architecture' 'components|Components' 'data-flow|Data Flow' 'error-handling|Error Handling'; do
+      key="${pair%%|*}"
+      heading="${pair##*|}"
+      printf '## %s\n\n' "$heading"
+      if [[ -f "$section_dir/$key.md" ]]; then
+        cat "$section_dir/$key.md"
+        printf '\n'
+      else
+        printf '_(skipped)_\n\n'
+      fi
+    done
+
+    # Tail sections: hub-mode emits Acceptance Tests + Execution DAG +
+    # Cross-Repo Dependencies; single-repo emits Testing.
+    local -a tail_pairs
+    if (( hub_mode == 1 )); then
+      tail_pairs=('acceptance-tests|Acceptance Tests' 'dag|Execution DAG' 'xrepo-deps|Cross-Repo Dependencies')
+    else
+      tail_pairs=('testing|Testing')
+    fi
+    for pair in "${tail_pairs[@]}"; do
       key="${pair%%|*}"
       heading="${pair##*|}"
       printf '## %s\n\n' "$heading"
@@ -615,23 +698,49 @@ cw_consult_design_doc_self_review() {
   return $found
 }
 
-# cw_consult_design_doc_drilldown_prompt <section> <synthesis-path> <commander> <dd-dir> <focus>
+# cw_consult_design_doc_drilldown_prompt <section> <synthesis-path> <commander> <dd-dir> <focus> [subproject]
 # Builds a focused inbox payload asking <commander> to drill into <section>.
 # Trooper writes to <dd-dir>/_scratch/drilldown-<section-slug>-<commander>.md
 # (the _scratch/ subdir keeps per-section trooper output out of the user-facing
 # design-doc directory, which should contain only the final assembled spec).
 # <focus> is optional pushback text from the user; default applies if empty.
+# If <subproject> is non-empty, the output path becomes
+# <dd-dir>/_scratch/drilldown-<section-slug>-<subproject>-<commander>.md and
+# the prompt scope-narrows to that sub-project. Empty/omitted preserves
+# v0.5.3 byte-equal output (single-repo).
 cw_consult_design_doc_drilldown_prompt() {
-  local section="$1" syn="$2" commander="$3" dd_dir="$4" focus="${5:-}"
+  local section="$1" syn="$2" commander="$3" dd_dir="$4" focus="${5:-}" subproject="${6:-}"
+  if [[ -n "$subproject" ]]; then
+    if [[ ! "$subproject" =~ ^[A-Za-z0-9._-]+$ ]]; then
+      echo "cw_consult_design_doc_drilldown_prompt: invalid subproject '$subproject' (need [A-Za-z0-9._-]+)" >&2
+      return 2
+    fi
+  fi
   local section_slug
   section_slug=$(printf '%s' "$section" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
-  local out_path="$dd_dir/_scratch/drilldown-${section_slug}-${commander}.md"
+  local out_path
+  if [[ -n "$subproject" ]]; then
+    out_path="$dd_dir/_scratch/drilldown-${section_slug}-${subproject}-${commander}.md"
+  else
+    out_path="$dd_dir/_scratch/drilldown-${section_slug}-${commander}.md"
+  fi
   local resolved_focus="${focus:-Provide more depth, citations, and concrete trade-offs for the $section section.}"
-  cw_consult_load_prompt consult/drilldown.md \
-    "SECTION=$section" \
-    "SYN=$syn" \
-    "FOCUS=$resolved_focus" \
-    "OUT_PATH=$out_path"
+  local out
+  out=$(cw_consult_load_prompt consult/drilldown.md \
+          "SECTION=$section" \
+          "SYN=$syn" \
+          "FOCUS=$resolved_focus" \
+          "OUT_PATH=$out_path" \
+          "SUBPROJECT_BLOCK_START=" "SUBPROJECT_BLOCK_END=" \
+          "SUBPROJECT=${subproject:-N/A}")
+  if [[ -z "$subproject" ]]; then
+    # Single-repo: strip the per-sub-project block to match v0.5.3 baseline byte-for-byte.
+    # Sentinels render as empty inline tokens, so the Scope and "Other sub-projects"
+    # lines bracket the block; getline consumes the trailing blank line for byte-equality.
+    printf '%s\n' "$out" | cw_consult_strip_block '^Scope: drill specifically into' '^Other sub-projects'
+  else
+    printf '%s\n' "$out"
+  fi
 }
 
 # cw_consult_design_doc_resume_state <design-doc-dir>
@@ -720,22 +829,436 @@ cw_consult_load_prompt() {
 }
 
 # cw_consult_detect_hub <cwd>
-# Returns 0 + prints names of immediate sub-repos (one per line) when:
-#   <cwd> itself is a git repo (has .git/ dir or file), AND
-#   at least one immediate child of <cwd> contains a .git/ directory or file.
-# Returns 1 (no output) otherwise.
+# Classifies <cwd> into one of three modes and prints structured stdout:
+#   MODE=single-repo|hub-subrepo|super-hub
+#   HUBS=<comma-list>      (only when super-hub)
+#   LEAVES=<comma-list>    (always when rc=0; <hub>/<leaf> form for super-hub,
+#                           <self>/<leaf> form for hub-subrepo)
+# Returns 0 when hub-mode (hub-subrepo or super-hub); rc=1 for single-repo
+# (preserves v0.10 caller expectation).
 cw_consult_detect_hub() {
   local cwd="${1:-}"
   [[ -n "$cwd" ]] || return 1
   [[ -d "$cwd/.git" || -f "$cwd/.git" ]] || return 1
-  local found=0 child base
+
+  local self_name child base child_name
+  self_name="${cwd##*/}"
+  local -a immediate_git=() leaves_subrepo=() hubs=() leaves_super=()
   for child in "$cwd"/*/; do
     [[ -d "$child" ]] || continue
     if [[ -d "$child/.git" || -f "$child/.git" ]]; then
       base="${child%/}"
-      printf '%s\n' "${base##*/}"
-      found=1
+      child_name="${base##*/}"
+      if [[ ! "$child_name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+        log_warn "cw_consult_detect_hub: dropped '$child_name' (non-slug-safe directory name)"
+        continue
+      fi
+      immediate_git+=("$child_name")
     fi
   done
-  (( found == 1 )) && return 0 || return 1
+  [[ ${#immediate_git[@]} -gt 0 ]] || return 1
+
+  # For each immediate git child, scan its subdirectories:
+  #   - any git grandchild  → child is a hub (collect each leaf)
+  #   - no git grandchild but has at least one non-git subdir → child is a leaf
+  #   - no subdirectories at all → drop (not a meaningful sub-project node)
+  local hub leaf grandchild has_grand has_any_subdir grand_name
+  for hub in "${immediate_git[@]}"; do
+    has_grand=0
+    has_any_subdir=0
+    for grandchild in "$cwd/$hub"/*/; do
+      [[ -d "$grandchild" ]] || continue
+      has_any_subdir=1
+      if [[ -d "$grandchild/.git" || -f "$grandchild/.git" ]]; then
+        leaf="${grandchild%/}"
+        grand_name="${leaf##*/}"
+        if [[ ! "$grand_name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+          log_warn "cw_consult_detect_hub: dropped '$grand_name' (non-slug-safe directory name)"
+          continue
+        fi
+        leaves_super+=("$hub/$grand_name")
+        has_grand=1
+      fi
+    done
+    if (( has_grand == 1 )); then
+      hubs+=("$hub")
+    elif (( has_any_subdir == 1 )); then
+      leaves_subrepo+=("$self_name/$hub")
+    else
+      # bare git repo (no subdirectories) → drop per spec error-handling
+      log_warn "cw_consult_detect_hub: dropped '$hub' (bare git child with no subdirectories)"
+    fi
+  done
+
+  # Classification:
+  # - any immediate git child is a hub (has git grandchildren) → super-hub
+  # - all immediate git children are leaves → hub-subrepo
+  # - mixed: super-hub mode, leaf-less hubs are dropped (per spec error-handling)
+  if (( ${#hubs[@]} > 0 )); then
+    [[ ${#leaves_super[@]} -gt 0 ]] || return 1
+    printf 'MODE=super-hub\n'
+    printf 'HUBS=%s\n' "$(IFS=,; echo "${hubs[*]}")"
+    printf 'LEAVES=%s\n' "$(IFS=,; echo "${leaves_super[*]}")"
+    return 0
+  fi
+  if (( ${#leaves_subrepo[@]} > 0 )); then
+    printf 'MODE=hub-subrepo\n'
+    printf 'LEAVES=%s\n' "$(IFS=,; echo "${leaves_subrepo[*]}")"
+    return 0
+  fi
+  return 1
+}
+
+# cw_consult_hub_mode_persist <art-dir> <mode>
+# Atomic-writes <art-dir>/hub-mode.txt. Mode must be one of the three
+# detector outputs: single-repo | hub-subrepo | super-hub.
+cw_consult_hub_mode_persist() {
+  local art="${1:-}" mode="${2:-}"
+  [[ -n "$art" ]]  || { echo "cw_consult_hub_mode_persist: missing art-dir" >&2; return 2; }
+  [[ -n "$mode" ]] || { echo "cw_consult_hub_mode_persist: missing mode" >&2; return 2; }
+  case "$mode" in
+    single-repo|hub-subrepo|super-hub) ;;
+    *) echo "cw_consult_hub_mode_persist: invalid mode '$mode'" >&2; return 2 ;;
+  esac
+  printf '%s\n' "$mode" | cw_atomic_write "$art/hub-mode.txt"
+}
+
+# cw_consult_hub_mode_load <art-dir>
+# Echoes the persisted mode; defaults to single-repo when file is absent.
+cw_consult_hub_mode_load() {
+  local art="${1:-}"
+  [[ -n "$art" ]] || { echo "cw_consult_hub_mode_load: missing art-dir" >&2; return 2; }
+  if [[ -f "$art/hub-mode.txt" ]]; then
+    # tr -d strips defensively in case the file was hand-edited with CR/LF
+    # or trailing whitespace; printf '\n' re-adds the canonical terminator.
+    tr -d '[:space:]' < "$art/hub-mode.txt"
+    printf '\n'
+  else
+    printf 'single-repo\n'
+  fi
+}
+
+# cw_consult_targets_persist <art-dir>
+# Reads stdin (one <hub>/<leaf> line per target), validates each line
+# against ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$, atomic-writes <art-dir>/targets.txt.
+# Empty stdin or any invalid line → rc=1 + log_error, no file written.
+cw_consult_targets_persist() {
+  local art="${1:-}"
+  [[ -n "$art" ]] || { echo "cw_consult_targets_persist: missing art-dir" >&2; return 2; }
+  local -a lines=()
+  local line
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    if [[ ! "$line" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+      echo "cw_consult_targets_persist: invalid target '$line' (need <hub>/<leaf>)" >&2
+      return 1
+    fi
+    lines+=("$line")
+  done
+  (( ${#lines[@]} > 0 )) \
+    || { echo "cw_consult_targets_persist: stdin empty" >&2; return 1; }
+  printf '%s\n' "${lines[@]}" | cw_atomic_write "$art/targets.txt"
+}
+
+# cw_consult_targets_load <art-dir>
+# Echoes targets one per line. rc=1 if file missing or empty.
+cw_consult_targets_load() {
+  local art="${1:-}"
+  [[ -n "$art" ]] || { echo "cw_consult_targets_load: missing art-dir" >&2; return 2; }
+  [[ -s "$art/targets.txt" ]] || return 1
+  cat "$art/targets.txt"
+}
+
+# cw_consult_targets_to_header_pair <art-dir>
+# Reads targets.txt and emits exactly two lines suitable for design-doc
+# header insertion:
+#   **Target Hub(s):** <comma-separated unique hubs>
+#   **Target Sub-Project(s):** <comma-separated unique leaves>
+# Hubs are extracted as the prefix before '/'; leaves as the suffix after.
+# rc=1 if targets.txt is missing/empty.
+cw_consult_targets_to_header_pair() {
+  local art="${1:-}"
+  [[ -n "$art" ]] || { echo "cw_consult_targets_to_header_pair: missing art-dir" >&2; return 2; }
+  [[ -s "$art/targets.txt" ]] || return 1
+  local hubs leaves
+  hubs=$(cut -d/ -f1 "$art/targets.txt" | awk '!seen[$0]++' | paste -sd, -)
+  leaves=$(cut -d/ -f2- "$art/targets.txt" | awk '!seen[$0]++' | paste -sd, -)
+  # Convert "a,b" → "a, b" for human-readable headers.
+  hubs=$(echo "$hubs" | sed 's/,/, /g')
+  leaves=$(echo "$leaves" | sed 's/,/, /g')
+  printf '**Target Hub(s):** %s\n' "$hubs"
+  printf '**Target Sub-Project(s):** %s\n' "$leaves"
+}
+
+# cw_consult_dag_validate <art-dir>
+# Reads stdin (the ## Execution DAG body), validates strict grammar:
+#   Step <N>: <repo>  <description>
+#           depends: Step <M>[, Step <K>...] | none
+# Rejects: free-form prose, unknown step refs, cycles, repos outside
+# targets.txt leaf set. Stderr carries human-readable ERROR: messages.
+# rc=0 on success, rc=1 on validation failure, rc=2 on missing args.
+cw_consult_dag_validate() {
+  local art="${1:-}"
+  [[ -n "$art" ]] || { echo "cw_consult_dag_validate: missing art-dir" >&2; return 2; }
+  local -a leaves=()
+  if [[ -s "$art/targets.txt" ]]; then
+    while IFS= read -r line; do
+      leaves+=("${line#*/}")
+    done < "$art/targets.txt"
+  fi
+
+  local body
+  body=$(cat)
+  [[ -n "$body" ]] || { echo "ERROR: DAG body is empty" >&2; return 1; }
+
+  # Parse: walk lines, alternating Step + depends. Allow blank lines
+  # between Step blocks. Reject anything else.
+  local -A step_repo step_desc
+  local -A step_deps   # value: comma-separated dep ids
+  local -a step_ids=()
+  local current=""
+  local lineno=0
+  local raw
+  while IFS= read -r raw; do
+    lineno=$((lineno + 1))
+    # Trim trailing CR (POSIX)
+    raw="${raw%$'\r'}"
+    # Skip blank lines.
+    [[ -z "${raw// }" ]] && { current=""; continue; }
+    if [[ "$raw" =~ ^Step\ ([0-9]+):\ +([A-Za-z0-9._-]+)\ +(.+)$ ]]; then
+      current="${BASH_REMATCH[1]}"
+      step_repo[$current]="${BASH_REMATCH[2]}"
+      step_desc[$current]="${BASH_REMATCH[3]}"
+      step_ids+=("$current")
+      continue
+    fi
+    if [[ "$raw" =~ ^[[:space:]]+depends:[[:space:]]*(.+)$ ]]; then
+      [[ -n "$current" ]] || { echo "ERROR: line $lineno depends without preceding Step" >&2; return 1; }
+      local deps="${BASH_REMATCH[1]}"
+      if [[ "$deps" == "none" ]]; then
+        step_deps[$current]=""
+      else
+        # "Step 1, Step 2" -> "1,2"
+        local norm
+        norm=$(echo "$deps" | sed -E 's/Step[[:space:]]+([0-9]+)/\1/g; s/[[:space:]]//g')
+        if [[ ! "$norm" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+          echo "ERROR: line $lineno bad depends syntax: '$deps'" >&2
+          return 1
+        fi
+        step_deps[$current]="$norm"
+      fi
+      current=""
+      continue
+    fi
+    if [[ "$raw" =~ ^[[:space:]]+Step\ [0-9]+: ]]; then
+      echo "ERROR: line $lineno: Step lines must not be indented (got leading whitespace): '$raw'" >&2
+      return 1
+    fi
+    if [[ "$raw" =~ ^[[:space:]]+depends:[[:space:]]*$ ]]; then
+      echo "ERROR: line $lineno: depends value missing (use 'none' for no dependencies): '$raw'" >&2
+      return 1
+    fi
+    if [[ "$raw" =~ ^Step\ [0-9]+:\ +[A-Za-z0-9._-]+[[:space:]]*$ ]]; then
+      echo "ERROR: line $lineno: Step line missing description: '$raw'" >&2
+      return 1
+    fi
+    echo "ERROR: line $lineno is invalid (free-form prose or bad grammar): '$raw'" >&2
+    return 1
+  done <<< "$body"
+
+  (( ${#step_ids[@]} > 0 )) || { echo "ERROR: no Step blocks found" >&2; return 1; }
+
+  # Reference + repo-membership check.
+  local id dep
+  declare -A id_set=()
+  for id in "${step_ids[@]}"; do id_set[$id]=1; done
+  for id in "${step_ids[@]}"; do
+    [[ -n "${step_deps[$id]+x}" ]] || { echo "ERROR: Step $id missing depends:" >&2; return 1; }
+    if (( ${#leaves[@]} > 0 )); then
+      local repo="${step_repo[$id]}"
+      local found=0 leaf
+      for leaf in "${leaves[@]}"; do
+        [[ "$leaf" == "$repo" ]] && { found=1; break; }
+      done
+      (( found == 1 )) || { echo "ERROR: Step $id repo '$repo' not in targets" >&2; return 1; }
+    fi
+    if [[ -n "${step_deps[$id]}" ]]; then
+      IFS=',' read -ra _deps <<< "${step_deps[$id]}"
+      for dep in "${_deps[@]}"; do
+        [[ -n "${id_set[$dep]+x}" ]] || { echo "ERROR: Step $id depends on unknown Step $dep" >&2; return 1; }
+      done
+    fi
+  done
+
+  # Kahn topological sort to detect cycles.
+  declare -A indeg=()
+  declare -A adj=()
+  for id in "${step_ids[@]}"; do indeg[$id]=0; done
+  for id in "${step_ids[@]}"; do
+    if [[ -n "${step_deps[$id]}" ]]; then
+      IFS=',' read -ra _deps <<< "${step_deps[$id]}"
+      for dep in "${_deps[@]}"; do
+        adj[$dep]+="$id "
+        indeg[$id]=$((indeg[$id] + 1))
+      done
+    fi
+  done
+  local -a queue=()
+  for id in "${step_ids[@]}"; do
+    (( indeg[$id] == 0 )) && queue+=("$id")
+  done
+  local processed=0 head nbr
+  while (( ${#queue[@]} > 0 )); do
+    head="${queue[0]}"
+    queue=("${queue[@]:1}")
+    processed=$((processed + 1))
+    for nbr in ${adj[$head]:-}; do
+      indeg[$nbr]=$((indeg[$nbr] - 1))
+      (( indeg[$nbr] == 0 )) && queue+=("$nbr")
+    done
+  done
+  if (( processed != ${#step_ids[@]} )); then
+    echo "ERROR: DAG has a cycle (processed $processed of ${#step_ids[@]} steps)" >&2
+    return 1
+  fi
+  return 0
+}
+
+# cw_consult_xrepo_deps_validate <art-dir>
+# Reads stdin (Cross-Repo Deps pipe-table body). Validates header row +
+# 4 columns + Type ∈ {internal, external} + internal Producer/Consumer
+# both in targets.txt leaf set. Stderr ERROR: messages; rc=0/1/2.
+cw_consult_xrepo_deps_validate() {
+  local art="${1:-}"
+  [[ -n "$art" ]] || { echo "cw_consult_xrepo_deps_validate: missing art-dir" >&2; return 2; }
+  local -a leaves=()
+  if [[ -s "$art/targets.txt" ]]; then
+    while IFS= read -r line; do
+      leaves+=("${line#*/}")
+    done < "$art/targets.txt"
+  fi
+  local body
+  body=$(cat)
+  [[ -n "$body" ]] || { echo "ERROR: xrepo-deps body empty" >&2; return 1; }
+
+  local lineno=0 saw_header=0 saw_sep=0
+  local raw
+  while IFS= read -r raw; do
+    lineno=$((lineno + 1))
+    raw="${raw%$'\r'}"
+    [[ -z "${raw// }" ]] && continue
+    if (( saw_header == 0 )); then
+      [[ "$raw" =~ ^\|[[:space:]]*Producer[[:space:]]*\|[[:space:]]*Artifact[[:space:]]*\|[[:space:]]*Consumer[[:space:]]*\|[[:space:]]*Type[[:space:]]*\|$ ]] \
+        || { echo "ERROR: line $lineno: missing or wrong header (need | Producer | Artifact | Consumer | Type |)" >&2; return 1; }
+      saw_header=1
+      continue
+    fi
+    if (( saw_sep == 0 )); then
+      [[ "$raw" =~ ^\|[-:[:space:]|]+\|$ ]] \
+        || { echo "ERROR: line $lineno: missing separator row" >&2; return 1; }
+      saw_sep=1
+      continue
+    fi
+    # X-sentinel: bash's `read -ra` strips a single trailing empty field, so a row
+    # like `| A | B | C | D |` would yield 5 cells instead of the 6 we count on
+    # (1 leading empty + 4 data + 1 trailing empty). Appending an `X` before
+    # splitting preserves the trailing empty (it becomes ` X`), keeping cell
+    # count at 6 and arithmetic stable. cells[5] holds ` X`, never used.
+    IFS='|' read -ra cells <<< "${raw}X"
+    if (( ${#cells[@]} != 6 )); then
+      echo "ERROR: line $lineno: expected 4 columns, got $((${#cells[@]} - 2))" >&2
+      return 1
+    fi
+    local producer artifact consumer typ
+    producer=$(echo "${cells[1]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    artifact=$(echo "${cells[2]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    consumer=$(echo "${cells[3]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    typ=$(echo      "${cells[4]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    [[ -n "$producer" && -n "$artifact" && -n "$consumer" && -n "$typ" ]] \
+      || { echo "ERROR: line $lineno: empty cell" >&2; return 1; }
+    case "$typ" in
+      internal|external) ;;
+      *) echo "ERROR: line $lineno: Type='$typ' must be 'internal' or 'external'" >&2; return 1 ;;
+    esac
+    # external rows skip membership: producer/consumer may live outside the deploy
+    # (already-shipped dependency that's still a real prereq).
+    if [[ "$typ" == "internal" ]] && (( ${#leaves[@]} > 0 )); then
+      local found_p=0 found_c=0 leaf
+      for leaf in "${leaves[@]}"; do
+        [[ "$leaf" == "$producer" ]] && found_p=1
+        [[ "$leaf" == "$consumer" ]] && found_c=1
+      done
+      (( found_p == 1 )) || { echo "ERROR: line $lineno: Producer '$producer' marked internal but not in targets" >&2; return 1; }
+      (( found_c == 1 )) || { echo "ERROR: line $lineno: Consumer '$consumer' marked internal but not in targets" >&2; return 1; }
+    fi
+  done <<< "$body"
+  (( saw_header == 1 && saw_sep == 1 )) \
+    || { echo "ERROR: xrepo-deps missing header or separator" >&2; return 1; }
+  return 0
+}
+
+# cw_consult_acceptance_tests_validate <art-dir>
+# Reads stdin (## Acceptance Tests body). Each top-level entry
+# (line starting with `- `) must begin with `**Step N**` followed by
+# `[<sub-project>]`. Cross-references against $art/design-doc/dag.md
+# (Step ids, parsed via `^Step ([0-9]+):` regex — same shape as
+# cw_consult_dag_validate emits) and $art/targets.txt (leaf names).
+# Cross-refs are graceful: skipped when the source file is absent/empty.
+# stderr ERROR: messages include both entry number and line number.
+# rc=0 on success, rc=1 on validation failure, rc=2 on missing args.
+cw_consult_acceptance_tests_validate() {
+  local art="${1:-}"
+  [[ -n "$art" ]] || { echo "cw_consult_acceptance_tests_validate: missing art-dir" >&2; return 2; }
+
+  # Collect known Step ids from dag.md (if present) and known leaves.
+  local -A known_ids=() known_leaves=()
+  if [[ -s "$art/design-doc/dag.md" ]]; then
+    local dline
+    while IFS= read -r dline; do
+      dline="${dline%$'\r'}"
+      [[ "$dline" =~ ^Step\ ([0-9]+): ]] && known_ids[${BASH_REMATCH[1]}]=1
+    done < "$art/design-doc/dag.md"
+  fi
+  if [[ -s "$art/targets.txt" ]]; then
+    local tline
+    while IFS= read -r tline; do
+      tline="${tline%$'\r'}"
+      [[ -z "$tline" ]] && continue
+      known_leaves["${tline#*/}"]=1
+    done < "$art/targets.txt"
+  fi
+
+  local body lineno=0 entry_no=0 raw
+  body=$(cat)
+  [[ -n "$body" ]] || { echo "ERROR: acceptance-tests body empty" >&2; return 1; }
+
+  while IFS= read -r raw; do
+    lineno=$((lineno + 1))
+    raw="${raw%$'\r'}"
+    # Top-level entry line: starts with "- " (not "  -" sub-bullets).
+    [[ "$raw" =~ ^-\  ]] || continue
+    entry_no=$((entry_no + 1))
+    local content="${raw#- }"
+    if [[ ! "$content" =~ ^\*\*Step[[:space:]]+([0-9]+)\*\* ]]; then
+      echo "ERROR: entry $entry_no (line $lineno): missing **Step N** tag" >&2
+      return 1
+    fi
+    local sid="${BASH_REMATCH[1]}"
+    if (( ${#known_ids[@]} > 0 )) && [[ -z "${known_ids[$sid]+x}" ]]; then
+      echo "ERROR: entry $entry_no (line $lineno): tagged **Step $sid** which doesn't exist in DAG" >&2
+      return 1
+    fi
+    if [[ ! "$content" =~ \[([A-Za-z0-9._-]+)\] ]]; then
+      echo "ERROR: entry $entry_no (line $lineno): missing [sub-project] tag" >&2
+      return 1
+    fi
+    local repo="${BASH_REMATCH[1]}"
+    if (( ${#known_leaves[@]} > 0 )) && [[ -z "${known_leaves[$repo]+x}" ]]; then
+      echo "ERROR: entry $entry_no (line $lineno): tagged [$repo] which isn't in targets" >&2
+      return 1
+    fi
+  done <<< "$body"
+
+  (( entry_no > 0 )) || { echo "ERROR: no acceptance-test entries found" >&2; return 1; }
+  return 0
 }

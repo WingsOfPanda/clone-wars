@@ -76,10 +76,39 @@ SYNTHESIS_FILE="$TOPIC_DIR/_consult/synthesis.md"
 SYNTH_PATH=""
 [[ -f "$SYNTHESIS_FILE" ]] && SYNTH_PATH="$SYNTHESIS_FILE"
 
-cw_consult_design_doc_assemble "$DD_DIR" "$OUT_TMP" "$TITLE" "$TOPIC_TEXT" "$SYNTH_PATH" || {
-  log_error "assemble failed"
-  exit 1
-}
+# Hub-mode: when _consult/targets.txt is non-empty, pass the consult artifacts
+# dir as the 6th arg to assemble (triggers hub-mode output) and run the three
+# new section validators before commit.
+ART_DIR="$TOPIC_DIR/_consult"
+TARGETS_DIR=""
+if [[ -s "$ART_DIR/targets.txt" ]]; then
+  TARGETS_DIR="$ART_DIR"
+fi
+
+cw_consult_design_doc_assemble \
+  "$DD_DIR" "$OUT_TMP" "$TITLE" \
+  "$TOPIC_TEXT" "$SYNTH_PATH" \
+  "$TARGETS_DIR" \
+  || { log_error "assemble failed"; exit 1; }
+
+# Hub-mode validators — run only when targets.txt is non-empty. Validator
+# stderr propagates verbatim so the directive (Task 11) can grep it and
+# re-enter the offending per-section walk.
+if [[ -n "$TARGETS_DIR" ]]; then
+  for v in dag:cw_consult_dag_validate \
+           xrepo-deps:cw_consult_xrepo_deps_validate \
+           acceptance-tests:cw_consult_acceptance_tests_validate; do
+    section="${v%%:*}"
+    fn="${v##*:}"
+    if [[ -s "$DD_DIR/$section.md" ]]; then
+      "$fn" "$ART_DIR" < "$DD_DIR/$section.md" \
+        || { log_error "validator $fn rejected $section.md (see stderr above)"; exit 1; }
+    else
+      log_error "hub-mode requires $DD_DIR/$section.md (missing or empty)"
+      exit 1
+    fi
+  done
+fi
 
 # v0.10: when the directive's hub-detection block selected a sub-repo, it
 # exports CW_CONSULT_TARGET_HEADER (e.g. "**Target Sub-Project:** ARS-Perfusion").

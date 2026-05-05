@@ -3,19 +3,27 @@
 #
 # Usage:
 #   bin/consult-drilldown.sh <consult-topic> <section-title> <dd-dir> <focus> \
-#       <commander1> <model1> [<commander2> <model2>]
+#       <commander1> <model1> [<commander2> <model2>] [<subproject>]
 #
 # Single-trooper:
 #   bin/consult-drilldown.sh consult-foo "Architecture" /path/to/dd "more depth" rex codex
+#
+# Single-trooper with sub-project (hub mode):
+#   bin/consult-drilldown.sh consult-foo "Architecture" /path/to/dd "more depth" \
+#       rex codex backend
 #
 # Both-trooper (parallel):
 #   bin/consult-drilldown.sh consult-foo "Architecture" /path/to/dd "more depth" \
 #       rex codex cody claude
 #
+# Both-trooper (parallel) with sub-project (hub mode):
+#   bin/consult-drilldown.sh consult-foo "Architecture" /path/to/dd "more depth" \
+#       rex codex cody claude backend
+#
 # Output:
-#   - drilldown-<section-slug>-<commander>.md per trooper at <dd-dir>/_scratch/
-#     (kept out of the user-facing design-doc dir so only the final assembled
-#     spec is visible there)
+#   - drilldown-<section-slug>[-<subproject>]-<commander>.md per trooper at
+#     <dd-dir>/_scratch/ (kept out of the user-facing design-doc dir so only
+#     the final assembled spec is visible there)
 #   - rc=0 if at least one trooper produced a non-empty drilldown file
 #   - rc=1 if all troopers timed out / errored / produced empty files
 #   - rc=2 on bad args
@@ -32,10 +40,15 @@ source "$PLUGIN_ROOT/lib/ipc.sh"
 source "$PLUGIN_ROOT/lib/consult.sh"
 
 usage() {
-  echo "Usage: $0 <topic> <section-title> <dd-dir> <focus> <commander1> <model1> [<commander2> <model2>]" >&2
+  echo "Usage: $0 <topic> <section-title> <dd-dir> <focus> <commander1> <model1> [<commander2> <model2>] [<subproject>]" >&2
 }
 
-[[ $# -eq 6 || $# -eq 8 ]] || { usage; exit 2; }
+# Argument shapes:
+#   6 → single-trooper, no subproject
+#   7 → single-trooper + subproject (last arg)
+#   8 → both-trooper, no subproject
+#   9 → both-trooper + subproject (last arg)
+[[ $# -eq 6 || $# -eq 7 || $# -eq 8 || $# -eq 9 ]] || { usage; exit 2; }
 
 TOPIC="$1"
 TITLE="$2"
@@ -43,8 +56,15 @@ DD_DIR="$3"
 FOCUS="$4"
 COMMANDER1="$5"
 MODEL1="$6"
-COMMANDER2="${7:-}"
-MODEL2="${8:-}"
+COMMANDER2=""
+MODEL2=""
+SUBPROJECT=""
+case "$#" in
+  6) ;;
+  7) SUBPROJECT="$7" ;;
+  8) COMMANDER2="$7"; MODEL2="$8" ;;
+  9) COMMANDER2="$7"; MODEL2="$8"; SUBPROJECT="$9" ;;
+esac
 
 cw_consult_assert_topic "$TOPIC"
 [[ -d "$DD_DIR" ]] || { log_error "dd_dir not found: $DD_DIR"; exit 2; }
@@ -73,7 +93,7 @@ dispatch_drill() {
   trooper_dir=$(cw_trooper_dir "$commander" "$model" "$TOPIC")
   offset=$(wc -c < "$trooper_dir/outbox.jsonl" 2>/dev/null || echo 0)
   prompt=$(cw_consult_design_doc_drilldown_prompt \
-    "$TITLE" "$SYNTHESIS" "$commander" "$DD_DIR" "$FOCUS")
+    "$TITLE" "$SYNTHESIS" "$commander" "$DD_DIR" "$FOCUS" "$SUBPROJECT")
   "$PLUGIN_ROOT/bin/send.sh" "$commander" "$TOPIC" "$prompt" >/dev/null
   printf '%s\n' "$offset"
 }
@@ -96,9 +116,17 @@ if [[ -n "$COMMANDER2" ]]; then
   log_info "[drilldown] dispatched $COMMANDER2 (offset=$OFF2, timeout=${TIMEOUT}s)"
 fi
 
+# Output filename mirrors cw_consult_design_doc_drilldown_prompt: when a
+# sub-project is set, the slug is interpolated between section and commander.
+if [[ -n "$SUBPROJECT" ]]; then
+  DRILL_INFIX="${SECTION_SLUG}-${SUBPROJECT}"
+else
+  DRILL_INFIX="${SECTION_SLUG}"
+fi
+
 # Await — single OR both.
 SUCCESS=0
-DRILL1="$DD_DIR/_scratch/drilldown-${SECTION_SLUG}-${COMMANDER1}.md"
+DRILL1="$DD_DIR/_scratch/drilldown-${DRILL_INFIX}-${COMMANDER1}.md"
 if await_drill "$COMMANDER1" "$MODEL1" "$OFF1"; then
   if [[ -s "$DRILL1" ]]; then
     log_info "[drilldown] $COMMANDER1: wrote $DRILL1"
@@ -111,7 +139,7 @@ else
 fi
 
 if [[ -n "$COMMANDER2" ]]; then
-  DRILL2="$DD_DIR/_scratch/drilldown-${SECTION_SLUG}-${COMMANDER2}.md"
+  DRILL2="$DD_DIR/_scratch/drilldown-${DRILL_INFIX}-${COMMANDER2}.md"
   if await_drill "$COMMANDER2" "$MODEL2" "$OFF2"; then
     if [[ -s "$DRILL2" ]]; then
       log_info "[drilldown] $COMMANDER2: wrote $DRILL2"
