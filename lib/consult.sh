@@ -4,9 +4,11 @@
 # This file sources them transitively so existing `source lib/consult.sh`
 # callers continue to work.
 # Depends on lib/state.sh, lib/ipc.sh, lib/contracts.sh.
-# Callers MUST source lib/state.sh and lib/log.sh BEFORE sourcing this file.
+# Callers SHOULD source lib/state.sh and lib/log.sh BEFORE sourcing this file.
 # The split files call cw_atomic_write, cw_topic_state_dir, cw_trooper_dir,
-# log_warn — none of which this shim sources itself.
+# log_warn. state.sh is auto-loaded as fallback (see CW_SLUG_REGEX_BASE guard
+# below); log.sh is NOT auto-loaded — callers needing log_warn/log_info etc.
+# from the split files must source it themselves.
 
 # Resolve siblings via BASH_SOURCE — never CLAUDE_PLUGIN_ROOT, which can point
 # at a sandbox lacking the lib/ tree (test fixtures override it for templates).
