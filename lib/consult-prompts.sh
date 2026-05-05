@@ -64,7 +64,7 @@ cw_consult_build_research_prompt() {
   fi
 }
 
-# cw_consult_design_doc_drilldown_prompt <section> <synthesis-path> <commander> <dd-dir> <focus> [subproject]
+# cw_consult_design_doc_drilldown_prompt <section> <synthesis-path> <commander> <dd-dir> <focus> [subproject] [out_path_override]
 # Builds a focused inbox payload asking <commander> to drill into <section>.
 # Trooper writes to <dd-dir>/_scratch/drilldown-<section-slug>-<commander>.md
 # (the _scratch/ subdir keeps per-section trooper output out of the user-facing
@@ -74,8 +74,11 @@ cw_consult_build_research_prompt() {
 # <dd-dir>/_scratch/drilldown-<section-slug>-<subproject>-<commander>.md and
 # the prompt scope-narrows to that sub-project. Empty/omitted preserves
 # v0.5.3 byte-equal output (single-repo).
+# <out_path_override> (optional 7th arg): when non-empty, replaces the derived
+# path verbatim. Used by bin/consult-drilldown.sh's collision-counter loop to
+# inject -2/-3/.../-99 suffixed paths when prior drill outputs already exist.
 cw_consult_design_doc_drilldown_prompt() {
-  local section="$1" syn="$2" commander="$3" dd_dir="$4" focus="${5:-}" subproject="${6:-}"
+  local section="$1" syn="$2" commander="$3" dd_dir="$4" focus="${5:-}" subproject="${6:-}" out_path_override="${7:-}"
   if [[ -n "$subproject" ]]; then
     if [[ ! "$subproject" =~ ^${CW_SLUG_REGEX_BASE}$ ]]; then
       echo "cw_consult_design_doc_drilldown_prompt: invalid subproject '$subproject' (need ${CW_SLUG_REGEX_BASE})" >&2
@@ -85,7 +88,9 @@ cw_consult_design_doc_drilldown_prompt() {
   local section_slug
   section_slug=$(printf '%s' "$section" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
   local out_path
-  if [[ -n "$subproject" ]]; then
+  if [[ -n "$out_path_override" ]]; then
+    out_path="$out_path_override"
+  elif [[ -n "$subproject" ]]; then
     out_path="$dd_dir/_scratch/drilldown-${section_slug}-${subproject}-${commander}.md"
   else
     out_path="$dd_dir/_scratch/drilldown-${section_slug}-${commander}.md"
