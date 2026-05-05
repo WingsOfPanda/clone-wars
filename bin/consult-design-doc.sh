@@ -91,6 +91,13 @@ cw_consult_design_doc_assemble \
   "$TARGETS_DIR" \
   || { log_error "assemble failed"; exit 1; }
 
+# Mode-toggle warn (#5): if both legacy testing.md and v0.11 acceptance-tests.md
+# exist in $DD_DIR, the user likely manually edited hub-mode.txt between runs.
+# Hub-mode wins (assemble uses acceptance-tests.md); testing.md is stale.
+if [[ -f "$DD_DIR/testing.md" && -f "$DD_DIR/acceptance-tests.md" ]]; then
+  log_warn "design-doc: both testing.md AND acceptance-tests.md present — likely manual hub-mode.txt edit between runs. Hub-mode wins (testing.md ignored)."
+fi
+
 # Hub-mode validators — run only when targets.txt is non-empty. Validator
 # stderr propagates verbatim so the directive (Task 11) can grep it and
 # re-enter the offending per-section walk.
