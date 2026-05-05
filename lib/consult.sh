@@ -4,10 +4,19 @@
 # This file sources them transitively so existing `source lib/consult.sh`
 # callers continue to work.
 # Depends on lib/state.sh, lib/ipc.sh, lib/contracts.sh.
+# Callers MUST source lib/state.sh and lib/log.sh BEFORE sourcing this file.
+# The split files call cw_atomic_write, cw_topic_state_dir, cw_trooper_dir,
+# log_warn — none of which this shim sources itself.
 
 # Resolve siblings via BASH_SOURCE — never CLAUDE_PLUGIN_ROOT, which can point
 # at a sandbox lacking the lib/ tree (test fixtures override it for templates).
-_CONSULT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve through symlinks: Claude Code plugins are typically installed via
+# ~/.claude/plugins/cache/<plugin>/<version>/lib/consult.sh symlinks. Plain
+# dirname "${BASH_SOURCE[0]}" returns the symlink's parent dir, not the
+# real file's, breaking the sibling source lookups below.
+_CONSULT_BASH_SOURCE="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+_CONSULT_LIB_DIR="$(cd "$(dirname "$_CONSULT_BASH_SOURCE")" && pwd)"
+unset _CONSULT_BASH_SOURCE
 source "$_CONSULT_LIB_DIR/consult-hub.sh"
 source "$_CONSULT_LIB_DIR/consult-validators.sh"
 source "$_CONSULT_LIB_DIR/consult-prompts.sh"
