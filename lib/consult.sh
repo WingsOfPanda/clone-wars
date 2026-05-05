@@ -17,6 +17,10 @@
 _CONSULT_BASH_SOURCE="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
 _CONSULT_LIB_DIR="$(cd "$(dirname "$_CONSULT_BASH_SOURCE")" && pwd)"
 unset _CONSULT_BASH_SOURCE
+# Pull state.sh first — split files reference CW_SLUG_REGEX_BASE (defined there)
+# inside [[ =~ ]] anchors, which fails under set -u when the constant is unset.
+# state.sh self-guards the readonly so re-sourcing is a no-op.
+[[ -n "${CW_SLUG_REGEX_BASE:-}" ]] || source "$_CONSULT_LIB_DIR/state.sh"
 source "$_CONSULT_LIB_DIR/consult-hub.sh"
 source "$_CONSULT_LIB_DIR/consult-validators.sh"
 source "$_CONSULT_LIB_DIR/consult-prompts.sh"
@@ -254,7 +258,7 @@ cw_consult_synthesize() {
 # Return 0 if the topic is a safe consult topic name; 1 otherwise.
 # Rules:
 #   - Must start with `consult-`
-#   - Allowed chars: [A-Za-z0-9._-]+
+#   - Allowed chars: ${CW_SLUG_REGEX_BASE}
 #   - No leading dot or hyphen, no slash, no `..`
 # Used at the top of every sub-script that takes a <topic> arg.
 cw_consult_topic_validate() {

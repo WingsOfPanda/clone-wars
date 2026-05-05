@@ -77,8 +77,8 @@ cw_consult_build_research_prompt() {
 cw_consult_design_doc_drilldown_prompt() {
   local section="$1" syn="$2" commander="$3" dd_dir="$4" focus="${5:-}" subproject="${6:-}"
   if [[ -n "$subproject" ]]; then
-    if [[ ! "$subproject" =~ ^[A-Za-z0-9._-]+$ ]]; then
-      echo "cw_consult_design_doc_drilldown_prompt: invalid subproject '$subproject' (need [A-Za-z0-9._-]+)" >&2
+    if [[ ! "$subproject" =~ ^${CW_SLUG_REGEX_BASE}$ ]]; then
+      echo "cw_consult_design_doc_drilldown_prompt: invalid subproject '$subproject' (need ${CW_SLUG_REGEX_BASE})" >&2
       return 2
     fi
   fi

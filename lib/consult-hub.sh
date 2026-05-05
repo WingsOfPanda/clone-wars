@@ -23,7 +23,7 @@ cw_consult_detect_hub() {
     if [[ -d "$child/.git" || -f "$child/.git" ]]; then
       base="${child%/}"
       child_name="${base##*/}"
-      if [[ ! "$child_name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+      if [[ ! "$child_name" =~ ^${CW_SLUG_REGEX_BASE}$ ]]; then
         log_warn "cw_consult_detect_hub: dropped '$child_name' (non-slug-safe directory name)"
         continue
       fi
@@ -46,7 +46,7 @@ cw_consult_detect_hub() {
       if [[ -d "$grandchild/.git" || -f "$grandchild/.git" ]]; then
         leaf="${grandchild%/}"
         grand_name="${leaf##*/}"
-        if [[ ! "$grand_name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+        if [[ ! "$grand_name" =~ ^${CW_SLUG_REGEX_BASE}$ ]]; then
           log_warn "cw_consult_detect_hub: dropped '$grand_name' (non-slug-safe directory name)"
           continue
         fi
@@ -114,7 +114,8 @@ cw_consult_hub_mode_load() {
 
 # cw_consult_targets_persist <art-dir>
 # Reads stdin (one <hub>/<leaf> line per target), validates each line
-# against ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$, atomic-writes <art-dir>/targets.txt.
+# against ^${CW_SLUG_REGEX_BASE}/${CW_SLUG_REGEX_BASE}$, atomic-writes
+# <art-dir>/targets.txt.
 # Empty stdin or any invalid line → rc=1 + log_error, no file written.
 cw_consult_targets_persist() {
   local art="${1:-}"
@@ -123,7 +124,7 @@ cw_consult_targets_persist() {
   local line
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
-    if [[ ! "$line" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+    if [[ ! "$line" =~ ^${CW_SLUG_REGEX_BASE}/${CW_SLUG_REGEX_BASE}$ ]]; then
       echo "cw_consult_targets_persist: invalid target '$line' (need <hub>/<leaf>)" >&2
       return 1
     fi

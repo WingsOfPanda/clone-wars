@@ -1,6 +1,15 @@
 # lib/state.sh — $CLONE_WARS_HOME resolution and state-dir layout helpers.
 # Sourced. All paths are absolute.
 
+# Shared slug regex base used by consult + deploy for sub-project / leaf names.
+# Compose anchored variants at call sites:
+#   single slug:  ^${CW_SLUG_REGEX_BASE}$
+#   <hub>/<leaf>: ^${CW_SLUG_REGEX_BASE}/${CW_SLUG_REGEX_BASE}$
+# Guarded so re-sourcing state.sh in the same shell doesn't trip readonly.
+if [[ -z "${CW_SLUG_REGEX_BASE:-}" ]]; then
+  readonly CW_SLUG_REGEX_BASE='[A-Za-z0-9._-]+'
+fi
+
 cw_state_root() {
   printf '%s\n' "${CLONE_WARS_HOME:-$HOME/.clone-wars}"
 }

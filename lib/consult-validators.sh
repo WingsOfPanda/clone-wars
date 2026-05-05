@@ -36,7 +36,7 @@ cw_consult_dag_validate() {
     raw="${raw%$'\r'}"
     # Skip blank lines.
     [[ -z "${raw// }" ]] && { current=""; continue; }
-    if [[ "$raw" =~ ^Step\ ([0-9]+):\ +([A-Za-z0-9._-]+)\ +(.+)$ ]]; then
+    if [[ "$raw" =~ ^Step\ ([0-9]+):\ +(${CW_SLUG_REGEX_BASE})\ +(.+)$ ]]; then
       current="${BASH_REMATCH[1]}"
       step_repo[$current]="${BASH_REMATCH[2]}"
       step_desc[$current]="${BASH_REMATCH[3]}"
@@ -69,7 +69,7 @@ cw_consult_dag_validate() {
       echo "ERROR: line $lineno: depends value missing (use 'none' for no dependencies): '$raw'" >&2
       return 1
     fi
-    if [[ "$raw" =~ ^Step\ [0-9]+:\ +[A-Za-z0-9._-]+[[:space:]]*$ ]]; then
+    if [[ "$raw" =~ ^Step\ [0-9]+:\ +${CW_SLUG_REGEX_BASE}[[:space:]]*$ ]]; then
       echo "ERROR: line $lineno: Step line missing description: '$raw'" >&2
       return 1
     fi
@@ -259,7 +259,7 @@ cw_consult_acceptance_tests_validate() {
       echo "ERROR: entry $entry_no (line $lineno): tagged **Step $sid** which doesn't exist in DAG" >&2
       return 1
     fi
-    if [[ ! "$content" =~ \[([A-Za-z0-9._-]+)\] ]]; then
+    if [[ ! "$content" =~ \[(${CW_SLUG_REGEX_BASE})\] ]]; then
       echo "ERROR: entry $entry_no (line $lineno): missing [sub-project] tag" >&2
       return 1
     fi
