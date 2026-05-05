@@ -229,6 +229,8 @@ cw_consult_acceptance_tests_validate() {
       dline="${dline%$'\r'}"
       [[ "$dline" =~ ^Step\ ([0-9]+): ]] && known_ids[${BASH_REMATCH[1]}]=1
     done < "$art/design-doc/dag.md"
+  else
+    log_warn "acceptance-tests validator: dag.md absent — Step <N> tags will not be cross-checked"
   fi
   if [[ -s "$art/targets.txt" ]]; then
     local tline

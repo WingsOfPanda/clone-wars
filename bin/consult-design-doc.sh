@@ -94,6 +94,12 @@ cw_consult_design_doc_assemble \
 # Hub-mode validators — run only when targets.txt is non-empty. Validator
 # stderr propagates verbatim so the directive (Task 11) can grep it and
 # re-enter the offending per-section walk.
+#
+# Validator order is load-bearing:
+#  1. dag        — gates the whole DAG block (cycle, unknown refs, repos in targets)
+#  2. xrepo-deps — independent of DAG
+#  3. acceptance-tests — cross-refs DAG step ids; MUST run AFTER dag validates
+# Reordering breaks the implicit step-id cross-ref check in acceptance-tests.
 if [[ -n "$TARGETS_DIR" ]]; then
   for v in dag:cw_consult_dag_validate \
            xrepo-deps:cw_consult_xrepo_deps_validate \
