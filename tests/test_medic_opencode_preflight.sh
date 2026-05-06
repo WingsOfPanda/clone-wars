@@ -130,3 +130,8 @@ HOME="$TMP/home" out=$(cd "$TMP/repo" && cw_opencode_config_path) && rc=0 || rc=
 assert_eq "$rc" "1" "rc when neither config exists"
 assert_eq "$out" "" "empty stdout when no config"
 pass "preflight: returns rc=1 + empty stdout when no config exists anywhere"
+
+# === Case 6: medic.sh sources lib/opencode_preflight.sh cleanly ===
+out=$( bash -c "source $PLUGIN_ROOT/lib/log.sh; source $PLUGIN_ROOT/lib/opencode_preflight.sh; type cw_opencode_permission_check >/dev/null && echo SOURCED" 2>&1)
+assert_contains "$out" "SOURCED" "lib sources cleanly under set -uo pipefail"
+pass "preflight: lib/opencode_preflight.sh sources cleanly"

@@ -14,6 +14,7 @@ source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/deps.sh"
 source "$PLUGIN_ROOT/lib/contracts.sh"
 source "$PLUGIN_ROOT/lib/argsfile.sh"
+source "$PLUGIN_ROOT/lib/opencode_preflight.sh"
 
 # --args-file <path> — read tokens from <path> and replace positional args.
 # Used by commands/*.md to fence off shell injection from $ARGUMENTS.
@@ -181,6 +182,26 @@ if cw_contracts_exists; then
 else
   log_error "contracts.yaml not found at $state_root/contracts.yaml"
   fail=1
+fi
+
+# 5b. opencode auto-approve preflight (warn-only in v0.13.0).
+# Runs only when opencode is on PATH AND has a contracts.yaml row (so users
+# without opencode aren't nagged).
+if cw_have_cmd opencode 2>/dev/null \
+   && cw_contracts_exists \
+   && cw_contracts_providers 2>/dev/null | grep -qx 'opencode'; then
+  if ! cw_opencode_permission_check >/dev/null 2>&1; then
+    rc_pf=$?
+    msg=$(cw_opencode_permission_check 2>&1 >/dev/null)
+    case "$rc_pf" in
+      1) log_warn "  opencode auto-approve: $msg"
+         warn=1 ;;
+      2) log_warn "  opencode auto-approve: $msg (non-fatal)"
+         warn=1 ;;
+    esac
+  else
+    log_ok "  opencode auto-approve: 'permission: allow' detected"
+  fi
 fi
 
 echo
