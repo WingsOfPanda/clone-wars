@@ -196,10 +196,10 @@ cw_consult_extract_targets_from_topic() {
   fi
 
   # Word-boundary match leaves and hubs.
-  local -a leaves=() hubs_seen=()
+  local -a leaves=()
   IFS=',' read -ra leaves <<< "$leaves_csv"
   local leaf hub bare
-  declare -A inferred=()
+  declare -A inferred=() hubs_seen=()
   for leaf in "${leaves[@]}"; do
     hub="${leaf%%/*}"
     bare="${leaf#*/}"
@@ -207,15 +207,10 @@ cw_consult_extract_targets_from_topic() {
     if [[ " $topic " =~ [^A-Za-z0-9._-]"$bare"[^A-Za-z0-9._-] ]]; then
       inferred[$leaf]=1
     fi
-    # Track unique hubs.
-    local seen=0 h
-    for h in "${hubs_seen[@]:-}"; do
-      [[ "$h" == "$hub" ]] && { seen=1; break; }
-    done
-    (( seen == 0 )) && hubs_seen+=("$hub")
+    hubs_seen[$hub]=1
   done
   # Hub-name match -> add all leaves under that hub
-  for hub in "${hubs_seen[@]}"; do
+  for hub in "${!hubs_seen[@]}"; do
     if [[ " $topic " =~ [^A-Za-z0-9._-]"$hub"[^A-Za-z0-9._-] ]]; then
       for leaf in "${leaves[@]}"; do
         [[ "${leaf%%/*}" == "$hub" ]] && inferred[$leaf]=1

@@ -1,6 +1,19 @@
 # lib/consult-validators.sh — format validators for hub-mode design-doc sections.
 # Sourced by lib/consult.sh shim. Depends on lib/log.sh, lib/state.sh.
 
+# _cw_consult_print_leaves <art-dir>
+# Internal helper: prints leaf names (one per line) parsed from
+# <art-dir>/targets.txt (each entry is "<hub>/<leaf>"; we keep just <leaf>).
+# Missing/empty file → no output, rc=0. Caller reads via mapfile.
+_cw_consult_print_leaves() {
+  local art="$1"
+  [[ -s "$art/targets.txt" ]] || return 0
+  local line
+  while IFS= read -r line; do
+    printf '%s\n' "${line#*/}"
+  done < "$art/targets.txt"
+}
+
 # cw_consult_dag_validate <art-dir>
 # Reads stdin (the ## Execution DAG body), validates strict grammar:
 #   Step <N>: <repo>  <description>
@@ -12,11 +25,7 @@ cw_consult_dag_validate() {
   local art="${1:-}"
   [[ -n "$art" ]] || { echo "cw_consult_dag_validate: missing art-dir" >&2; return 2; }
   local -a leaves=()
-  if [[ -s "$art/targets.txt" ]]; then
-    while IFS= read -r line; do
-      leaves+=("${line#*/}")
-    done < "$art/targets.txt"
-  fi
+  mapfile -t leaves < <(_cw_consult_print_leaves "$art")
 
   local body
   body=$(cat)
@@ -143,11 +152,7 @@ cw_consult_xrepo_deps_validate() {
   local art="${1:-}"
   [[ -n "$art" ]] || { echo "cw_consult_xrepo_deps_validate: missing art-dir" >&2; return 2; }
   local -a leaves=()
-  if [[ -s "$art/targets.txt" ]]; then
-    while IFS= read -r line; do
-      leaves+=("${line#*/}")
-    done < "$art/targets.txt"
-  fi
+  mapfile -t leaves < <(_cw_consult_print_leaves "$art")
   local body
   body=$(cat)
   [[ -n "$body" ]] || { echo "ERROR: xrepo-deps body empty" >&2; return 1; }
