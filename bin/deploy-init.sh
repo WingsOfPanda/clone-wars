@@ -24,6 +24,7 @@ fi
 NO_BRANCH=0
 BRANCH_OVERRIDE=""
 TOPIC_OVERRIDE=""
+PROVIDER_OVERRIDE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-branch)  NO_BRANCH=1; shift ;;
@@ -31,6 +32,8 @@ while [[ $# -gt 0 ]]; do
                   BRANCH_OVERRIDE="$2"; shift 2 ;;
     --topic)      [[ -n "${2:-}" ]] || { echo "--topic requires a value" >&2; exit 2; }
                   TOPIC_OVERRIDE="$2"; shift 2 ;;
+    --provider)   [[ -n "${2:-}" ]] || { echo "--provider requires a value" >&2; exit 2; }
+                  PROVIDER_OVERRIDE="$2"; shift 2 ;;
     --) shift; break ;;
     -*) echo "unknown flag: $1" >&2; exit 2 ;;
     *)  break ;;
@@ -107,8 +110,9 @@ fi
 # at the TARGET (sub-repo) root → claude; else → codex). Used by
 # commands/deploy.md Step 0 to pick the trooper for spawn. Runs after
 # branch-create so a failed branch (auto-rollback above) doesn't leave an
-# orphan file.
-AUTO_PROVIDER=$(cw_deploy_detect_provider "$TARGET_CWD")
+# orphan file. When --provider <name> is passed, it short-circuits the
+# auto-detect via cw_deploy_detect_provider's 2nd-arg override.
+AUTO_PROVIDER=$(cw_deploy_detect_provider "$TARGET_CWD" "$PROVIDER_OVERRIDE")
 printf '%s\n' "$AUTO_PROVIDER" | cw_atomic_write "$ART_DIR/auto_provider.txt" \
   || { log_error "failed to write auto_provider.txt"; exit 1; }
 
@@ -118,6 +122,10 @@ log_info "  design.md:  $ART_DIR/design.md"
 if [[ "$TARGET_CWD" != "$(pwd)" ]]; then
   log_info "  target:     $TARGET_CWD"
 fi
-log_info "  provider:   $AUTO_PROVIDER (auto-detected)"
+if [[ -n "$PROVIDER_OVERRIDE" ]]; then
+  log_info "  provider:   $AUTO_PROVIDER (override via --provider)"
+else
+  log_info "  provider:   $AUTO_PROVIDER (auto-detected)"
+fi
 
 printf '%s\n' "$TOPIC"
