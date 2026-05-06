@@ -41,6 +41,18 @@ Set task `0` → `in_progress`.
    then read it back and pass as the positional arg to spec-init.sh.
    If no arg, invoke spec-init.sh with no positional.
 
+   After the Write tool writes the seed to `$ARGS_DIR/spec.txt`, read it
+   back into a shell variable and immediately clear the stale-state file
+   so the next no-arg run cannot accidentally reuse it:
+   ```
+   ARGS_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args"
+   mkdir -p "$ARGS_DIR"
+   # (Write tool writes the seed to $ARGS_DIR/spec.txt)
+   SEED_PATH=$(cat "$ARGS_DIR/spec.txt" 2>/dev/null || true)
+   # Clear stale state immediately after read so next no-arg run doesn't reuse it.
+   rm -f "$ARGS_DIR/spec.txt"
+   ```
+
 2. Resolve seed and topic:
    ```
    eval "$("$CLAUDE_PLUGIN_ROOT/bin/spec-init.sh" "${SEED_PATH:-}")"
@@ -144,12 +156,8 @@ The script assembles, self-reviews, and commits. Failure modes:
 
 - **Output collision** (`docs/clone-wars/specs/<filename>` exists):
   script exits 1. Yoda asks via `AskUserQuestion`: "<path> exists.
-  Overwrite (delete and rerun) / Append `-2` suffix / Abort?" Branch:
+  Overwrite (delete and rerun) / Abort?" Branch:
   - Overwrite → `rm` the file, re-invoke script.
-  - Suffix → `mv` the assembled file (after re-run with patched
-    helper, or use a manual `cp $DD_DIR + assemble + commit`); for v1
-    keep it simple: re-run with `CW_TEST_DATE` containing a `-2` suffix
-    workaround is NOT supported — instruct user to clean up manually.
   - Abort → leave artifacts, skip commit, fall through to Step 5.
 - **Self-review found placeholders**: script's stderr lists
   `<file>:<lineno>: <line>`. Yoda parses, identifies which section

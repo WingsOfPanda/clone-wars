@@ -47,3 +47,10 @@ echo "## Synthesis" > "$CLONE_WARS_HOME/state/$REPO_HASH/topic-state-only/_consu
 OUT=$(../bin/spec-init.sh)
 echo "$OUT" | grep -q '^TOPIC=topic-state-only$' || { echo "FAIL: state-only fallback missed: $OUT" >&2; exit 1; }
 pass "no-arg falls back to state when archive empty"
+
+# Case 6: explicit path NOT under */_consult/synthesis.md → exit 2 (bad arg).
+NOT_SYNTH="$TMP/random.md"
+echo "## Not a synthesis" > "$NOT_SYNTH"
+../bin/spec-init.sh "$NOT_SYNTH" && RC=0 || RC=$?
+[[ "$RC" -eq 2 ]] || { echo "FAIL: non-synthesis path should exit 2, got $RC" >&2; exit 1; }
+pass "explicit non-synthesis path → exit 2 (path-layout assertion)"

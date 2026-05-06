@@ -21,7 +21,9 @@ else
   [[ -n "$SEED" ]] || { log_error "no synthesis.md found; pass an explicit path"; exit 1; }
 fi
 
+[[ "$SEED" == */_consult/synthesis.md ]] || { log_error "seed must be a consult synthesis (path */<topic>/_consult/synthesis.md): $SEED"; exit 2; }
+
 TOPIC=$(basename "$(dirname "$(dirname "$SEED")")")
 [[ -n "$TOPIC" && "$TOPIC" != "/" ]] || { log_error "cannot extract topic from $SEED"; exit 1; }
 
-printf 'TOPIC=%s\nSEED=%s\n' "$TOPIC" "$SEED"
+printf 'TOPIC=%q\nSEED=%q\n' "$TOPIC" "$SEED"
