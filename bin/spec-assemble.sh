@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# bin/consult-design-doc.sh — assemble + self-review + commit the design doc.
+# bin/spec-assemble.sh — assemble + self-review + commit the design doc.
 #
-# Usage: bin/consult-design-doc.sh <consult-topic>
+# Usage: bin/spec-assemble.sh <consult-topic>
 #
 # Inputs:  $TOPIC_DIR/_consult/design-doc/{architecture,components,data-flow,error-handling,testing}.md
 #          $TOPIC_DIR/_consult/topic.txt   (drives title + filename hash)

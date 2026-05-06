@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/test_consult_design_doc_orchestrator.sh — v0.4.2 atomic-write end-to-end.
 #
-# Drives bin/consult-design-doc.sh against a fake _consult/design-doc/ dir
+# Drives bin/spec-assemble.sh against a fake _consult/design-doc/ dir
 # inside an EPHEMERAL git repo (does not touch the real project repo).
 # Verifies:
 #   - clean run lands at final path, no temp leftovers
@@ -58,7 +58,7 @@ MD
 # Case 1 — clean: lands at final path, no temp leftover, hash suffix present.
 DD1=$(mk_topic consult-orch-clean "orch test topic clean")
 clean_sections "$DD1"
-OUT_REL=$(cd "$EREPO" && bash "$PLUGIN_ROOT/bin/consult-design-doc.sh" consult-orch-clean 2>"$TMP/err1") \
+OUT_REL=$(cd "$EREPO" && bash "$PLUGIN_ROOT/bin/spec-assemble.sh" consult-orch-clean 2>"$TMP/err1") \
   || { echo "FAIL c1: rc nonzero"; cat "$TMP/err1" >&2; exit 1; }
 [[ -f "$EREPO/$OUT_REL" ]] || { echo "FAIL c1: output not at $OUT_REL"; exit 1; }
 [[ "$OUT_REL" =~ docs/clone-wars/specs/2026-04-30-orch-clean-[0-9a-f]{6}-design\.md ]] \
@@ -71,7 +71,7 @@ pass "v0.4.2: clean run lands at final path with hash suffix, no temp leftover"
 DD2=$(mk_topic consult-orch-dirty "orch test topic dirty")
 clean_sections "$DD2"
 echo "TBD: not done yet" >> "$DD2/error-handling.md"
-if (cd "$EREPO" && bash "$PLUGIN_ROOT/bin/consult-design-doc.sh" consult-orch-dirty) 2>"$TMP/err2"; then
+if (cd "$EREPO" && bash "$PLUGIN_ROOT/bin/spec-assemble.sh" consult-orch-dirty) 2>"$TMP/err2"; then
   echo "FAIL c2: dirty run should exit nonzero"; exit 1
 fi
 # Discover what filename WOULD have been produced.
@@ -85,7 +85,7 @@ pass "v0.4.2: dirty run leaves no final file, no temp leftover"
 
 # Case 3 — rerun-after-fix on the same dirty topic.
 clean_sections "$DD2"  # replace the dirty section with clean content
-OUT_REL=$(cd "$EREPO" && bash "$PLUGIN_ROOT/bin/consult-design-doc.sh" consult-orch-dirty 2>"$TMP/err3") \
+OUT_REL=$(cd "$EREPO" && bash "$PLUGIN_ROOT/bin/spec-assemble.sh" consult-orch-dirty 2>"$TMP/err3") \
   || { echo "FAIL c3: rerun rc nonzero"; cat "$TMP/err3" >&2; exit 1; }
 [[ -f "$EREPO/$OUT_REL" ]] || { echo "FAIL c3: rerun output not at final path"; exit 1; }
 pass "v0.4.2: rerun-after-fix succeeds (dirty-rerun no longer blocked)"
@@ -93,7 +93,7 @@ pass "v0.4.2: rerun-after-fix succeeds (dirty-rerun no longer blocked)"
 # Case 4 — filename collision DIFFERENT topic-text on same slug-trunc → different hash.
 DD3=$(mk_topic consult-orch-clean-2 "orch test topic clean DIFFERENT TEXT")
 clean_sections "$DD3"
-OUT_REL2=$(cd "$EREPO" && bash "$PLUGIN_ROOT/bin/consult-design-doc.sh" consult-orch-clean-2 2>"$TMP/err4") \
+OUT_REL2=$(cd "$EREPO" && bash "$PLUGIN_ROOT/bin/spec-assemble.sh" consult-orch-clean-2 2>"$TMP/err4") \
   || { echo "FAIL c4: rc nonzero"; cat "$TMP/err4" >&2; exit 1; }
 [[ "$OUT_REL2" != "$OUT_REL" ]] || { echo "FAIL c4: same hash for different topic-text"; exit 1; }
 pass "v0.4.2: different topic-text → different hash → different filename"
@@ -103,7 +103,7 @@ pass "v0.4.2: different topic-text → different hash → different filename"
 DD5=$(mk_topic consult-orch-hub "orch test topic hub mode")
 clean_sections "$DD5"
 OUT_REL5=$(cd "$EREPO" && CW_CONSULT_TARGET_HEADER="**Target Sub-Project:** ARS-Perfusion" \
-  bash "$PLUGIN_ROOT/bin/consult-design-doc.sh" consult-orch-hub 2>"$TMP/err5") \
+  bash "$PLUGIN_ROOT/bin/spec-assemble.sh" consult-orch-hub 2>"$TMP/err5") \
   || { echo "FAIL c5: rc nonzero"; cat "$TMP/err5" >&2; exit 1; }
 ASSEMBLED5="$EREPO/$OUT_REL5"
 [[ -f "$ASSEMBLED5" ]] || { echo "FAIL c5: output not at $OUT_REL5"; exit 1; }
@@ -116,7 +116,7 @@ pass "v0.10: consult-design-doc prepends Target Sub-Project header when CW_CONSU
 DD6=$(mk_topic consult-orch-nohub "orch test topic no hub mode")
 clean_sections "$DD6"
 unset CW_CONSULT_TARGET_HEADER
-OUT_REL6=$(cd "$EREPO" && bash "$PLUGIN_ROOT/bin/consult-design-doc.sh" consult-orch-nohub 2>"$TMP/err6") \
+OUT_REL6=$(cd "$EREPO" && bash "$PLUGIN_ROOT/bin/spec-assemble.sh" consult-orch-nohub 2>"$TMP/err6") \
   || { echo "FAIL c6: rc nonzero"; cat "$TMP/err6" >&2; exit 1; }
 ASSEMBLED6="$EREPO/$OUT_REL6"
 [[ -f "$ASSEMBLED6" ]] || { echo "FAIL c6: output not at $OUT_REL6"; exit 1; }
@@ -129,7 +129,7 @@ pass "v0.10: consult-design-doc omits header when CW_CONSULT_TARGET_HEADER unset
 DD7=$(mk_topic consult-orch-badhdr "orch test topic bad header")
 clean_sections "$DD7"
 if (cd "$EREPO" && CW_CONSULT_TARGET_HEADER="**Target Sub-Project:** Bad/Slug!" \
-    bash "$PLUGIN_ROOT/bin/consult-design-doc.sh" consult-orch-badhdr) >"$TMP/out7" 2>"$TMP/err7"; then
+    bash "$PLUGIN_ROOT/bin/spec-assemble.sh" consult-orch-badhdr) >"$TMP/out7" 2>"$TMP/err7"; then
   echo "FAIL c7: invalid slug should exit nonzero"; exit 1
 fi
 grep -q "invalid Target Sub-Project slug" "$TMP/err7" \

@@ -530,7 +530,7 @@ Set task `3.1.5` → `in_progress`.
 **Hub-mode wiring (v0.11).** `HUB_MODE` is already loaded from
 `_consult/hub-mode.txt` at Step 0.5. When `HUB_MODE != single-repo`, the
 chosen leaf list lives in `_consult/targets.txt` (Step 1.5 persisted it).
-The design-doc bin script (`bin/consult-design-doc.sh`) reads the
+The design-doc bin script (`bin/spec-assemble.sh`) reads the
 targets-dir directly to insert the `**Target Hub(s):**` /
 `**Target Sub-Project(s):**` header pair into the assembled spec — no
 `CW_CONSULT_TARGET_HEADER` env var needed.
@@ -674,7 +674,7 @@ do not invoke the script with stale args.
 **Finalize** (after all 5 sections processed):
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/consult-design-doc.sh" "$CONSULT_TOPIC"
+"$CLAUDE_PLUGIN_ROOT/bin/spec-assemble.sh" "$CONSULT_TOPIC"
 ```
 
 The script assembles, self-reviews, and commits. Failure modes:
