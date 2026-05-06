@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# bin/consult-design-doc.sh — assemble + self-review + commit the design doc.
+# bin/spec-assemble.sh — assemble + self-review + commit the design doc.
 #
-# Usage: bin/consult-design-doc.sh <consult-topic>
+# Usage: bin/spec-assemble.sh <consult-topic>
 #
 # Inputs:  $TOPIC_DIR/_consult/design-doc/{architecture,components,data-flow,error-handling,testing}.md
 #          $TOPIC_DIR/_consult/topic.txt   (drives title + filename hash)
@@ -131,7 +131,7 @@ if [[ -n "${CW_CONSULT_TARGET_HEADER:-}" ]]; then
   CW_TARGET_SLUG=$(printf '%s' "$CW_CONSULT_TARGET_HEADER" \
     | sed -E 's/^\*\*Target Sub-Project:\*\*[[:space:]]+([^[:space:]]+).*/\1/')
   if [[ ! "$CW_TARGET_SLUG" =~ ^${CW_SLUG_REGEX_BASE}$ ]]; then
-    log_error "consult-design-doc: invalid Target Sub-Project slug '$CW_TARGET_SLUG' from CW_CONSULT_TARGET_HEADER"
+    log_error "spec-assemble: invalid Target Sub-Project slug '$CW_TARGET_SLUG' from CW_CONSULT_TARGET_HEADER"
     exit 1
   fi
   awk -v hdr="$CW_CONSULT_TARGET_HEADER" '

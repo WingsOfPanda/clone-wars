@@ -21,15 +21,4 @@ grep -q 'CW_CONSULT_TARGETS=' "$DIRECTIVE" \
   || { echo "FAIL: Step 2 must thread CW_CONSULT_TARGETS= into research-send"; exit 1; }
 pass "Step 1.5/2: target-selection AskUserQuestion + TARGETS threading"
 
-# Step 8.5: per-sub-project drill axis + 3 new sections + hub-mode validators
-grep -q 'Execution DAG' "$DIRECTIVE" \
-  || { echo "FAIL: Step 8.5 must reference Execution DAG section"; exit 1; }
-grep -q 'Cross-Repo Dependencies' "$DIRECTIVE" \
-  || { echo "FAIL: Step 8.5 must reference Cross-Repo Dependencies"; exit 1; }
-grep -q 'Acceptance Tests' "$DIRECTIVE" \
-  || { echo "FAIL: Step 8.5 must reference Acceptance Tests heading"; exit 1; }
-grep -q 'per-sub-project' "$DIRECTIVE" \
-  || { echo "FAIL: Step 8.5 must add per-sub-project drill axis"; exit 1; }
-pass "Step 8.5: 3 new sections + per-sub-project drill axis wired"
-
 echo "ALL: ok"

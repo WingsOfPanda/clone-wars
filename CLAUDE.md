@@ -303,7 +303,7 @@ This repo follows Conventional Commits loosely: `feat:`, `fix:`, `docs:`, `test:
 - [x] v0.5.3: extract Step 8.5 drill code into `bin/consult-drilldown.sh` (escapes the slash-command renderer's `$1/$2/$3` positional substitution that clobbered bash function args on multi-word topics) + identity-template gains "safe JSONL emission" guidance to prevent `printf '%2C'` format-string failures observed in dogfood
 - [x] v0.6.0: execute-design — codex-implements + yoda-verifies pipeline
 - [x] v0.6.1: drilldown scratch subdir + execute-design source-defaulting prefers design-doc + CW_EXECUTE_FIX_TIMEOUT env var + parameterized wait-script test
-- [x] v0.7.0: rename `/clone-wars:execute-design` → `/clone-wars:deploy` + hide internal slash commands (`spawn`/`send`/`collect`); user-facing surface is now medic/consult/deploy/list/teardown
+- [x] v0.7.0: rename `/clone-wars:execute-design` → `/clone-wars:deploy` + hide internal slash commands (`spawn`/`send`/`collect`); user-facing surface is now medic/consult/spec/deploy/list/teardown (v0.12 added /spec)
 - [ ] v0.7.0 strict-dogfood pass on a real machine (release gate)
 - [x] v0.8.0: deploy single-turn — plan+implement+verify run in one trooper turn per round; auto-retry-once; CW_DEPLOY_TURN_TIMEOUT=14400 default; 6 bin scripts and 4 lib helpers deleted
 - [ ] v0.8.0 strict-dogfood pass on a real machine (release gate)
@@ -316,5 +316,7 @@ This repo follows Conventional Commits loosely: `feat:`, `fix:`, `docs:`, `test:
 - [x] v0.11.1: consult maintenance + hardening — lib/consult.sh 3-way split + thin sourcing shim, CW_SLUG_REGEX_BASE shared constant, cw_consult_extract_targets_from_topic + cw_consult_findings_active_subproject, drilldown collision counter, validator order doc + acceptance-tests log_warn, mode-toggle warn, findings-conformance metric
 - [ ] v0.11.1 strict-dogfood pass on a real machine (release gate — see tests/test_consult_v011_dogfood.sh scenarios CW-DF-CONS-1..9)
 - [x] v0.11.2: codex cold-start mitigation — consult Step 1 spawn-rollback runbook auto-retries-once before tearing down (fixes the race where spawn.sh's identity-read nudge arrived before codex finished cold-starting node-modules + auth handshake); codex bootstrap_sleep_s bumped 8 → 20 in config/contracts.yaml as belt-and-braces. Warm-start happy path unaffected.
+- [x] v0.12.0: split /clone-wars:consult into /consult (research+synthesis+drill+teardown) + /spec (conductor-only design-doc walk that consumes a synthesis seed); --design-doc flag deprecated with log_warn; bin/consult-design-doc.sh renamed → bin/spec-assemble.sh; new Step 8.4 free-form drill-deeper before teardown (replaces old per-section drill in Step 8.5); per-sub-project drill axis intentionally dropped (free-form via $DRILL_TOPIC prose)
+- [ ] v0.12.0 strict-dogfood pass on a real machine (release gate — verify /consult ends at synthesis, /spec re-runs from archived seed, --design-doc shows deprecation warn, Step 8.4 drill rounds write to _consult/drilldowns/_scratch/)
 - [ ] v0.6: drop config/identity-template.md back-compat symlink + sweep tracer/*.sh + README.md legacy refs
 - [ ] Submit to claude-plugins-official (post v0.5.x dogfood)
