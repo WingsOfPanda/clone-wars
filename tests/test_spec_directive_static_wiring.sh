@@ -17,4 +17,10 @@ grep -q 'cw_consult_design_doc_resume_state' "$SPEC_MD" || { echo "FAIL: directi
 grep -q 'hub-mode.txt'           "$SPEC_MD" || { echo "FAIL: directive missing hub-mode detection" >&2; exit 1; }
 grep -q 'SEED_PATH=.*ARGS_DIR' "$SPEC_MD" \
   || { echo "FAIL: directive missing SEED_PATH read-back from \$ARGS_DIR/spec.txt" >&2; exit 1; }
+
+# Hub-mode wiring (lifted from old Step 8.5; lives in /spec now)
+grep -q 'Execution DAG'         "$SPEC_MD" || { echo "FAIL: /spec must reference Execution DAG section" >&2; exit 1; }
+grep -q 'Cross-Repo Dependencies' "$SPEC_MD" || { echo "FAIL: /spec must reference Cross-Repo Dependencies" >&2; exit 1; }
+grep -q 'Acceptance Tests'      "$SPEC_MD" || { echo "FAIL: /spec must reference Acceptance Tests heading" >&2; exit 1; }
+
 pass "commands/spec.md static wiring complete"

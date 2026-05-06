@@ -17,7 +17,7 @@ Spec: `docs/superpowers/specs/2026-04-29-clone-wars-consult-v2-design.md`
 
 ## Task list (TaskCreate × 13 BEFORE step 1)
 
-Create the 13-task list using `TaskCreate`. Update statuses at the
+Create the 12-task list using `TaskCreate`. Update statuses at the
 boundaries below — do NOT print a markdown checklist in chat.
 
 | # | subject | activeForm |
