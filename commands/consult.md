@@ -494,6 +494,49 @@ When no `^- PENDING:` remains, set task `2` → `completed` and task `3.1` →
 Refuses if PENDING remains. On success, prints synthesis.md. Set task
 `3.1` → `completed`.
 
+### Step 8.4 — Drill deeper (optional)
+
+Before teardown, offer one or more free-form drill-deeper rounds while
+troopers are still alive. Each round writes to
+`$TOPIC_DIR/_consult/drilldowns/<slug>-<commander>.md` and becomes part
+of the archive that `/clone-wars:spec` consumes.
+
+```
+DRILL_DIR="$TOPIC_DIR/_consult/drilldowns"
+mkdir -p "$DRILL_DIR"
+```
+
+`AskUserQuestion`: "Any aspect to drill deeper before tearing down? (panes still live)"
+Options: `Yes — drill` / `No — proceed to teardown`.
+
+Loop while user picks "Yes":
+
+1. `AskUserQuestion`: "Topic for this drill?" — free-form text response.
+2. `AskUserQuestion`: "Focus angle? (e.g., 'tradeoffs feel hand-wavy')" — free-form.
+3. `AskUserQuestion`: "Which trooper?" Options: `rex (codex)` / `cody (claude)` / `both (parallel)`.
+4. Invoke the drill bin script. Single trooper:
+   ```
+   "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
+     "$CONSULT_TOPIC" "$DRILL_TOPIC" "$DRILL_DIR" "$DRILL_FOCUS" \
+     <commander> <model>
+   ```
+   Both troopers in parallel:
+   ```
+   "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
+     "$CONSULT_TOPIC" "$DRILL_TOPIC" "$DRILL_DIR" "$DRILL_FOCUS" \
+     rex codex cody claude
+   ```
+5. Read the produced drilldown file(s) under `$DRILL_DIR/` and print a brief
+   summary of findings to the user. The script's exit codes:
+   - `rc=0` if at least one trooper produced a non-empty drilldown
+   - `rc=1` if all troopers timed out / errored / produced empty files
+   - `rc=2` on bad args
+6. `AskUserQuestion`: "Drill another aspect?" Options: `Yes` / `No — proceed to teardown`.
+
+Drilldowns are part of the archive (`_consult/drilldowns/`) and become
+available to `/clone-wars:spec` as supplemental context for the
+design-doc walk.
+
 ### Step 8.5 — Design-doc walk (optional)
 
 **Entry conditions** (classifier is not the strict gate):
