@@ -31,8 +31,32 @@ TOPIC="$1"
 cw_consult_assert_topic "$TOPIC"
 
 TOPIC_DIR="$(cw_consult_topic_dir "$TOPIC")"
-DD_DIR="$TOPIC_DIR/_consult/design-doc"
-[[ -d "$DD_DIR" ]] || { log_error "design-doc dir not found: $DD_DIR — run Step 8.5 walk first"; exit 1; }
+# Resolve consult artifact dir: prefer live `_consult/`, fall back to most-recent
+# archived `_consult-<timestamp>/`. Mirrors bin/spec-init.sh's archive-glob
+# (the v0.12.0 split made /spec consume archived consults; this script needs
+# to follow). Also try the archive root in case the live state was already
+# torn down (typical post-consult run).
+ART_DIR=""
+if [[ -d "$TOPIC_DIR/_consult/design-doc" ]]; then
+  ART_DIR="$TOPIC_DIR/_consult"
+else
+  # Search live state's archived consult dirs first, then the archive root.
+  REPO_HASH=$(cw_repo_hash)
+  STATE_ROOT=$(cw_state_root)
+  for parent in "$TOPIC_DIR" "$STATE_ROOT/archive/$REPO_HASH/$TOPIC"; do
+    [[ -d "$parent" ]] || continue
+    candidate=$(find "$parent" -maxdepth 1 -type d -name '_consult-*' \
+                  -printf '%T@ %p\n' 2>/dev/null \
+                | sort -n | tail -1 | cut -d' ' -f2-)
+    if [[ -n "$candidate" && -d "$candidate/design-doc" ]]; then
+      ART_DIR="$candidate"
+      TOPIC_DIR="$parent"
+      break
+    fi
+  done
+fi
+[[ -n "$ART_DIR" ]] || { log_error "design-doc dir not found under $TOPIC_DIR (live _consult/ or archived _consult-<ts>/) — run Step 2 walk first"; exit 1; }
+DD_DIR="$ART_DIR/design-doc"
 
 # Slug = topic with leading "consult-" stripped.
 SLUG="${TOPIC#consult-}"
@@ -43,7 +67,7 @@ TITLE=$(printf '%s' "$SLUG" | tr '-' ' ' | awk '{for(i=1;i<=NF;i++) $i=toupper(s
 
 # Derive 6-char hash from full topic-text (when available) for filename
 # uniqueness across same-day topics that share the truncated slug.
-TOPIC_TEXT_FILE="$TOPIC_DIR/_consult/topic.txt"
+TOPIC_TEXT_FILE="$ART_DIR/topic.txt"
 TOPIC_TEXT=""
 HASH6=""
 if [[ -f "$TOPIC_TEXT_FILE" ]]; then
@@ -72,14 +96,13 @@ OUT_TMP="${OUT_ABS}.tmp.$$"
 # Always clean up the temp on any exit.
 trap 'rm -f "$OUT_TMP"' EXIT
 
-SYNTHESIS_FILE="$TOPIC_DIR/_consult/synthesis.md"
+SYNTHESIS_FILE="$ART_DIR/synthesis.md"
 SYNTH_PATH=""
 [[ -f "$SYNTHESIS_FILE" ]] && SYNTH_PATH="$SYNTHESIS_FILE"
 
-# Hub-mode: when _consult/targets.txt is non-empty, pass the consult artifacts
-# dir as the 6th arg to assemble (triggers hub-mode output) and run the three
-# new section validators before commit.
-ART_DIR="$TOPIC_DIR/_consult"
+# Hub-mode: when targets.txt is non-empty in the consult artifact dir, pass
+# the dir as the 6th arg to assemble (triggers hub-mode output) and run the
+# three new section validators before commit.
 TARGETS_DIR=""
 if [[ -s "$ART_DIR/targets.txt" ]]; then
   TARGETS_DIR="$ART_DIR"
