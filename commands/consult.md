@@ -56,9 +56,15 @@ source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
 PARSE=$(cw_consult_parse_design_doc_flag "$ARGUMENTS")
 DESIGN_DOC="${PARSE%%	*}"
 ARG_RAW="${PARSE#*	}"
+if [[ "$DESIGN_DOC" == "1" ]]; then
+  log_warn "--design-doc is deprecated as of v0.12.0. Run /clone-wars:spec separately after consult finishes."
+fi
 ```
 
 Use `$ARG_RAW` (not `$ARGUMENTS`) for the topic text from this point.
+The flag is parsed only for back-compat — a deprecation warning fires
+above and `$DESIGN_DOC` is otherwise unused. Run `/clone-wars:spec`
+separately to walk a design doc.
 
 1. Resolve args path:
 
