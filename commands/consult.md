@@ -692,16 +692,16 @@ The script assembles, self-reviews, and commits. Failure modes:
   `<file>:<lineno>: <line>`. Yoda parses, identifies which section
   contains the placeholder (by comparing against the assembled doc's
   section boundaries), and re-enters the per-section walk for the
-  offending section ONLY. After fix, re-invoke `consult-design-doc.sh`.
+  offending section ONLY. After fix, re-invoke `spec-assemble.sh`.
   Loop until clean or user aborts.
-- **Hub-mode validator failed**: when `targets.txt` exists, `consult-design-doc.sh`
+- **Hub-mode validator failed**: when `targets.txt` exists, `spec-assemble.sh`
   runs three validators sequentially before commit: `dag` → `xrepo-deps` →
   `acceptance-tests`. On failure the script exits 1 with stderr
   `validator <fn> rejected <section>.md (see stderr above)` followed by the
   validator's own `ERROR:` line(s). Yoda parses the rejected section name
   (`dag`, `xrepo-deps`, or `acceptance-tests`) and re-enters that section's
   per-section walk for revision (skip the other 7 sections). After the user
-  re-approves the offending section, re-invoke `consult-design-doc.sh`. Loop
+  re-approves the offending section, re-invoke `spec-assemble.sh`. Loop
   until clean or user aborts. Section-to-validator mapping:
   - `dag.md` → `## Execution DAG` walk
   - `xrepo-deps.md` → `## Cross-Repo Dependencies` walk
