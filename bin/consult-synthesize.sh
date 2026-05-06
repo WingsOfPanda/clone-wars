@@ -37,12 +37,17 @@ fi
 SYN="$ART_DIR/synthesis.md"
 [[ ! -e "$SYN" ]] || { log_error "$SYN already exists; rm to regenerate"; exit 1; }
 
-# Load statuses with safe fallbacks.
-REX_FS=missing; CODY_FS=missing; REX_VS=skipped; CODY_VS=skipped
-if [[ -f "$ART_DIR/research-rex.txt"  ]]; then REX_FS=$(awk -F= '/^FS=/{print $2}'  "$ART_DIR/research-rex.txt");  : "${REX_FS:=missing}"; fi
-if [[ -f "$ART_DIR/research-cody.txt" ]]; then CODY_FS=$(awk -F= '/^FS=/{print $2}' "$ART_DIR/research-cody.txt"); : "${CODY_FS:=missing}"; fi
-if [[ -f "$ART_DIR/verify-rex.txt"    ]]; then REX_VS=$(awk -F= '/^VS=/{print $2}'  "$ART_DIR/verify-rex.txt");   : "${REX_VS:=skipped}"; fi
-if [[ -f "$ART_DIR/verify-cody.txt"   ]]; then CODY_VS=$(awk -F= '/^VS=/{print $2}' "$ART_DIR/verify-cody.txt");  : "${CODY_VS:=skipped}"; fi
+# Load statuses with safe fallbacks. Each stage file is KEY=VAL lines; we read
+# one specific key per file and apply a per-stage default if missing/empty.
+load_stage_status() {
+  local file="$1" key="$2" default="$3" val=""
+  [[ -f "$file" ]] && val=$(awk -F= -v k="$key" '$1==k{print $2; exit}' "$file")
+  printf '%s\n' "${val:-$default}"
+}
+REX_FS=$(load_stage_status  "$ART_DIR/research-rex.txt"  FS missing)
+CODY_FS=$(load_stage_status "$ART_DIR/research-cody.txt" FS missing)
+REX_VS=$(load_stage_status  "$ART_DIR/verify-rex.txt"    VS skipped)
+CODY_VS=$(load_stage_status "$ART_DIR/verify-cody.txt"   VS skipped)
 
 TOPIC_TEXT=$(cat "$ART_DIR/topic.txt")
 DIFF="$ART_DIR/diff.md"

@@ -1,27 +1,23 @@
-# lib/consult.sh — /clone-wars:consult helpers (residual).
+# lib/consult.sh — /clone-wars:consult helpers (residual + shim).
 # Hub-mode helpers live in lib/consult-hub.sh; format validators in
 # lib/consult-validators.sh; prompt builders in lib/consult-prompts.sh.
-# This file sources them transitively so existing `source lib/consult.sh`
-# callers continue to work.
+# Sources them transitively so existing `source lib/consult.sh` callers
+# continue to work.
 # Depends on lib/state.sh, lib/ipc.sh, lib/contracts.sh.
-# Callers SHOULD source lib/state.sh and lib/log.sh BEFORE sourcing this file.
-# The split files call cw_atomic_write, cw_topic_state_dir, cw_trooper_dir,
-# log_warn. state.sh is auto-loaded as fallback (see CW_SLUG_REGEX_BASE guard
-# below); log.sh is NOT auto-loaded — callers needing log_warn/log_info etc.
-# from the split files must source it themselves.
+# Callers SHOULD source lib/state.sh and lib/log.sh before this file.
+# state.sh is auto-loaded as fallback (split files anchor regex against
+# CW_SLUG_REGEX_BASE inside [[ =~ ]], which fails under set -u when unset);
+# log.sh is NOT auto-loaded — callers needing log_warn/log_info must source it.
 
-# Resolve siblings via BASH_SOURCE — never CLAUDE_PLUGIN_ROOT, which can point
-# at a sandbox lacking the lib/ tree (test fixtures override it for templates).
-# Resolve through symlinks: Claude Code plugins are typically installed via
-# ~/.claude/plugins/cache/<plugin>/<version>/lib/consult.sh symlinks. Plain
-# dirname "${BASH_SOURCE[0]}" returns the symlink's parent dir, not the
-# real file's, breaking the sibling source lookups below.
+# Resolve siblings via BASH_SOURCE (NOT CLAUDE_PLUGIN_ROOT — test fixtures
+# override it to a sandbox that lacks the lib/ tree). readlink -f resolves
+# through symlinks so the plugin install path
+# ~/.claude/plugins/cache/<plugin>/<version>/lib/consult.sh works correctly;
+# plain `dirname "${BASH_SOURCE[0]}"` returns the symlink's parent dir.
 _CONSULT_BASH_SOURCE="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
 _CONSULT_LIB_DIR="$(cd "$(dirname "$_CONSULT_BASH_SOURCE")" && pwd)"
 unset _CONSULT_BASH_SOURCE
-# Pull state.sh first — split files reference CW_SLUG_REGEX_BASE (defined there)
-# inside [[ =~ ]] anchors, which fails under set -u when the constant is unset.
-# state.sh self-guards the readonly so re-sourcing is a no-op.
+# state.sh self-guards CW_SLUG_REGEX_BASE so re-sourcing is a no-op.
 [[ -n "${CW_SLUG_REGEX_BASE:-}" ]] || source "$_CONSULT_LIB_DIR/state.sh"
 source "$_CONSULT_LIB_DIR/consult-hub.sh"
 source "$_CONSULT_LIB_DIR/consult-validators.sh"
@@ -609,29 +605,26 @@ cw_consult_design_doc_assemble() {
     fi
     printf '\n---\n\n'
 
-    # Core 4 sections — same in both modes.
-    local pair key heading
-    for pair in 'architecture|Architecture' 'components|Components' 'data-flow|Data Flow' 'error-handling|Error Handling'; do
-      key="${pair%%|*}"
-      heading="${pair##*|}"
-      printf '## %s\n\n' "$heading"
-      if [[ -f "$section_dir/$key.md" ]]; then
-        cat "$section_dir/$key.md"
-        printf '\n'
-      else
-        printf '_(skipped)_\n\n'
-      fi
-    done
-
-    # Tail sections: hub-mode emits Acceptance Tests + Execution DAG +
-    # Cross-Repo Dependencies; single-repo emits Testing.
-    local -a tail_pairs
+    # Section list: single-repo gets Testing as the tail; hub-mode swaps in
+    # Acceptance Tests + Execution DAG + Cross-Repo Dependencies. The first
+    # four are common to both modes.
+    local -a sections=(
+      'architecture|Architecture'
+      'components|Components'
+      'data-flow|Data Flow'
+      'error-handling|Error Handling'
+    )
     if (( hub_mode == 1 )); then
-      tail_pairs=('acceptance-tests|Acceptance Tests' 'dag|Execution DAG' 'xrepo-deps|Cross-Repo Dependencies')
+      sections+=(
+        'acceptance-tests|Acceptance Tests'
+        'dag|Execution DAG'
+        'xrepo-deps|Cross-Repo Dependencies'
+      )
     else
-      tail_pairs=('testing|Testing')
+      sections+=('testing|Testing')
     fi
-    for pair in "${tail_pairs[@]}"; do
+    local pair key heading
+    for pair in "${sections[@]}"; do
       key="${pair%%|*}"
       heading="${pair##*|}"
       printf '## %s\n\n' "$heading"

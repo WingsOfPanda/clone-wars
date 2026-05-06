@@ -17,6 +17,22 @@ cw_consult_strip_block() {
   '
 }
 
+# _cw_consult_emit_with_optional_targets_block <out> <targets>
+# Internal helper for verify/research prompt builders. When <targets> is empty,
+# strip the per-sub-project block to preserve v0.4.2 byte-equality. The strip
+# range — H2 heading "Per-sub-project structure" through the line ending in
+# "verify pass downstream." — brackets a block whose sentinel placeholders
+# rendered to empty strings; cw_consult_strip_block's trailing-line consume
+# absorbs the blank that follows for byte-exact output.
+_cw_consult_emit_with_optional_targets_block() {
+  local out="$1" targets="$2"
+  if [[ -z "$targets" ]]; then
+    printf '%s\n' "$out" | cw_consult_strip_block '^## Per-sub-project structure$' '^verify pass downstream\\.$'
+  else
+    printf '%s\n' "$out"
+  fi
+}
+
 # cw_consult_build_verify_prompt <items_file> <write_to> [targets]
 # Build the verify-round prompt body. Reads <items_file> (one `[cite] text` per
 # line) and emits a self-contained instruction, terminated by END_OF_INSTRUCTION.
@@ -31,14 +47,7 @@ cw_consult_build_verify_prompt() {
           "ITEMS=$items" "WRITE_TO=$write_to" \
           "TARGETS_BLOCK_START=" "TARGETS_BLOCK_END=" \
           "TARGETS=- ${targets//,/$'\n'- }")
-  if [[ -z "$targets" ]]; then
-    # Single-repo: strip the per-sub-project block to match v0.4.2 baseline byte-for-byte.
-    # Sentinels render as empty inline tokens, so the heading and closing lines
-    # bracket the block; getline consumes the trailing blank line for byte-equality.
-    printf '%s\n' "$out" | cw_consult_strip_block '^## Per-sub-project structure$' '^verify pass downstream\\.$'
-  else
-    printf '%s\n' "$out"
-  fi
+  _cw_consult_emit_with_optional_targets_block "$out" "$targets"
 }
 
 # cw_consult_build_research_prompt <topic> <write_to> [targets]
@@ -54,14 +63,7 @@ cw_consult_build_research_prompt() {
           "TOPIC=$topic" "WRITE_TO=$write_to" \
           "TARGETS_BLOCK_START=" "TARGETS_BLOCK_END=" \
           "TARGETS=- ${targets//,/$'\n'- }")
-  if [[ -z "$targets" ]]; then
-    # Single-repo: strip the per-sub-project block to match v0.4.2 baseline byte-for-byte.
-    # Sentinels render as empty inline tokens, so the heading and closing lines
-    # bracket the block; getline consumes the trailing blank line for byte-equality.
-    printf '%s\n' "$out" | cw_consult_strip_block '^## Per-sub-project structure$' '^verify pass downstream\\.$'
-  else
-    printf '%s\n' "$out"
-  fi
+  _cw_consult_emit_with_optional_targets_block "$out" "$targets"
 }
 
 # cw_consult_design_doc_drilldown_prompt <section> <synthesis-path> <commander> <dd-dir> <focus> [subproject] [out_path_override]
