@@ -18,6 +18,13 @@ grep -q 'cw_repo_hash'                    ../commands/consult.md || { echo "FAIL
 ! grep -F '$(<repo-hash>)'                ../commands/consult.md || { echo "FAIL: directive contains broken \$(<repo-hash>) placeholder" >&2; exit 1; }
 pass "directive rollback runbook is well-formed (no broken placeholders)"
 
+# === Auto-retry-once wiring (v0.11.2: codex cold-start mitigation) ===
+grep -q 'SPAWN_RETRY_COUNT'               ../commands/consult.md || { echo "FAIL: directive missing SPAWN_RETRY_COUNT for auto-retry-once" >&2; exit 1; }
+grep -q 'auto-retry-once'                 ../commands/consult.md || { echo "FAIL: directive missing 'auto-retry-once' marker in spawn-rollback runbook" >&2; exit 1; }
+grep -q 'retrying parallel spawn'         ../commands/consult.md || { echo "FAIL: directive missing log_info for the retry attempt" >&2; exit 1; }
+grep -q 'retry exhausted'                 ../commands/consult.md || { echo "FAIL: directive missing 'retry exhausted' branch (final teardown after second failure)" >&2; exit 1; }
+pass "directive auto-retry-once wiring complete (v0.11.2 spawn cold-start mitigation)"
+
 # === Functional: mock spawn.sh that fails for cody, succeeds for rex. ===
 MOCK_BIN="$TMP/mock-bin"
 mkdir -p "$MOCK_BIN"

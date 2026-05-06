@@ -179,7 +179,13 @@ cover, BEFORE research dispatch (the research prompt needs the list).
      | cw_consult_targets_persist "$TOPIC_DIR/_consult"
    ```
 
-### Step 1 — Parallel spawn (with rollback)
+### Step 1 — Parallel spawn (with auto-retry-once + rollback)
+
+Initialize ONCE before invoking the parallel spawn calls:
+
+```
+SPAWN_RETRY_COUNT=0
+```
 
 Invoke BOTH spawn calls as PARALLEL Bash tool calls in a single message.
 Capture each rc.
@@ -191,22 +197,39 @@ Capture each rc.
 
 #### Spawn-rollback runbook (CRITICAL)
 
-After both parallel spawn calls return, evaluate:
+After both parallel spawn calls return, evaluate the rc pair. **The runbook
+supports ONE automatic retry** because codex's first cold-start can blow the
+spawn.sh budget (node-modules load + auth handshake); subsequent invocations
+are warm and almost always succeed. The retry path costs ~30s in the rare
+failure case and is invisible on the happy path.
 
-- If both succeed: continue to step 1.3. Set tasks `1.1` and `1.2` →
+- **Both succeed** → continue to Step 2. Set tasks `1.1` and `1.2` →
   `completed`.
-- If both fail: log "both spawns failed", `rm -rf` the `_consult/` dir,
-  exit. Mark tasks `1.1` and `1.2` as `pending` (not completed).
-- If exactly one succeeds (one-success/one-failure):
+
+- **At least one fails AND `SPAWN_RETRY_COUNT == 0`** → **auto-retry-once**:
 
   ```
-  # Tear down the surviving trooper, remove _consult/, exit 1.
-  "$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC"
+  # Tear down any surviving pane(s), KEEP _consult/ for the retry.
+  "$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC" 2>/dev/null || true
+  SPAWN_RETRY_COUNT=1
+  log_info "spawn failed (cold start?); retrying parallel spawn once"
+  ```
+
+  Then re-issue the parallel spawn calls (back to the parallel block above).
+  By this point codex's runtime is warm; second attempt almost always succeeds.
+
+- **At least one fails AND `SPAWN_RETRY_COUNT == 1`** → **retry exhausted**:
+
+  ```
+  "$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC" 2>/dev/null || true
   rm -rf "$TOPIC_DIR"
+  exit 1
   ```
 
-  Mark only the successful spawn task as `completed`; leave the failed one
-  `pending`. Tell the user which side failed and why.
+  Mark only any successful spawn task as `completed`; leave failed one(s)
+  `pending`. Tell the user which side failed twice and why (capture stderr
+  from both attempts for diagnostics — typically codex bootstrap timeout or
+  binary-not-found).
 
 ### Step 2 — Parallel research dispatch
 

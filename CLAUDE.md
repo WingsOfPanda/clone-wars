@@ -315,5 +315,6 @@ This repo follows Conventional Commits loosely: `feat:`, `fix:`, `docs:`, `test:
 - [ ] v0.11.0 strict-dogfood pass on a real machine (release gate — see tests/test_consult_v011_dogfood.sh scenarios CW-DF-CONS-1..4)
 - [x] v0.11.1: consult maintenance + hardening — lib/consult.sh 3-way split + thin sourcing shim, CW_SLUG_REGEX_BASE shared constant, cw_consult_extract_targets_from_topic + cw_consult_findings_active_subproject, drilldown collision counter, validator order doc + acceptance-tests log_warn, mode-toggle warn, findings-conformance metric
 - [ ] v0.11.1 strict-dogfood pass on a real machine (release gate — see tests/test_consult_v011_dogfood.sh scenarios CW-DF-CONS-1..9)
+- [x] v0.11.2: codex cold-start mitigation — consult Step 1 spawn-rollback runbook auto-retries-once before tearing down (fixes the race where spawn.sh's identity-read nudge arrived before codex finished cold-starting node-modules + auth handshake); codex bootstrap_sleep_s bumped 8 → 20 in config/contracts.yaml as belt-and-braces. Warm-start happy path unaffected.
 - [ ] v0.6: drop config/identity-template.md back-compat symlink + sweep tracer/*.sh + README.md legacy refs
 - [ ] Submit to claude-plugins-official (post v0.5.x dogfood)
