@@ -54,3 +54,18 @@ echo "## Not a synthesis" > "$NOT_SYNTH"
 ../bin/spec-init.sh "$NOT_SYNTH" && RC=0 || RC=$?
 [[ "$RC" -eq 2 ]] || { echo "FAIL: non-synthesis path should exit 2, got $RC" >&2; exit 1; }
 pass "explicit non-synthesis path → exit 2 (path-layout assertion)"
+
+# Case 7: archive uses _consult-<timestamp>/ layout (real consult-archive.sh output)
+# — discovered in v0.12.0 dogfood. Source-defaulting MUST find these.
+rm -rf "$CLONE_WARS_HOME/archive" "$CLONE_WARS_HOME/state"
+mkdir -p "$CLONE_WARS_HOME/archive/$REPO_HASH/topic-real-archive/_consult-20260506T090050Z"
+echo "## Synthesis" > "$CLONE_WARS_HOME/archive/$REPO_HASH/topic-real-archive/_consult-20260506T090050Z/synthesis.md"
+OUT=$(../bin/spec-init.sh)
+echo "$OUT" | grep -q '^TOPIC=topic-real-archive$' || { echo "FAIL: timestamped-archive scan missed: $OUT" >&2; exit 1; }
+pass "no-arg finds archived _consult-<timestamp>/synthesis.md (v0.12.0 dogfood regression)"
+
+# Case 8: explicit path under _consult-<timestamp>/ also passes path-layout assertion.
+ARCHIVED_TS="$CLONE_WARS_HOME/archive/$REPO_HASH/topic-real-archive/_consult-20260506T090050Z/synthesis.md"
+OUT=$(../bin/spec-init.sh "$ARCHIVED_TS")
+echo "$OUT" | grep -q '^TOPIC=topic-real-archive$' || { echo "FAIL: explicit _consult-<ts>/ path TOPIC wrong: $OUT" >&2; exit 1; }
+pass "explicit _consult-<timestamp>/synthesis.md passes path-layout assertion"
