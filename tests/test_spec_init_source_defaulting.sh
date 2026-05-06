@@ -11,14 +11,12 @@ source ../lib/state.sh
 REPO_HASH=$(cw_repo_hash)
 
 # Case 1: explicit valid path → echoes TOPIC + SEED.
-SEED1="$TMP/explicit-synthesis.md"
-mkdir -p "$TMP/state/$REPO_HASH/topic-explicit/_consult"
-ARCHIVED1="$TMP/cw/state/$REPO_HASH/topic-explicit/_consult/synthesis.md"
-mkdir -p "$(dirname "$ARCHIVED1")"
-echo "## Synthesis" > "$ARCHIVED1"
-OUT=$(../bin/spec-init.sh "$ARCHIVED1")
+EXPLICIT="$TMP/cw/state/$REPO_HASH/topic-explicit/_consult/synthesis.md"
+mkdir -p "$(dirname "$EXPLICIT")"
+echo "## Synthesis" > "$EXPLICIT"
+OUT=$(../bin/spec-init.sh "$EXPLICIT")
 echo "$OUT" | grep -q '^TOPIC=topic-explicit$' || { echo "FAIL: explicit path TOPIC wrong: $OUT" >&2; exit 1; }
-echo "$OUT" | grep -q "^SEED=$ARCHIVED1$" || { echo "FAIL: explicit path SEED wrong: $OUT" >&2; exit 1; }
+echo "$OUT" | grep -q "^SEED=$EXPLICIT$" || { echo "FAIL: explicit path SEED wrong: $OUT" >&2; exit 1; }
 pass "explicit seed path resolves topic + seed"
 
 # Case 2: no arg, archive scan finds most recent.
@@ -37,7 +35,15 @@ rm -rf "$CLONE_WARS_HOME/archive" "$CLONE_WARS_HOME/state"
 [[ "$RC" -eq 1 ]] || { echo "FAIL: empty state should exit 1, got $RC" >&2; exit 1; }
 pass "no seed anywhere → exit 1"
 
-# Case 4: explicit nonexistent path → exit 1.
+# Case 4: explicit nonexistent path → exit 2 (bad arg).
 ../bin/spec-init.sh "$TMP/nope.md" && RC=0 || RC=$?
-[[ "$RC" -eq 1 ]] || { echo "FAIL: nonexistent explicit path should exit 1, got $RC" >&2; exit 1; }
-pass "explicit nonexistent path → exit 1"
+[[ "$RC" -eq 2 ]] || { echo "FAIL: nonexistent explicit path should exit 2, got $RC" >&2; exit 1; }
+pass "explicit nonexistent path → exit 2"
+
+# Case 5: no archive, only state has a synthesis → state entry wins.
+rm -rf "$CLONE_WARS_HOME/archive" "$CLONE_WARS_HOME/state"
+mkdir -p "$CLONE_WARS_HOME/state/$REPO_HASH/topic-state-only/_consult"
+echo "## Synthesis" > "$CLONE_WARS_HOME/state/$REPO_HASH/topic-state-only/_consult/synthesis.md"
+OUT=$(../bin/spec-init.sh)
+echo "$OUT" | grep -q '^TOPIC=topic-state-only$' || { echo "FAIL: state-only fallback missed: $OUT" >&2; exit 1; }
+pass "no-arg falls back to state when archive empty"
