@@ -9,6 +9,8 @@ grep -q '^### Step 8.4'                  "$DIR" || { echo "FAIL: Step 8.4 header
 grep -q 'drill deeper before tearing'    "$DIR" || { echo "FAIL: Step 8.4 prompt missing" >&2; exit 1; }
 grep -q '_consult/drilldowns'            "$DIR" || { echo "FAIL: Step 8.4 must use _consult/drilldowns/ path" >&2; exit 1; }
 grep -q 'bin/consult-drilldown.sh'       "$DIR" || { echo "FAIL: Step 8.4 must invoke consult-drilldown.sh" >&2; exit 1; }
+grep -q '_scratch/drilldown-'            "$DIR" \
+  || { echo "FAIL: Step 8.4 must reference the actual _scratch/drilldown-* output path" >&2; exit 1; }
 
 # Step 8.4 must come BEFORE Step 9 (teardown happens after drill).
 LINE_84=$(grep -n '^### Step 8.4' "$DIR" | head -1 | cut -d: -f1)

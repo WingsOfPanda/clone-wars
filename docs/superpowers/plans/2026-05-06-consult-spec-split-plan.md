@@ -298,7 +298,8 @@ After the Step 8 section ends (synthesis printed, task `3.1` → `completed`), b
 
 Before teardown, offer one or more free-form drill-deeper rounds while
 troopers are still alive. Each round writes to
-`$TOPIC_DIR/_consult/drilldowns/<slug>-<commander>.md`.
+`$TOPIC_DIR/_consult/drilldowns/_scratch/drilldown-<slug>-<commander>.md`
+(slug = lowercased drill topic with spaces as hyphens).
 
 ```
 DRILL_DIR="$TOPIC_DIR/_consult/drilldowns"
@@ -308,19 +309,27 @@ mkdir -p "$DRILL_DIR"
 `AskUserQuestion`: "Any aspect to drill deeper before tearing down? (panes still live)"
 Options: `Yes — drill` / `No — proceed to teardown`.
 
+Note: Step 8.4 drops the per-sub-project trooper-options expansion that
+old Step 8.5 had (rex on $SP / cody on $SP). For hub-mode users: include
+the sub-project name in the `$DRILL_TOPIC` if you want to scope the
+drill to one leaf (e.g., "auth in backend"). Yoda will route this through
+the prose-context the trooper sees.
+
 Loop while user picks "Yes":
 
-1. `AskUserQuestion`: "Topic for this drill?" (free-form text).
-2. `AskUserQuestion`: "Focus angle? (e.g., 'tradeoffs feel hand-wavy')" (free-form).
-3. `AskUserQuestion`: "Which trooper?" Options: `rex (codex)` / `cody (claude)` / `both (parallel)`.
+1. `AskUserQuestion`: "Drill subject?" — free-form text. → `$DRILL_TOPIC=<response>`
+2. `AskUserQuestion`: "Focus angle? (e.g., 'tradeoffs feel hand-wavy')" — free-form. → `$DRILL_FOCUS=<response>`
+3. `AskUserQuestion`: "Which trooper?" Options: `rex (codex)` / `cody (claude)` / `both (parallel)`. → `$DRILL_TROOPER=<choice>`
 4. Invoke:
    ```
    "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
      "$CONSULT_TOPIC" "$DRILL_TOPIC" "$DRILL_DIR" "$DRILL_FOCUS" \
      <commander+model selections>
    ```
-5. Read produced files (one or two of `<DRILL_DIR>/drilldown-<slug>-{rex,cody}.md`)
-   and print summary of findings to user.
+5. Read produced files under `$DRILL_DIR/_scratch/` (one or two of
+   `drilldown-<slug>-{rex,cody}.md`) and print summary to user.
+5b. If `rc=1` (all troopers timed out / errored), `AskUserQuestion`:
+    "Drill returned no findings. Retry / Different trooper / Skip and continue?"
 6. `AskUserQuestion`: "Drill another aspect?" Options: `Yes` / `No — proceed to teardown`.
 
 Drilldowns are part of the archive and become available to `/clone-wars:spec`.
