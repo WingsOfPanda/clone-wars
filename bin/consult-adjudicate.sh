@@ -20,28 +20,9 @@ cw_consult_assert_topic "$TOPIC"
 ART_DIR="$(cw_consult_art_dir "$TOPIC")"
 [[ -d "$ART_DIR" ]] || { log_error "$ART_DIR not found"; exit 1; }
 
-# Defaults if a state file is missing.
-REX_VS_VAL=skipped; CODY_VS_VAL=skipped
-if [[ -f "$ART_DIR/verify-rex.txt" ]]; then
-  REX_VS_VAL=$(awk -F= '/^VS=/{print $2}' "$ART_DIR/verify-rex.txt")
-  : "${REX_VS_VAL:=skipped}"
-fi
-if [[ -f "$ART_DIR/verify-cody.txt" ]]; then
-  CODY_VS_VAL=$(awk -F= '/^VS=/{print $2}' "$ART_DIR/verify-cody.txt")
-  : "${CODY_VS_VAL:=skipped}"
-fi
-
-REX_DIR=$(cw_trooper_dir rex codex "$TOPIC")
-CODY_DIR=$(cw_trooper_dir cody claude "$TOPIC")
-
-cw_consult_write_adjudicated \
-  "$ART_DIR/adjudicated-draft.md" \
-  "$REX_DIR/verify.md" \
-  "$CODY_DIR/verify.md" \
-  "$ART_DIR/rex_only_items.txt" \
-  "$ART_DIR/cody_only_items.txt" \
-  "$REX_VS_VAL" \
-  "$CODY_VS_VAL"
+# v0.15.0: cw_consult_write_adjudicated discovers N + commander list from
+# $ART_DIR/troopers.txt and emits 4-tier (N=2) or 5-tier (N>=3) output.
+cw_consult_write_adjudicated "$ART_DIR" "$ART_DIR/adjudicated-draft.md"
 
 log_info "[adjudicate] wrote $ART_DIR/adjudicated-draft.md"
 log_info "  Master Yoda: cp \"\$TOPIC_DIR/_consult/adjudicated-draft.md\" \"\$TOPIC_DIR/_consult/adjudicated.md\" then resolve PENDINGs."
