@@ -49,6 +49,19 @@ claude:
   bootstrap_sleep_s: 12
   identity_injection: send-keys-paste
 
+opencode:
+  binary: opencode
+  modes:
+    # opencode has no permission flag; full and read-only use the same row.
+    full:      [-m, deepseek/deepseek-v4-pro]
+    read-only: [-m, deepseek/deepseek-v4-pro]
+  default_mode: full
+  # ready_timeout_s: pre-tracer-measurement estimate; 4x bootstrap leaves margin.
+  ready_timeout_s: 60
+  # bootstrap_sleep_s: matches tracer scaffold; conservative initial value.
+  bootstrap_sleep_s: 15
+  identity_injection: send-keys-paste
+
 consult:
   research_timeout_s: 600   # 10 min
   verify_timeout_s:   300   # 5 min

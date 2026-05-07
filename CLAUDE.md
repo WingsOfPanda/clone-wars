@@ -238,7 +238,10 @@ Re-stating from `docs/DESIGN.md` so you don't drift:
 - Multi-conductor coordination (>1 Claude Code session sharing crews).
 - MCP server interface (we want CLI panes, not in-process subagents).
 - Standalone CLI (`clone-wars team ...` from a bare terminal). Slash commands only for v1.
-- DeepSeek and arbitrary OpenAI-compat providers. Closed set: claude / codex / gemini.
+- Generic OpenAI-compat providers (LM Studio, ollama, vLLM, DeepSeek-via-other-clients).
+  Closed set: claude / codex / gemini / opencode (pinned to DeepSeek V4 Pro).
+  Justification for opencode (v0.13.0): model diversity beyond the Western houses;
+  pinned to one model to preserve "smaller than OMC" thesis. Generic open-set still rejected.
 - Auto-decompose / planning. The conductor decides decomposition; the plugin only dispatches.
 - HUD / Telegram / mobile control / learning / pattern extraction. All rejected.
 
@@ -318,5 +321,7 @@ This repo follows Conventional Commits loosely: `feat:`, `fix:`, `docs:`, `test:
 - [x] v0.11.2: codex cold-start mitigation — consult Step 1 spawn-rollback runbook auto-retries-once before tearing down (fixes the race where spawn.sh's identity-read nudge arrived before codex finished cold-starting node-modules + auth handshake); codex bootstrap_sleep_s bumped 8 → 20 in config/contracts.yaml as belt-and-braces. Warm-start happy path unaffected.
 - [x] v0.12.0: split /clone-wars:consult into /consult (research+synthesis+drill+teardown) + /spec (conductor-only design-doc walk that consumes a synthesis seed); --design-doc flag deprecated with log_warn; bin/consult-design-doc.sh renamed → bin/spec-assemble.sh; new Step 8.4 free-form drill-deeper before teardown (replaces old per-section drill in Step 8.5); per-sub-project drill axis intentionally dropped (free-form via $DRILL_TOPIC prose)
 - [ ] v0.12.0 strict-dogfood pass on a real machine (release gate — verify /consult ends at synthesis, /spec re-runs from archived seed, --design-doc shows deprecation warn, Step 8.4 drill rounds write to _consult/drilldowns/_scratch/)
+- [x] v0.13.0: opencode trooper (DeepSeek V4 Pro) — tracer-bullet + medic preflight (rc-capture bash bug fixed) + contracts.yaml row + /clone-wars:deploy --provider override; closed-set 3 → 4 with generic OpenAI-compat still rejected
+- [x] v0.13.0 strict-dogfood pass on a real machine (2026-05-07): `bin/spawn.sh rex opencode dogfood-13` cold-started DeepSeek V4 Pro in ~5s after the 15s bootstrap floor; round-trip ready→done = ~1m49s for "summarize the v0.13.0 spec in 5 bullets" task; outbox emitted clean JSONL ready/ack/progress/done (zero ANSI escapes), findings.md written with 5 accurate bullets, status.json transitioned ready→idle on done; medic preflight detected `permission: allow` correctly. Archive: `~/.clone-wars/archive/<repo-hash>/dogfood-13/rex-opencode-20260507T023020Z`.
 - [ ] v0.6: drop config/identity-template.md back-compat symlink + sweep tracer/*.sh + README.md legacy refs
 - [ ] Submit to claude-plugins-official (post v0.5.x dogfood)
