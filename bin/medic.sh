@@ -208,6 +208,21 @@ if cw_have_cmd opencode 2>/dev/null \
   fi
 fi
 
+# v0.15.0: write providers-available.txt — consumed by /clone-wars:consult.
+# Lists every provider with binary on PATH (regardless of preflight warns).
+{
+  printf '# generated %s by /clone-wars:medic\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf '# providers detected with binary on PATH + contracts.yaml row\n'
+  while IFS= read -r prov; do
+    [[ -z "$prov" ]] && continue
+    bin=$(cw_contract_binary "$prov" 2>/dev/null) || continue
+    [[ -n "$bin" ]] || continue
+    cw_have_cmd "$bin" || continue
+    printf '%s\n' "$prov"
+  done < <(cw_contracts_providers 2>/dev/null)
+} | cw_atomic_write "$state_root/providers-available.txt" \
+   || log_warn "could not write providers-available.txt"
+
 echo
 
 # Verdict

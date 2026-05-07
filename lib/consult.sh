@@ -110,56 +110,221 @@ cw_consult_citation_overlaps() {
   (( 10#$a1 <= 10#$b2 && 10#$b1 <= 10#$a2 ))
 }
 
-# cw_consult_diff <rex-findings> <cody-findings> <out-path>
-# Bucket claims via cw_consult_citation_overlaps. Output format (always 3 sections):
-#   ## Agreed
-#   - [<rex-cite>] <rex-text> | <cody-text>
-#   ## Rex-only
-#   - [<rex-cite>] <rex-text>
-#   ## Cody-only
-#   - [<cody-cite>] <cody-text>
+# cw_consult_diff <art-dir> <name1>:<findings1> <name2>:<findings2> [<nameN>:<findingsN> ...]
+#
+# N-way Venn bucketer. Parses each trooper's findings.md, pairs claims via
+# cw_consult_citation_overlaps, buckets each claim by membership set, and emits:
+#
+#   <art-dir>/diff.md             — human-readable summary
+#   <art-dir>/<name>_only_items.txt   — one per single-only bucket (always written)
+#
+# For N >= 3, additionally:
+#   <art-dir>/consensus.txt           — all-N intersection (always written)
+#   <art-dir>/<a>+<b>_only.txt        — pair-only buckets (always written, by input order)
+#
+# diff.md section headers:
+#   N=2  → ## Agreed / ## Rex-only / ## Cody-only          (byte-equal v0.14.0)
+#   N>=3 → ## Consensus / ## <A>+<B> only (each pair) / ## <Name>-only (each single)
+#
+# Body line formats:
+#   Multi-trooper bucket: - [<first-cite>] <text-1> | <text-2> | ...
+#   Single-only:          - [<cite>] <text>
+#
+# Bucket file lines (no `- ` prefix; matches existing rex_only_items.txt format):
+#   [<cite>] <text> | <text> ...     (or just `[<cite>] <text>` for single-only)
+#
+# Pairing semantics (preserved from v0.14.0): iterate troopers in order; each
+# trooper's claims are first-match-wins against later troopers' unmatched
+# claims, growing a membership set. This preserves the
+# "path-only does not steal specific-line pairing" behavior on existing
+# regression fixtures.
 cw_consult_diff() {
-  local rex="$1" cody="$2" out="$3"
-  local -a rex_cites=() rex_texts=() cody_cites=() cody_texts=() rex_pair=() cody_matched=()
-  local cite text
-  while IFS=$'\t' read -r cite text; do
-    rex_cites+=("$cite");   rex_texts+=("$text");   rex_pair+=(-1)
-  done < <(cw_consult_parse_claims "$rex")
-  while IFS=$'\t' read -r cite text; do
-    cody_cites+=("$cite");  cody_texts+=("$text");  cody_matched+=(0)
-  done < <(cw_consult_parse_claims "$cody")
+  local art_dir="$1"; shift
+  [[ -d "$art_dir" ]] || { echo "cw_consult_diff: art_dir not found: $art_dir" >&2; return 2; }
+  local n=$#
+  (( n >= 2 )) || { echo "cw_consult_diff: need >=2 troopers, got $n" >&2; return 2; }
 
-  local n_rex="${#rex_cites[@]}" n_cody="${#cody_cites[@]}"
-  local i j
-  for ((i = 0; i < n_rex; i++)); do
-    for ((j = 0; j < n_cody; j++)); do
-      [[ "${cody_matched[$j]}" -eq 1 ]] && continue
-      if cw_consult_citation_overlaps "${rex_cites[$i]}" "${cody_cites[$j]}"; then
-        rex_pair[$i]=$j
-        cody_matched[$j]=1
-        break
-      fi
+  # Parse args: tagged inputs of form <name>:<path>.
+  local -a names=() paths=()
+  local arg name path
+  for arg in "$@"; do
+    [[ "$arg" == *:* ]] || { echo "cw_consult_diff: arg '$arg' not <name>:<path>" >&2; return 2; }
+    name="${arg%%:*}"; path="${arg#*:}"
+    [[ -n "$name" && -n "$path" ]] || { echo "cw_consult_diff: empty name or path in '$arg'" >&2; return 2; }
+    names+=("$name"); paths+=("$path")
+  done
+
+  # Flat parallel arrays — one entry per claim across all troopers.
+  #   _owner[i]  = trooper index that contributed the claim
+  #   _cite[i]   = citation
+  #   _text[i]   = description
+  #   _flag[i]   = 0 (unbucketed) | 1 (bucketed)
+  # _start[t]    = first index belonging to trooper t (for inner-loop scan window)
+  # _end[t]      = one-past-last index belonging to trooper t
+  local -a _owner=() _cite=() _text=() _flag=()
+  local -a _start=() _end=()
+  local cite text idx
+  for (( idx = 0; idx < n; idx++ )); do
+    _start+=("${#_owner[@]}")
+    while IFS=$'\t' read -r cite text; do
+      _owner+=("$idx"); _cite+=("$cite"); _text+=("$text"); _flag+=(0)
+    done < <(cw_consult_parse_claims "${paths[$idx]}")
+    _end+=("${#_owner[@]}")
+  done
+  local total="${#_owner[@]}"
+
+  # Bucket map: membership-set-key (e.g. "rex,cody,bly") -> newline-joined lines.
+  declare -A _cw_d_bucket_items=()
+
+  _cw_d_bucket_add() {
+    local key="$1" line="$2"
+    if [[ -z "${_cw_d_bucket_items[$key]+x}" || -z "${_cw_d_bucket_items[$key]}" ]]; then
+      _cw_d_bucket_items[$key]="$line"
+    else
+      _cw_d_bucket_items[$key]+=$'\n'"$line"
+    fi
+  }
+
+  # Walk troopers in order; for each unbucketed claim of trooper i, scan
+  # later troopers' unbucketed claims for the first overlap, building a
+  # membership set and a combined text (pipe-separated).
+  local i j k m
+  for (( i = 0; i < n; i++ )); do
+    for (( j = "${_start[$i]}"; j < "${_end[$i]}"; j++ )); do
+      [[ "${_flag[$j]}" -eq 1 ]] && continue
+      local member_keys="${names[$i]}"
+      local first_cite="${_cite[$j]}"
+      local combined_text="${_text[$j]}"
+      _flag[$j]=1
+      for (( k = i + 1; k < n; k++ )); do
+        for (( m = "${_start[$k]}"; m < "${_end[$k]}"; m++ )); do
+          [[ "${_flag[$m]}" -eq 1 ]] && continue
+          if cw_consult_citation_overlaps "$first_cite" "${_cite[$m]}"; then
+            member_keys+=",${names[$k]}"
+            combined_text+=" | ${_text[$m]}"
+            _flag[$m]=1
+            break
+          fi
+        done
+      done
+      _cw_d_bucket_add "$member_keys" "[$first_cite] $combined_text"
     done
   done
 
-  {
-    printf '## Agreed\n'
-    for ((i = 0; i < n_rex; i++)); do
-      j="${rex_pair[$i]}"
-      [[ "$j" -ge 0 ]] || continue
-      printf -- '- [%s] %s | %s\n' "${rex_cites[$i]}" "${rex_texts[$i]}" "${cody_texts[$j]}"
+  # Compute canonical bucket sets:
+  #   all_key       = comma-join of all names in input order
+  #   pair_keys     = each 2-name combination in input order (only used when n>=3)
+  #   single_keys   = each single name (in input order)
+  local all_key=""
+  for (( i = 0; i < n; i++ )); do
+    [[ -n "$all_key" ]] && all_key+=","
+    all_key+="${names[$i]}"
+  done
+
+  local -a pair_keys=() single_keys=()
+  for (( i = 0; i < n; i++ )); do
+    single_keys+=("${names[$i]}")
+    for (( j = i + 1; j < n; j++ )); do
+      pair_keys+=("${names[$i]},${names[$j]}")
     done
-    printf '\n## Rex-only\n'
-    for ((i = 0; i < n_rex; i++)); do
-      [[ "${rex_pair[$i]}" -lt 0 ]] || continue
-      printf -- '- [%s] %s\n' "${rex_cites[$i]}" "${rex_texts[$i]}"
+  done
+
+  # Helper: titlecase first letter of a name (rex -> Rex, cody -> Cody, bly -> Bly).
+  _cw_d_titlecase() {
+    local s="$1"
+    printf '%s' "${s^}"
+  }
+
+  # Helper: print a bucket's items (items only, no header). Falls back to no-op if empty.
+  _cw_d_emit_bucket() {
+    local key="$1"
+    [[ -n "${_cw_d_bucket_items[$key]+x}" ]] || return 0
+    printf '%s\n' "${_cw_d_bucket_items[$key]}"
+  }
+
+  # Write per-bucket files.
+  # For N=2: only the two single-only bucket files (matches v0.14.0 surface).
+  # For N>=3: consensus.txt + each pair_only file + each single-only file.
+  local key file
+  if (( n == 2 )); then
+    for key in "${single_keys[@]}"; do
+      file="$art_dir/${key}_only_items.txt"
+      : > "$file"
+      _cw_d_emit_bucket "$key" >> "$file"
     done
-    printf '\n## Cody-only\n'
-    for ((j = 0; j < n_cody; j++)); do
-      [[ "${cody_matched[$j]}" -eq 0 ]] || continue
-      printf -- '- [%s] %s\n' "${cody_cites[$j]}" "${cody_texts[$j]}"
+  else
+    # Consensus (all-N intersection).
+    file="$art_dir/consensus.txt"
+    : > "$file"
+    _cw_d_emit_bucket "$all_key" >> "$file"
+    # Pair-only buckets.
+    for key in "${pair_keys[@]}"; do
+      local a="${key%%,*}" b="${key##*,}"
+      file="$art_dir/${a}+${b}_only.txt"
+      : > "$file"
+      _cw_d_emit_bucket "$key" >> "$file"
     done
-  } > "$out"
+    # Single-only buckets.
+    for key in "${single_keys[@]}"; do
+      file="$art_dir/${key}_only_items.txt"
+      : > "$file"
+      _cw_d_emit_bucket "$key" >> "$file"
+    done
+  fi
+
+  # Write diff.md.
+  local out="$art_dir/diff.md"
+  if (( n == 2 )); then
+    # Byte-equal v0.14.0 format: ## Agreed / ## Rex-only / ## Cody-only
+    local n0_cap n1_cap
+    n0_cap=$(_cw_d_titlecase "${names[0]}")
+    n1_cap=$(_cw_d_titlecase "${names[1]}")
+    {
+      printf '## Agreed\n'
+      if [[ -n "${_cw_d_bucket_items[$all_key]+x}" ]]; then
+        printf '%s\n' "${_cw_d_bucket_items[$all_key]}" | sed 's/^/- /'
+      fi
+      printf '\n## %s-only\n' "$n0_cap"
+      if [[ -n "${_cw_d_bucket_items[${names[0]}]+x}" ]]; then
+        printf '%s\n' "${_cw_d_bucket_items[${names[0]}]}" | sed 's/^/- /'
+      fi
+      printf '\n## %s-only\n' "$n1_cap"
+      if [[ -n "${_cw_d_bucket_items[${names[1]}]+x}" ]]; then
+        printf '%s\n' "${_cw_d_bucket_items[${names[1]}]}" | sed 's/^/- /'
+      fi
+    } > "$out"
+  else
+    # N>=3: ## Consensus / pair-only sections / single-only sections.
+    {
+      printf '## Consensus\n'
+      if [[ -n "${_cw_d_bucket_items[$all_key]+x}" ]]; then
+        printf '%s\n' "${_cw_d_bucket_items[$all_key]}" | sed 's/^/- /'
+      fi
+      for key in "${pair_keys[@]}"; do
+        local a="${key%%,*}" b="${key##*,}"
+        local a_cap b_cap
+        a_cap=$(_cw_d_titlecase "$a")
+        b_cap=$(_cw_d_titlecase "$b")
+        printf '\n## %s+%s only\n' "$a_cap" "$b_cap"
+        if [[ -n "${_cw_d_bucket_items[$key]+x}" ]]; then
+          printf '%s\n' "${_cw_d_bucket_items[$key]}" | sed 's/^/- /'
+        fi
+      done
+      for key in "${single_keys[@]}"; do
+        local key_cap
+        key_cap=$(_cw_d_titlecase "$key")
+        printf '\n## %s-only\n' "$key_cap"
+        if [[ -n "${_cw_d_bucket_items[$key]+x}" ]]; then
+          printf '%s\n' "${_cw_d_bucket_items[$key]}" | sed 's/^/- /'
+        fi
+      done
+    } > "$out"
+  fi
+
+  # Cleanup function-local globals (declare -A persists in caller's scope otherwise).
+  unset _cw_d_bucket_items
+  unset -f _cw_d_bucket_add _cw_d_titlecase _cw_d_emit_bucket
+  : "$total"  # silence unused-var lint
 }
 
 # cw_consult_parse_verdicts <verify.md>
@@ -289,39 +454,316 @@ cw_consult_status_load() {
   source "$file"
 }
 
-# cw_consult_write_adjudicated <out> <rex-verify-md> <cody-verify-md> \
-#                              <rex-only-items> <cody-only-items> \
-#                              <rex-vs> <cody-vs>
-# Compose the adjudicated-draft.md content from the four state inputs.
-# Sections: Cross-verified, Adjudicated (PENDING list), Contested, Not-verified.
+# cw_consult_write_adjudicated <art_dir> <out>
+#
+# Compose the adjudicated-draft.md content from the artifacts in <art_dir>.
+# Discovers N (number of troopers) + commander list from <art_dir>/troopers.txt
+# and dispatches:
+#
+#   N=2 → 4-tier output (byte-equal v0.14.0):
+#         ## Cross-verified
+#         ## Adjudicated (PENDING list)
+#         ## Contested
+#         ## Not-verified
+#
+#   N>=3 → 5-tier output (v0.15.0):
+#         ## Consensus findings (all troopers)
+#         ## Cross-verified
+#         ## Contested
+#         ## Refuted
+#         ## - PENDING:
+#
+# Required inputs in <art_dir>:
+#   troopers.txt                — TSV: <provider>\t<commander>
+#   <commander>_only_items.txt  — one per single-only bucket (always written by consult-diff)
+#   For N>=3 only:
+#     consensus.txt             — all-N intersection
+#     <a>+<b>_only.txt          — one per pair-only bucket
+#   verify-<commander>.txt      — per-commander VS state (used for Not-verified in N=2)
+# Plus per-trooper verify.md at <topic_dir>/<commander>-<provider>/verify.md
+# (where topic_dir = $(dirname "$art_dir")).
 cw_consult_write_adjudicated() {
-  local out="$1" rex_v="$2" cody_v="$3" rex_only="$4" cody_only="$5"
-  local rex_vs="$6" cody_vs="$7"
+  local art_dir="$1" out="$2"
+  [[ -d "$art_dir" ]] || { echo "cw_consult_write_adjudicated: art_dir not found: $art_dir" >&2; return 2; }
+  local troopers_file="$art_dir/troopers.txt"
+  [[ -f "$troopers_file" ]] || { echo "cw_consult_write_adjudicated: troopers.txt missing in $art_dir" >&2; return 2; }
+
+  local topic_dir
+  topic_dir=$(dirname "$art_dir")
+
+  # Parse troopers.txt → parallel arrays.
+  local -a _adj_providers=() _adj_commanders=()
+  local prov cmdr
+  while IFS=$'\t' read -r prov cmdr; do
+    [[ -n "$cmdr" ]] || continue
+    _adj_providers+=("$prov")
+    _adj_commanders+=("$cmdr")
+  done < <(cw_consult_load_troopers "$troopers_file")
+
+  local n="${#_adj_commanders[@]}"
+  (( n >= 2 )) || { echo "cw_consult_write_adjudicated: need >=2 troopers, got $n" >&2; return 2; }
+
+  if (( n == 2 )); then
+    _cw_consult_write_adjudicated_n2 "$art_dir" "$topic_dir" "$out" \
+      "${_adj_providers[0]}" "${_adj_commanders[0]}" \
+      "${_adj_providers[1]}" "${_adj_commanders[1]}"
+  else
+    _cw_consult_write_adjudicated_nge3 "$art_dir" "$topic_dir" "$out" \
+      _adj_providers _adj_commanders
+  fi
+
+  unset _adj_providers _adj_commanders
+}
+
+# Internal: N=2 byte-equal v0.14.0 output.
+# Args: <art_dir> <topic_dir> <out> <prov0> <cmdr0> <prov1> <cmdr1>
+# Convention preserved from v0.14.0: rex == troopers[0], cody == troopers[1].
+# Iteration order in the old code was CODY-verdicts-first then REX-verdicts;
+# i.e. troopers[1]'s verify.md before troopers[0]'s. We preserve that.
+_cw_consult_write_adjudicated_n2() {
+  local art_dir="$1" topic_dir="$2" out="$3"
+  local p0="$4" c0="$5" p1="$6" c1="$7"
+  local rex_v="$topic_dir/$c0-$p0/verify.md"
+  local cody_v="$topic_dir/$c1-$p1/verify.md"
+  local rex_only="$art_dir/${c0}_only_items.txt"
+  local cody_only="$art_dir/${c1}_only_items.txt"
+  local C0_UC C1_UC
+  C0_UC=$(printf '%s' "$c0" | tr '[:lower:]' '[:upper:]')
+  C1_UC=$(printf '%s' "$c1" | tr '[:lower:]' '[:upper:]')
+
+  # Load VS state. Defaults match consult-adjudicate.sh: skipped if absent.
+  local rex_vs=skipped cody_vs=skipped
+  if [[ -f "$art_dir/verify-$c0.txt" ]]; then
+    rex_vs=$(awk -F= '/^VS=/{print $2}' "$art_dir/verify-$c0.txt")
+    : "${rex_vs:=skipped}"
+  fi
+  if [[ -f "$art_dir/verify-$c1.txt" ]]; then
+    cody_vs=$(awk -F= '/^VS=/{print $2}' "$art_dir/verify-$c1.txt")
+    : "${cody_vs:=skipped}"
+  fi
+
   {
     printf '## Cross-verified\n'
     [[ -f "$cody_v" ]] && cw_consult_parse_verdicts "$cody_v" \
-      | awk -F'\t' '$1 == "AGREE" { printf "- [%s] %s — CODY confirmed: %s\n", $2, $3, ($4 != "" ? $4 : $3) }'
+      | awk -F'\t' -v UC="$C1_UC" '$1 == "AGREE" { printf "- [%s] %s — %s confirmed: %s\n", $2, $3, UC, ($4 != "" ? $4 : $3) }'
     [[ -f "$rex_v" ]] && cw_consult_parse_verdicts "$rex_v" \
-      | awk -F'\t' '$1 == "AGREE" { printf "- [%s] %s — REX confirmed: %s\n", $2, $3, ($4 != "" ? $4 : $3) }'
+      | awk -F'\t' -v UC="$C0_UC" '$1 == "AGREE" { printf "- [%s] %s — %s confirmed: %s\n", $2, $3, UC, ($4 != "" ? $4 : $3) }'
 
     printf '\n## Adjudicated\n'
     printf '<!-- Master Yoda: read each cited source for every "PENDING" line below; rewrite the prefix to CONFIRMED, REFUTED, or move to ## Contested. consult-synthesize.sh refuses to finalize while any PENDING remains. -->\n'
     [[ -f "$cody_v" ]] && cw_consult_parse_verdicts "$cody_v" \
-      | awk -F'\t' '$1 != "AGREE" { printf "- PENDING: [%s] %s — CODY %s: %s\n", $2, $3, $1, ($4 != "" ? $4 : $3) }'
+      | awk -F'\t' -v UC="$C1_UC" '$1 != "AGREE" { printf "- PENDING: [%s] %s — %s %s: %s\n", $2, $3, UC, $1, ($4 != "" ? $4 : $3) }'
     [[ -f "$rex_v" ]] && cw_consult_parse_verdicts "$rex_v" \
-      | awk -F'\t' '$1 != "AGREE" { printf "- PENDING: [%s] %s — REX %s: %s\n", $2, $3, $1, ($4 != "" ? $4 : $3) }'
+      | awk -F'\t' -v UC="$C0_UC" '$1 != "AGREE" { printf "- PENDING: [%s] %s — %s %s: %s\n", $2, $3, UC, $1, ($4 != "" ? $4 : $3) }'
 
     printf '\n## Contested\n'
     printf '<!-- Master Yoda: move CONTESTED items here from Adjudicated. Items in this section ship in synthesis as unresolved. -->\n'
 
     printf '\n## Not-verified\n'
     if [[ "$rex_vs" != "ok" && "$rex_vs" != "skipped" && -s "$cody_only" ]]; then
-      awk -v vs="$rex_vs" '{ printf "- %s — REX verify dispatch %s\n", $0, vs }' "$cody_only"
+      awk -v vs="$rex_vs" -v UC="$C0_UC" '{ printf "- %s — %s verify dispatch %s\n", $0, UC, vs }' "$cody_only"
     fi
     if [[ "$cody_vs" != "ok" && "$cody_vs" != "skipped" && -s "$rex_only" ]]; then
-      awk -v vs="$cody_vs" '{ printf "- %s — CODY verify dispatch %s\n", $0, vs }' "$rex_only"
+      awk -v vs="$cody_vs" -v UC="$C1_UC" '{ printf "- %s — %s verify dispatch %s\n", $0, UC, vs }' "$rex_only"
     fi
   } > "$out"
+}
+
+# Internal: N>=3 5-tier output.
+# Args: <art_dir> <topic_dir> <out> <providers-array-name> <commanders-array-name>
+# Indirection via -n nameref so we don't have to re-parse troopers.txt.
+_cw_consult_write_adjudicated_nge3() {
+  local art_dir="$1" topic_dir="$2" out="$3"
+  local -n _providers="$4"
+  local -n _commanders="$5"
+  local n="${#_commanders[@]}"
+
+  # Build verdict lookup: __cw_adj_verdict[<commander>__<cite>] = AGREE|DISPUTE|UNCERTAIN
+  # Hyphens in citations don't conflict with the "__" separator.
+  declare -A __cw_adj_verdict=()
+  declare -A __cw_adj_evidence=()
+  local i prov cmdr verify_md tag cite text evidence
+  for (( i = 0; i < n; i++ )); do
+    prov="${_providers[$i]}"
+    cmdr="${_commanders[$i]}"
+    verify_md="$topic_dir/$cmdr-$prov/verify.md"
+    [[ -f "$verify_md" ]] || continue
+    while IFS=$'\t' read -r tag cite text evidence; do
+      [[ -n "$cite" ]] || continue
+      __cw_adj_verdict["${cmdr}__${cite}"]="$tag"
+      __cw_adj_evidence["${cmdr}__${cite}"]="$evidence"
+    done < <(cw_consult_parse_verdicts "$verify_md")
+  done
+
+  # Section accumulators (one string per section, newline-joined).
+  local sec_consensus="" sec_cross="" sec_contested="" sec_refuted="" sec_pending=""
+
+  # _classify <agree-count> <dispute-count> <uncertain-count> <K-required-verifiers> <owner-count>
+  # Echoes one of: CROSS | CONTESTED | REFUTED | PENDING.
+  # Per spec table:
+  #   2-of-3 + bly DISPUTE   → CONTESTED  (multi-owner outranks single REFUTE)
+  #   2-of-3 + bly UNCERTAIN → PENDING    (multi-owner + lone UNCERTAIN = needs human read)
+  _classify() {
+    local na="$1" nd="$2" nu="$3" k="$4" owners="$5"
+    # Mixed UNCERTAIN with explicit AGREE/DISPUTE → always PENDING.
+    if (( nu > 0 && na + nd > 0 )); then echo PENDING; return; fi
+    # All UNCERTAIN: PENDING for multi-owner claims (implicit owner AGREE +
+    # lone UNCERTAIN = mixed); CONTESTED for single-owner (no signal to break tie).
+    if (( nu == k )); then
+      if (( owners >= 2 )); then echo PENDING; else echo CONTESTED; fi
+      return
+    fi
+    if (( na == k )); then echo CROSS; return; fi
+    if (( nd == k )); then
+      # All DISPUTE: CONTESTED for multi-owner (owners' research outweighs
+      # single dissent); REFUTED for single-owner (all verifiers say no).
+      if (( owners >= 2 )); then echo CONTESTED; else echo REFUTED; fi
+      return
+    fi
+    # Mixed AGREE/DISPUTE without UNCERTAIN.
+    echo CONTESTED
+  }
+
+  # _emit_section <section-var-name> <line>
+  _emit_section() {
+    local -n acc="$1"
+    local line="$2"
+    if [[ -z "$acc" ]]; then acc="$line"; else acc+=$'\n'"$line"; fi
+  }
+
+  # Process consensus.txt → CONSENSUS section. No verify lookup needed.
+  local owners_csv all_csv=""
+  for (( i = 0; i < n; i++ )); do
+    [[ -n "$all_csv" ]] && all_csv+="+"
+    all_csv+="${_commanders[$i]}"
+  done
+  if [[ -s "$art_dir/consensus.txt" ]]; then
+    while IFS= read -r line; do
+      [[ -n "$line" ]] || continue
+      _emit_section sec_consensus "- $line [$all_csv]"
+    done < "$art_dir/consensus.txt"
+  fi
+
+  # Process bucket files. For each owner-set, K = (n - |owners|) verifiers.
+  # _process_bucket <bucket-file> <owners-csv-+>
+  _process_bucket() {
+    local bucket="$1" owners="$2"
+    [[ -s "$bucket" ]] || return 0
+    # Parse owners into an array (split on '+').
+    local -a own=()
+    local IFS_BAK="$IFS"; IFS='+'
+    read -r -a own <<< "$owners"
+    IFS="$IFS_BAK"
+    local owner_count="${#own[@]}"
+
+    # Compute verifier list: every commander not in owners, in input order.
+    local -a verifiers=()
+    local c o present
+    for c in "${_commanders[@]}"; do
+      present=0
+      for o in "${own[@]}"; do
+        [[ "$o" == "$c" ]] && { present=1; break; }
+      done
+      (( present == 0 )) && verifiers+=("$c")
+    done
+    local k="${#verifiers[@]}"
+
+    local raw cite text na nd nu verifier vd v_annotations annotation_for_v key
+    while IFS= read -r raw; do
+      [[ -n "$raw" ]] || continue
+      # Parse `[<cite>] <text>` (the bucket file format).
+      cite="${raw#[}"; cite="${cite%%]*}"
+      text="${raw#*] }"
+      na=0; nd=0; nu=0
+      v_annotations=""
+      for verifier in "${verifiers[@]}"; do
+        key="${verifier}__${cite}"
+        if [[ -n "${__cw_adj_verdict[$key]+x}" ]]; then
+          vd="${__cw_adj_verdict[$key]}"
+        else
+          vd=UNCERTAIN  # missing verdict treated as UNCERTAIN signal
+        fi
+        case "$vd" in
+          AGREE)     na=$((na + 1)) ;;
+          DISPUTE)   nd=$((nd + 1)) ;;
+          UNCERTAIN) nu=$((nu + 1)) ;;
+        esac
+        annotation_for_v="${verifier}:${vd}"
+        if [[ -z "$v_annotations" ]]; then
+          v_annotations="$annotation_for_v"
+        else
+          v_annotations+=", $annotation_for_v"
+        fi
+      done
+
+      # Source-set annotation.
+      local srcset
+      if (( owner_count == n )); then
+        srcset="$owners"
+      elif (( k == 0 )); then
+        srcset="$owners"
+      else
+        srcset="$owners, $v_annotations"
+      fi
+
+      local rendered="- [$cite] $text [$srcset]"
+
+      local verdict
+      verdict=$(_classify "$na" "$nd" "$nu" "$k" "$owner_count")
+      case "$verdict" in
+        CROSS)     _emit_section sec_cross     "$rendered" ;;
+        CONTESTED) _emit_section sec_contested "$rendered" ;;
+        REFUTED)   _emit_section sec_refuted   "$rendered" ;;
+        PENDING)   _emit_section sec_pending   "$rendered" ;;
+      esac
+    done < "$bucket"
+  }
+
+  # Pair-only buckets (N>=3 only): for each (i, j) pair in input order.
+  local j a b
+  for (( i = 0; i < n; i++ )); do
+    for (( j = i + 1; j < n; j++ )); do
+      a="${_commanders[$i]}"; b="${_commanders[$j]}"
+      _process_bucket "$art_dir/${a}+${b}_only.txt" "${a}+${b}"
+    done
+  done
+
+  # Single-only buckets.
+  for cmdr in "${_commanders[@]}"; do
+    _process_bucket "$art_dir/${cmdr}_only_items.txt" "$cmdr"
+  done
+
+  # Emit final document.
+  {
+    printf '## Consensus findings (all troopers)\n'
+    if [[ -n "$sec_consensus" ]]; then
+      printf '%s\n' "$sec_consensus"
+    fi
+
+    printf '\n## Cross-verified\n'
+    if [[ -n "$sec_cross" ]]; then
+      printf '%s\n' "$sec_cross"
+    fi
+
+    printf '\n## Contested\n'
+    if [[ -n "$sec_contested" ]]; then
+      printf '%s\n' "$sec_contested"
+    fi
+
+    printf '\n## Refuted\n'
+    if [[ -n "$sec_refuted" ]]; then
+      printf '%s\n' "$sec_refuted"
+    fi
+
+    printf '\n## - PENDING:\n'
+    printf '<!-- Master Yoda: read each cited source for every "PENDING" line below; rewrite the prefix or move to ## Contested. consult-synthesize.sh refuses to finalize while any PENDING remains. -->\n'
+    if [[ -n "$sec_pending" ]]; then
+      printf '%s\n' "$sec_pending"
+    fi
+  } > "$out"
+
+  unset __cw_adj_verdict __cw_adj_evidence
+  unset -f _classify _emit_section _process_bucket
 }
 
 # cw_consult_classify_topic <topic-text>
@@ -623,4 +1065,30 @@ cw_consult_design_doc_self_review() {
     found=1
   fi
   return $found
+}
+
+# v0.15.0: provider → commander mapping (locked).
+# codex → rex (501st), claude → cody (212th), opencode → bly (327th).
+cw_consult_provider_to_commander() {
+  case "$1" in
+    codex)    echo rex ;;
+    claude)   echo cody ;;
+    opencode) echo bly ;;
+    *)        echo "cw_consult_provider_to_commander: no mapping for '$1'" >&2; return 1 ;;
+  esac
+}
+
+# v0.15.0: filter input stream to consult-eligible providers (codex/claude/opencode).
+# Reads provider names from stdin (one per line); writes filtered list to stdout
+# in the input order. Used by consult-init to derive N from medic's remark.
+cw_consult_eligible_providers() {
+  grep -E '^(codex|claude|opencode)$' || true
+}
+
+# v0.15.0: load _consult/troopers.txt (TSV: <provider>\t<commander>) → stdout TSV.
+# Skips lines starting with '#' (comments) and blank lines. Caller maps to arrays.
+cw_consult_load_troopers() {
+  local file="$1"
+  [[ -f "$file" ]] || { echo "cw_consult_load_troopers: file not found: $file" >&2; return 2; }
+  grep -vE '^[[:space:]]*(#|$)' "$file"
 }

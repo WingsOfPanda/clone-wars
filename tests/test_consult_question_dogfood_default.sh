@@ -23,6 +23,13 @@ cp ../config/commanders.yaml      "$CLONE_WARS_HOME/commanders.yaml"
 # v0.5.2: identity-template is plugin-side-only; cw_identity_write reads
 # $PLUGIN_ROOT/config/prompt-templates/identity.md directly. No state-root copy.
 
+# v0.15.0: pre-write providers-available.txt fixture (N=2: claude+codex).
+cat > "$CLONE_WARS_HOME/providers-available.txt" <<'EOF'
+# fixture
+codex
+claude
+EOF
+
 source ../lib/state.sh
 source ../lib/ipc.sh
 source ../lib/consult.sh

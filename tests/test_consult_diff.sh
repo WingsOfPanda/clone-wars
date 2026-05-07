@@ -56,12 +56,18 @@ cat > "$CODY" <<'MD'
 ## Notes
 MD
 
-OUT="$TMP/diff.md"
-cw_consult_diff "$REX" "$CODY" "$OUT"
+# v0.15.0 signature: cw_consult_diff <art-dir> <name1>:<findings1> <name2>:<findings2> ...
+# For N=2 the art-dir output (diff.md + <name>_only_items.txt) is byte-equal
+# to v0.14.0; no consensus.txt is written.
+ART="$TMP/art1"; mkdir -p "$ART"
+OUT="$ART/diff.md"
+cw_consult_diff "$ART" "rex:$REX" "cody:$CODY"
 
 grep -q '^## Agreed'    "$OUT" || { echo "FAIL: missing Agreed"    >&2; exit 1; }
 grep -q '^## Rex-only'  "$OUT" || { echo "FAIL: missing Rex-only"  >&2; exit 1; }
 grep -q '^## Cody-only' "$OUT" || { echo "FAIL: missing Cody-only" >&2; exit 1; }
+# N=2 must NOT write consensus.txt.
+[[ ! -e "$ART/consensus.txt" ]] || { echo "FAIL: consensus.txt should not exist for N=2" >&2; exit 1; }
 
 # Both store.py:42 (./ normalized) AND refresh.py:15-30 vs :20 (range-overlap)
 # bucket as Agreed. That's 2 agreed pairs.
@@ -80,6 +86,13 @@ cody_n=$(awk '/^## Cody-only/{f=1;next} /^## /{f=0} f && /^- /{n++} END{print n+
 [[ "$cody_n" -eq 1 ]] || { echo "FAIL: expected 1 cody-only, got $cody_n" >&2; cat "$OUT" >&2; exit 1; }
 pass "Cody-only correctly identifies disjoint claim"
 
+# Per-bucket files for N=2: rex_only_items.txt and cody_only_items.txt.
+[[ -f "$ART/rex_only_items.txt"  ]] || { echo "FAIL: rex_only_items.txt missing"  >&2; exit 1; }
+[[ -f "$ART/cody_only_items.txt" ]] || { echo "FAIL: cody_only_items.txt missing" >&2; exit 1; }
+grep -q 'src/util/log.py:7'         "$ART/rex_only_items.txt"  || { echo "FAIL: log.py not in rex_only_items.txt" >&2; exit 1; }
+grep -q 'src/oauth/callback.py:88'  "$ART/cody_only_items.txt" || { echo "FAIL: callback.py not in cody_only_items.txt" >&2; exit 1; }
+pass "N=2 emits rex_only_items.txt and cody_only_items.txt"
+
 # === regression: path-only cody must not steal pairing from specific-line cody ===
 cat > "$REX" <<'MD'
 # Findings
@@ -96,7 +109,9 @@ cat > "$CODY" <<'MD'
 ## Notes
 MD
 
-cw_consult_diff "$REX" "$CODY" "$OUT"
+ART2="$TMP/art2"; mkdir -p "$ART2"
+OUT="$ART2/diff.md"
+cw_consult_diff "$ART2" "rex:$REX" "cody:$CODY"
 # Both rex claims paired (path-only catches the rex[0] specific-line; rex[1]
 # pairs with cody[1] specific-line — pairing is order-of-bucketing).
 agreed_lines=$(awk '/^## Agreed/{f=1;next} /^## /{f=0} f && /^- /{print}' "$OUT")
@@ -113,9 +128,10 @@ cody_only_n=$(awk '/^## Cody-only/{f=1;next} /^## /{f=0} f && /^- /{n++} END{pri
 pass "path-only cody does not steal pairing from specific-line cody"
 
 # Empty inputs still emit all three sections.
+ART3="$TMP/art3"; mkdir -p "$ART3"
 echo '# x' > "$TMP/e1.md"; echo '# x' > "$TMP/e2.md"
-cw_consult_diff "$TMP/e1.md" "$TMP/e2.md" "$TMP/d2.md"
-grep -q '^## Agreed' "$TMP/d2.md"
-grep -q '^## Rex-only' "$TMP/d2.md"
-grep -q '^## Cody-only' "$TMP/d2.md"
+cw_consult_diff "$ART3" "rex:$TMP/e1.md" "cody:$TMP/e2.md"
+grep -q '^## Agreed'    "$ART3/diff.md"
+grep -q '^## Rex-only'  "$ART3/diff.md"
+grep -q '^## Cody-only' "$ART3/diff.md"
 pass "empty inputs still emit all three section headers"

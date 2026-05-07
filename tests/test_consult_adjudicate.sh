@@ -12,6 +12,10 @@ TOPIC=consult-fixture-adj
 TD="$CLONE_WARS_HOME/state/$RH/$TOPIC"
 mkdir -p "$TD/_consult" "$TD/rex-codex" "$TD/cody-claude"
 
+# v0.15.0: cw_consult_write_adjudicated discovers N + commander list from
+# troopers.txt; consult-init writes this in real runs. Stage it for the test.
+printf 'codex\trex\nclaude\tcody\n' > "$TD/_consult/troopers.txt"
+
 # Set up state files.
 cat > "$TD/_consult/research-rex.txt"  <<'EOF'
 OFFSET=0

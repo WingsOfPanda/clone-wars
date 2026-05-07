@@ -32,6 +32,13 @@ mkdir -p "$CLONE_WARS_HOME"
 cp ../config/contracts.yaml  "$CLONE_WARS_HOME/contracts.yaml"
 cp ../config/commanders.yaml "$CLONE_WARS_HOME/commanders.yaml"
 
+# v0.15.0: pre-write providers-available.txt fixture (N=2: claude+codex).
+cat > "$CLONE_WARS_HOME/providers-available.txt" <<'EOF'
+# fixture
+codex
+claude
+EOF
+
 source ../lib/state.sh
 source ../lib/ipc.sh
 source ../lib/consult.sh
