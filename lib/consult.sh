@@ -110,56 +110,221 @@ cw_consult_citation_overlaps() {
   (( 10#$a1 <= 10#$b2 && 10#$b1 <= 10#$a2 ))
 }
 
-# cw_consult_diff <rex-findings> <cody-findings> <out-path>
-# Bucket claims via cw_consult_citation_overlaps. Output format (always 3 sections):
-#   ## Agreed
-#   - [<rex-cite>] <rex-text> | <cody-text>
-#   ## Rex-only
-#   - [<rex-cite>] <rex-text>
-#   ## Cody-only
-#   - [<cody-cite>] <cody-text>
+# cw_consult_diff <art-dir> <name1>:<findings1> <name2>:<findings2> [<nameN>:<findingsN> ...]
+#
+# N-way Venn bucketer. Parses each trooper's findings.md, pairs claims via
+# cw_consult_citation_overlaps, buckets each claim by membership set, and emits:
+#
+#   <art-dir>/diff.md             — human-readable summary
+#   <art-dir>/<name>_only_items.txt   — one per single-only bucket (always written)
+#
+# For N >= 3, additionally:
+#   <art-dir>/consensus.txt           — all-N intersection (always written)
+#   <art-dir>/<a>+<b>_only.txt        — pair-only buckets (always written, by input order)
+#
+# diff.md section headers:
+#   N=2  → ## Agreed / ## Rex-only / ## Cody-only          (byte-equal v0.14.0)
+#   N>=3 → ## Consensus / ## <A>+<B> only (each pair) / ## <Name>-only (each single)
+#
+# Body line formats:
+#   Multi-trooper bucket: - [<first-cite>] <text-1> | <text-2> | ...
+#   Single-only:          - [<cite>] <text>
+#
+# Bucket file lines (no `- ` prefix; matches existing rex_only_items.txt format):
+#   [<cite>] <text> | <text> ...     (or just `[<cite>] <text>` for single-only)
+#
+# Pairing semantics (preserved from v0.14.0): iterate troopers in order; each
+# trooper's claims are first-match-wins against later troopers' unmatched
+# claims, growing a membership set. This preserves the
+# "path-only does not steal specific-line pairing" behavior on existing
+# regression fixtures.
 cw_consult_diff() {
-  local rex="$1" cody="$2" out="$3"
-  local -a rex_cites=() rex_texts=() cody_cites=() cody_texts=() rex_pair=() cody_matched=()
-  local cite text
-  while IFS=$'\t' read -r cite text; do
-    rex_cites+=("$cite");   rex_texts+=("$text");   rex_pair+=(-1)
-  done < <(cw_consult_parse_claims "$rex")
-  while IFS=$'\t' read -r cite text; do
-    cody_cites+=("$cite");  cody_texts+=("$text");  cody_matched+=(0)
-  done < <(cw_consult_parse_claims "$cody")
+  local art_dir="$1"; shift
+  [[ -d "$art_dir" ]] || { echo "cw_consult_diff: art_dir not found: $art_dir" >&2; return 2; }
+  local n=$#
+  (( n >= 2 )) || { echo "cw_consult_diff: need >=2 troopers, got $n" >&2; return 2; }
 
-  local n_rex="${#rex_cites[@]}" n_cody="${#cody_cites[@]}"
-  local i j
-  for ((i = 0; i < n_rex; i++)); do
-    for ((j = 0; j < n_cody; j++)); do
-      [[ "${cody_matched[$j]}" -eq 1 ]] && continue
-      if cw_consult_citation_overlaps "${rex_cites[$i]}" "${cody_cites[$j]}"; then
-        rex_pair[$i]=$j
-        cody_matched[$j]=1
-        break
-      fi
+  # Parse args: tagged inputs of form <name>:<path>.
+  local -a names=() paths=()
+  local arg name path
+  for arg in "$@"; do
+    [[ "$arg" == *:* ]] || { echo "cw_consult_diff: arg '$arg' not <name>:<path>" >&2; return 2; }
+    name="${arg%%:*}"; path="${arg#*:}"
+    [[ -n "$name" && -n "$path" ]] || { echo "cw_consult_diff: empty name or path in '$arg'" >&2; return 2; }
+    names+=("$name"); paths+=("$path")
+  done
+
+  # Flat parallel arrays — one entry per claim across all troopers.
+  #   _owner[i]  = trooper index that contributed the claim
+  #   _cite[i]   = citation
+  #   _text[i]   = description
+  #   _flag[i]   = 0 (unbucketed) | 1 (bucketed)
+  # _start[t]    = first index belonging to trooper t (for inner-loop scan window)
+  # _end[t]      = one-past-last index belonging to trooper t
+  local -a _owner=() _cite=() _text=() _flag=()
+  local -a _start=() _end=()
+  local cite text idx
+  for (( idx = 0; idx < n; idx++ )); do
+    _start+=("${#_owner[@]}")
+    while IFS=$'\t' read -r cite text; do
+      _owner+=("$idx"); _cite+=("$cite"); _text+=("$text"); _flag+=(0)
+    done < <(cw_consult_parse_claims "${paths[$idx]}")
+    _end+=("${#_owner[@]}")
+  done
+  local total="${#_owner[@]}"
+
+  # Bucket map: membership-set-key (e.g. "rex,cody,bly") -> newline-joined lines.
+  declare -A _cw_d_bucket_items=()
+
+  _cw_d_bucket_add() {
+    local key="$1" line="$2"
+    if [[ -z "${_cw_d_bucket_items[$key]+x}" || -z "${_cw_d_bucket_items[$key]}" ]]; then
+      _cw_d_bucket_items[$key]="$line"
+    else
+      _cw_d_bucket_items[$key]+=$'\n'"$line"
+    fi
+  }
+
+  # Walk troopers in order; for each unbucketed claim of trooper i, scan
+  # later troopers' unbucketed claims for the first overlap, building a
+  # membership set and a combined text (pipe-separated).
+  local i j k m
+  for (( i = 0; i < n; i++ )); do
+    for (( j = "${_start[$i]}"; j < "${_end[$i]}"; j++ )); do
+      [[ "${_flag[$j]}" -eq 1 ]] && continue
+      local member_keys="${names[$i]}"
+      local first_cite="${_cite[$j]}"
+      local combined_text="${_text[$j]}"
+      _flag[$j]=1
+      for (( k = i + 1; k < n; k++ )); do
+        for (( m = "${_start[$k]}"; m < "${_end[$k]}"; m++ )); do
+          [[ "${_flag[$m]}" -eq 1 ]] && continue
+          if cw_consult_citation_overlaps "$first_cite" "${_cite[$m]}"; then
+            member_keys+=",${names[$k]}"
+            combined_text+=" | ${_text[$m]}"
+            _flag[$m]=1
+            break
+          fi
+        done
+      done
+      _cw_d_bucket_add "$member_keys" "[$first_cite] $combined_text"
     done
   done
 
-  {
-    printf '## Agreed\n'
-    for ((i = 0; i < n_rex; i++)); do
-      j="${rex_pair[$i]}"
-      [[ "$j" -ge 0 ]] || continue
-      printf -- '- [%s] %s | %s\n' "${rex_cites[$i]}" "${rex_texts[$i]}" "${cody_texts[$j]}"
+  # Compute canonical bucket sets:
+  #   all_key       = comma-join of all names in input order
+  #   pair_keys     = each 2-name combination in input order (only used when n>=3)
+  #   single_keys   = each single name (in input order)
+  local all_key=""
+  for (( i = 0; i < n; i++ )); do
+    [[ -n "$all_key" ]] && all_key+=","
+    all_key+="${names[$i]}"
+  done
+
+  local -a pair_keys=() single_keys=()
+  for (( i = 0; i < n; i++ )); do
+    single_keys+=("${names[$i]}")
+    for (( j = i + 1; j < n; j++ )); do
+      pair_keys+=("${names[$i]},${names[$j]}")
     done
-    printf '\n## Rex-only\n'
-    for ((i = 0; i < n_rex; i++)); do
-      [[ "${rex_pair[$i]}" -lt 0 ]] || continue
-      printf -- '- [%s] %s\n' "${rex_cites[$i]}" "${rex_texts[$i]}"
+  done
+
+  # Helper: titlecase first letter of a name (rex -> Rex, cody -> Cody, bly -> Bly).
+  _cw_d_titlecase() {
+    local s="$1"
+    printf '%s' "${s^}"
+  }
+
+  # Helper: print a bucket's items (items only, no header). Falls back to no-op if empty.
+  _cw_d_emit_bucket() {
+    local key="$1"
+    [[ -n "${_cw_d_bucket_items[$key]+x}" ]] || return 0
+    printf '%s\n' "${_cw_d_bucket_items[$key]}"
+  }
+
+  # Write per-bucket files.
+  # For N=2: only the two single-only bucket files (matches v0.14.0 surface).
+  # For N>=3: consensus.txt + each pair_only file + each single-only file.
+  local key file
+  if (( n == 2 )); then
+    for key in "${single_keys[@]}"; do
+      file="$art_dir/${key}_only_items.txt"
+      : > "$file"
+      _cw_d_emit_bucket "$key" >> "$file"
     done
-    printf '\n## Cody-only\n'
-    for ((j = 0; j < n_cody; j++)); do
-      [[ "${cody_matched[$j]}" -eq 0 ]] || continue
-      printf -- '- [%s] %s\n' "${cody_cites[$j]}" "${cody_texts[$j]}"
+  else
+    # Consensus (all-N intersection).
+    file="$art_dir/consensus.txt"
+    : > "$file"
+    _cw_d_emit_bucket "$all_key" >> "$file"
+    # Pair-only buckets.
+    for key in "${pair_keys[@]}"; do
+      local a="${key%%,*}" b="${key##*,}"
+      file="$art_dir/${a}+${b}_only.txt"
+      : > "$file"
+      _cw_d_emit_bucket "$key" >> "$file"
     done
-  } > "$out"
+    # Single-only buckets.
+    for key in "${single_keys[@]}"; do
+      file="$art_dir/${key}_only_items.txt"
+      : > "$file"
+      _cw_d_emit_bucket "$key" >> "$file"
+    done
+  fi
+
+  # Write diff.md.
+  local out="$art_dir/diff.md"
+  if (( n == 2 )); then
+    # Byte-equal v0.14.0 format: ## Agreed / ## Rex-only / ## Cody-only
+    local n0_cap n1_cap
+    n0_cap=$(_cw_d_titlecase "${names[0]}")
+    n1_cap=$(_cw_d_titlecase "${names[1]}")
+    {
+      printf '## Agreed\n'
+      if [[ -n "${_cw_d_bucket_items[$all_key]+x}" ]]; then
+        printf '%s\n' "${_cw_d_bucket_items[$all_key]}" | sed 's/^/- /'
+      fi
+      printf '\n## %s-only\n' "$n0_cap"
+      if [[ -n "${_cw_d_bucket_items[${names[0]}]+x}" ]]; then
+        printf '%s\n' "${_cw_d_bucket_items[${names[0]}]}" | sed 's/^/- /'
+      fi
+      printf '\n## %s-only\n' "$n1_cap"
+      if [[ -n "${_cw_d_bucket_items[${names[1]}]+x}" ]]; then
+        printf '%s\n' "${_cw_d_bucket_items[${names[1]}]}" | sed 's/^/- /'
+      fi
+    } > "$out"
+  else
+    # N>=3: ## Consensus / pair-only sections / single-only sections.
+    {
+      printf '## Consensus\n'
+      if [[ -n "${_cw_d_bucket_items[$all_key]+x}" ]]; then
+        printf '%s\n' "${_cw_d_bucket_items[$all_key]}" | sed 's/^/- /'
+      fi
+      for key in "${pair_keys[@]}"; do
+        local a="${key%%,*}" b="${key##*,}"
+        local a_cap b_cap
+        a_cap=$(_cw_d_titlecase "$a")
+        b_cap=$(_cw_d_titlecase "$b")
+        printf '\n## %s+%s only\n' "$a_cap" "$b_cap"
+        if [[ -n "${_cw_d_bucket_items[$key]+x}" ]]; then
+          printf '%s\n' "${_cw_d_bucket_items[$key]}" | sed 's/^/- /'
+        fi
+      done
+      for key in "${single_keys[@]}"; do
+        local key_cap
+        key_cap=$(_cw_d_titlecase "$key")
+        printf '\n## %s-only\n' "$key_cap"
+        if [[ -n "${_cw_d_bucket_items[$key]+x}" ]]; then
+          printf '%s\n' "${_cw_d_bucket_items[$key]}" | sed 's/^/- /'
+        fi
+      done
+    } > "$out"
+  fi
+
+  # Cleanup function-local globals (declare -A persists in caller's scope otherwise).
+  unset _cw_d_bucket_items
+  unset -f _cw_d_bucket_add _cw_d_titlecase _cw_d_emit_bucket
+  : "$total"  # silence unused-var lint
 }
 
 # cw_consult_parse_verdicts <verify.md>

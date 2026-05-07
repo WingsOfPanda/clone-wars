@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
-# bin/consult-diff.sh — bucket findings into Agreed / Rex-only / Cody-only.
+# bin/consult-diff.sh — N-way Venn bucketer over per-trooper findings.
 #
 # Usage: bin/consult-diff.sh <consult-topic>
 #
-# Writes _consult/diff.md + rex_only_items.txt + cody_only_items.txt.
-# Refuses if diff.md exists.
+# Reads _consult/troopers.txt (TSV: <provider>\t<commander>) to discover N
+# troopers, then dispatches to cw_consult_diff which emits:
+#   _consult/diff.md
+#   _consult/<commander>_only_items.txt  (one per trooper, always written)
+# For N>=3 additionally:
+#   _consult/consensus.txt
+#   _consult/<a>+<b>_only.txt            (one per trooper pair, always written)
+#
+# Refuses if diff.md exists (caller must reset to retry).
 
 set -uo pipefail
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -21,16 +28,35 @@ ART_DIR="$(cw_consult_art_dir "$TOPIC")"
 [[ -d "$ART_DIR" ]] || { log_error "$ART_DIR not found"; exit 1; }
 [[ ! -e "$ART_DIR/diff.md" ]] || { log_error "diff.md exists; reset to retry"; exit 1; }
 
-REX_DIR=$(cw_trooper_dir rex codex "$TOPIC")
-CODY_DIR=$(cw_trooper_dir cody claude "$TOPIC")
-[[ -f "$REX_DIR/findings.md"  ]] || { log_error "rex findings.md missing"; exit 1; }
-[[ -f "$CODY_DIR/findings.md" ]] || { log_error "cody findings.md missing"; exit 1; }
+TROOPERS_FILE="$ART_DIR/troopers.txt"
+[[ -f "$TROOPERS_FILE" ]] || { log_error "troopers.txt missing — run consult-init first"; exit 1; }
 
-DIFF="$ART_DIR/diff.md"
-cw_consult_diff "$REX_DIR/findings.md" "$CODY_DIR/findings.md" "$DIFF"
+# Build the variadic argument list: <commander>:<findings.md>
+DIFF_ARGS=()
+LABELS=()
+while IFS=$'\t' read -r provider commander; do
+  [[ -n "$provider" && -n "$commander" ]] || continue
+  TROOPER_DIR=$(cw_trooper_dir "$commander" "$provider" "$TOPIC")
+  FINDINGS="$TROOPER_DIR/findings.md"
+  [[ -f "$FINDINGS" ]] || { log_error "$commander findings.md missing: $FINDINGS"; exit 1; }
+  DIFF_ARGS+=("$commander:$FINDINGS")
+  LABELS+=("$commander")
+done < <(cw_consult_load_troopers "$TROOPERS_FILE")
 
-# Extract _only items for verify dispatch.
-awk '/^## Rex-only/{f=1;next}  /^## /{f=0} f && /^- /{ sub(/^- /,""); print }'  "$DIFF" > "$ART_DIR/rex_only_items.txt"
-awk '/^## Cody-only/{f=1;next} /^## /{f=0} f && /^- /{ sub(/^- /,""); print }'  "$DIFF" > "$ART_DIR/cody_only_items.txt"
+(( ${#DIFF_ARGS[@]} >= 2 )) || { log_error "need >=2 troopers in troopers.txt, got ${#DIFF_ARGS[@]}"; exit 1; }
 
-log_info "[diff] wrote $DIFF + rex_only_items.txt ($(wc -l < "$ART_DIR/rex_only_items.txt") items) + cody_only_items.txt ($(wc -l < "$ART_DIR/cody_only_items.txt") items)"
+cw_consult_diff "$ART_DIR" "${DIFF_ARGS[@]}"
+
+# Compose a one-line summary of items-per-bucket.
+SUMMARY=""
+for commander in "${LABELS[@]}"; do
+  f="$ART_DIR/${commander}_only_items.txt"
+  n=$([[ -f "$f" ]] && wc -l < "$f" || echo 0)
+  SUMMARY+=" ${commander}_only=${n}"
+done
+if (( ${#LABELS[@]} >= 3 )); then
+  c=$([[ -f "$ART_DIR/consensus.txt" ]] && wc -l < "$ART_DIR/consensus.txt" || echo 0)
+  SUMMARY+=" consensus=${c}"
+fi
+
+log_info "[diff] wrote $ART_DIR/diff.md (${#LABELS[@]} troopers)${SUMMARY}"
