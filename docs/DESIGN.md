@@ -36,7 +36,7 @@ existing teammates have, but for non-Claude models. File-based IPC (inbox/outbox
 - MCP server integration (we want CLI panes, not in-process subagents)
 - Multi-conductor coordination (one Claude Code session = one set of crews)
 - Standalone CLI surface (no `clone-wars team ...` from a bare terminal — slash-commands only)
-- DeepSeek / arbitrary OpenAI-compat providers (closed set: claude / codex / gemini)
+- Generic OpenAI-compat providers — LM Studio, ollama, vLLM, DeepSeek-via-other-clients (closed set: claude / codex / gemini / opencode → DeepSeek V4 Pro, pinned)
 - Replacing `/strike-team` or `/executeorder66` (they keep working; clone-wars is additive)
 - Learning / pattern extraction / HUD / Telegram (OMC sprawl we explicitly reject)
 
@@ -230,7 +230,7 @@ The trooper updates this after every outbox event. The conductor reads it for `/
 
 ## Provider contracts
 
-`~/.clone-wars/contracts.yaml` ships with three rows. User-editable.
+`~/.clone-wars/contracts.yaml` ships with four rows. User-editable.
 
 ```yaml
 claude:
@@ -255,6 +255,18 @@ gemini:
   model_flag: --model
   ready_timeout_s: 30
   identity_injection: send-keys-paste
+opencode:                                # v0.13.0
+  binary: opencode
+  args:
+    - -m
+    - deepseek/deepseek-v4-pro           # pinned to DeepSeek V4 Pro
+  ready_timeout_s: 60
+  bootstrap_sleep_s: 15
+  identity_injection: send-keys-paste
+  # opencode has no CLI flag for auto-approve; bypass is config-file driven.
+  # medic.sh runs a preflight that warns when opencode.json lacks
+  # top-level `"permission": "allow"`. Spawn does NOT refuse in v0.13.0
+  # (warn-only); user attaches via `tmux select-pane` to dismiss prompts.
 ```
 
 `identity_injection: send-keys-paste` means: write `identity.md` to disk, then
