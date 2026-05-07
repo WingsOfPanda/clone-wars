@@ -45,27 +45,20 @@ cw_opencode_permission_check() {
     echo "no opencode.json found at \$PWD/opencode.json or \$HOME/.config/opencode/opencode.json" >&2
     return 1
   fi
-  # Top-level "permission": "<value>" — string form. Object form is matched
-  # by the object-detector below. The {0,2} leading-space anchor enforces
-  # top-level-only matching (rejects nested per-mode / per-agent keys at
-  # 4+ space indent). Char class [A-Za-z_]+ accepts mixed-case values like
-  # "Allow" so the next-line lowercase check produces an accurate stderr
-  # message instead of falling through to "no top-level permission key".
+  local lead='^[[:space:]]{0,2}"permission"[[:space:]]*:[[:space:]]*'
   local string_match
-  string_match=$(grep -E '^[[:space:]]{0,2}"permission"[[:space:]]*:[[:space:]]*"[A-Za-z_]+"' "$cfg" 2>/dev/null | head -1)
+  string_match=$(grep -E "${lead}\"[A-Za-z_]+\"" "$cfg" 2>/dev/null | head -1)
   if [[ -n "$string_match" ]]; then
     if [[ "$string_match" =~ \"permission\"[[:space:]]*:[[:space:]]*\"allow\" ]]; then
       return 0
     fi
-    # ask, deny, Allow, or any other non-lowercase-allow string value
     local val
     val=$(printf '%s' "$string_match" | sed -E 's/.*"permission"[[:space:]]*:[[:space:]]*"([A-Za-z_]+)".*/\1/')
     echo "opencode.json: permission is '$val' (need 'allow' for trooper auto-approve)" >&2
     echo "  config: $cfg" >&2
     return 1
   fi
-  # Object form: "permission": { ... } — same {0,2} anchor for top-level only.
-  if grep -qE '^[[:space:]]{0,2}"permission"[[:space:]]*:[[:space:]]*\{' "$cfg" 2>/dev/null; then
+  if grep -qE "${lead}\\{" "$cfg" 2>/dev/null; then
     echo "opencode.json: object-form permission detected; medic does not introspect per-tool keys" >&2
     echo "  config: $cfg — verify all relevant tools (bash/edit/...) are 'allow' manually" >&2
     return 2

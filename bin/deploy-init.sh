@@ -11,6 +11,7 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && p
 source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/argsfile.sh"
+source "$PLUGIN_ROOT/lib/contracts.sh"
 source "$PLUGIN_ROOT/lib/deploy.sh"
 
 # --args-file passthrough (mirrors bin/spawn.sh / bin/send.sh).
@@ -33,7 +34,13 @@ while [[ $# -gt 0 ]]; do
     --topic)      [[ -n "${2:-}" ]] || { echo "--topic requires a value" >&2; exit 2; }
                   TOPIC_OVERRIDE="$2"; shift 2 ;;
     --provider)   [[ -n "${2:-}" ]] || { echo "--provider requires a value" >&2; exit 2; }
-                  PROVIDER_OVERRIDE="$2"; shift 2 ;;
+                  PROVIDER_OVERRIDE="$2"
+                  if cw_contracts_exists \
+                     && ! cw_contracts_providers 2>/dev/null | grep -qx "$PROVIDER_OVERRIDE"; then
+                    log_error "--provider '$PROVIDER_OVERRIDE' is not a known provider; expected one of: $(cw_contracts_providers | tr '\n' ' ')"
+                    exit 2
+                  fi
+                  shift 2 ;;
     --) shift; break ;;
     -*) echo "unknown flag: $1" >&2; exit 2 ;;
     *)  break ;;

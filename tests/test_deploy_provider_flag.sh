@@ -75,20 +75,37 @@ EOF
 
 export CLONE_WARS_HOME="$TMP/cw"
 mkdir -p "$CLONE_WARS_HOME"
+# Stage contracts.yaml so deploy-init's --provider validation resolves the
+# provider name (mirrors what medic.sh does on first run).
+cp "$PLUGIN_ROOT/config/contracts.yaml" "$CLONE_WARS_HOME/contracts.yaml"
 
-# Run deploy-init from inside the ephemeral repo.
-( cd "$EREPO" && \
-  "$PLUGIN_ROOT/bin/deploy-init.sh" \
-    --no-branch \
-    --topic "providertest" \
-    --provider "opencode" \
-    "$DESIGN" \
-) >/dev/null 2>&1 || { echo "FAIL: deploy-init.sh exited non-zero" >&2; exit 1; }
+# Run deploy-init from inside the ephemeral repo. Tee output to a log so
+# failures surface diagnostics instead of "exited non-zero".
+LOG="$TMP/deploy-init.log"
+if ! ( cd "$EREPO" && \
+       "$PLUGIN_ROOT/bin/deploy-init.sh" \
+         --no-branch --topic providertest --provider opencode "$DESIGN" \
+     ) >"$LOG" 2>&1; then
+  echo "FAIL: deploy-init.sh exited non-zero; output:" >&2
+  cat "$LOG" >&2
+  exit 1
+fi
 
-# Topic dir was created under state/<repo-hash>/providertest.
 REPO_HASH=$(cd "$EREPO" && cw_repo_hash)
 AUTO_FILE="$CLONE_WARS_HOME/state/$REPO_HASH/providertest/_deploy/auto_provider.txt"
 assert_file_exists "$AUTO_FILE" "auto_provider.txt under $REPO_HASH/providertest"
 got=$(cat "$AUTO_FILE")
 assert_eq "$got" "opencode" "auto_provider.txt content matches override"
 pass "deploy-init: --provider opencode lands in auto_provider.txt"
+
+# === Case 7: --provider <typo> rejected at parse time ===
+LOG2="$TMP/deploy-init-typo.log"
+if ( cd "$EREPO" && \
+     "$PLUGIN_ROOT/bin/deploy-init.sh" \
+       --no-branch --topic providertypo --provider opncode "$DESIGN" \
+   ) >"$LOG2" 2>&1; then
+  echo "FAIL: deploy-init.sh accepted --provider opncode (should reject)" >&2
+  exit 1
+fi
+assert_contains "$(cat "$LOG2")" "not a known provider" "rejection mentions unknown provider"
+pass "deploy-init: --provider <typo> rejected with clear error"
