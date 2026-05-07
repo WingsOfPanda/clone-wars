@@ -1,8 +1,6 @@
 # lib/consult.sh — /clone-wars:consult helpers (residual + shim).
-# Hub-mode helpers live in lib/consult-hub.sh; format validators in
-# lib/consult-validators.sh; prompt builders in lib/consult-prompts.sh.
-# Sources them transitively so existing `source lib/consult.sh` callers
-# continue to work.
+# Prompt builders live in lib/consult-prompts.sh; sourced transitively so
+# existing `source lib/consult.sh` callers continue to work.
 # Depends on lib/state.sh, lib/ipc.sh, lib/contracts.sh.
 # Callers SHOULD source lib/state.sh and lib/log.sh before this file.
 # state.sh is auto-loaded as fallback (split files anchor regex against
@@ -19,8 +17,6 @@ _CONSULT_LIB_DIR="$(cd "$(dirname "$_CONSULT_BASH_SOURCE")" && pwd)"
 unset _CONSULT_BASH_SOURCE
 # state.sh self-guards CW_SLUG_REGEX_BASE so re-sourcing is a no-op.
 [[ -n "${CW_SLUG_REGEX_BASE:-}" ]] || source "$_CONSULT_LIB_DIR/state.sh"
-source "$_CONSULT_LIB_DIR/consult-hub.sh"
-source "$_CONSULT_LIB_DIR/consult-validators.sh"
 source "$_CONSULT_LIB_DIR/consult-prompts.sh"
 unset _CONSULT_LIB_DIR
 
@@ -513,8 +509,8 @@ cw_consult_design_doc_filename() {
 }
 
 # cw_consult_design_doc_assemble <section-dir> <output-path> <title> [<topic-text>] [<synthesis-path>] [<targets-dir>]
-# Concatenates 5 section files into a single design doc with a standard
-# header. Missing sections get a _(skipped)_ placeholder body.
+# Concatenates 5 section files into a single flat design doc with a
+# standard header. Missing sections get a _(skipped)_ placeholder body.
 #
 # Optional 4th and 5th args override title and goal sources:
 #   <topic-text>      — full user topic from _consult/topic.txt; if non-empty,
@@ -524,17 +520,12 @@ cw_consult_design_doc_filename() {
 #                       under "## Agreed findings" (then "## Cross-verified")
 #                       becomes **Goal:** (200-char trunc); falls back to
 #                       architecture.md head -n1.
-#   <targets-dir>     — path to the _consult/ art-dir; when set AND
-#                       <targets-dir>/targets.txt is non-empty, hub-mode
-#                       output is emitted: a Target Hub(s)/Sub-Project(s)
-#                       header pair after the H1, plus Acceptance Tests,
-#                       Execution DAG, and Cross-Repo Dependencies sections
-#                       (sourced from acceptance-tests.md, dag.md,
-#                       xrepo-deps.md). Single-repo path (empty 6th arg or
-#                       missing/empty targets.txt) is byte-equal to v0.10.
+#   <targets-dir>     — accepted for back-compat (callers like spec-assemble.sh
+#                       still pass an empty 6th arg); ignored in v0.14.0.
 cw_consult_design_doc_assemble() {
   local section_dir="$1" out="$2" title="$3"
-  local topic_text="${4:-}" synthesis_path="${5:-}" targets_dir="${6:-}"
+  local topic_text="${4:-}" synthesis_path="${5:-}"
+  : "${6:-}"  # explicit no-op on legacy targets-dir arg
   [[ -d "$section_dir" ]] || { echo "cw_consult_design_doc_assemble: missing $section_dir" >&2; return 1; }
   [[ -n "$title" ]] || { echo "cw_consult_design_doc_assemble: empty title" >&2; return 2; }
 
@@ -582,19 +573,8 @@ cw_consult_design_doc_assemble() {
     tech_block=$(awk '/^## Tech Stack$/{flag=1; next} /^## /{flag=0} flag' "$section_dir/architecture.md")
   fi
 
-  # Hub-mode header pair (when targets.txt exists and is non-empty).
-  local header_pair=""
-  local hub_mode=0
-  if [[ -n "$targets_dir" && -s "$targets_dir/targets.txt" ]]; then
-    hub_mode=1
-    header_pair=$(cw_consult_targets_to_header_pair "$targets_dir")
-  fi
-
   {
     printf '# %s Design\n\n' "$title"
-    if (( hub_mode == 1 )); then
-      printf '%s\n\n' "$header_pair"
-    fi
     printf '**Goal:** %s\n\n' "$goal"
     printf '**Architecture:** %s\n\n' "$arch_line"
     printf '**Tech Stack:**\n'
@@ -605,24 +585,13 @@ cw_consult_design_doc_assemble() {
     fi
     printf '\n---\n\n'
 
-    # Section list: single-repo gets Testing as the tail; hub-mode swaps in
-    # Acceptance Tests + Execution DAG + Cross-Repo Dependencies. The first
-    # four are common to both modes.
     local -a sections=(
       'architecture|Architecture'
       'components|Components'
       'data-flow|Data Flow'
       'error-handling|Error Handling'
+      'testing|Testing'
     )
-    if (( hub_mode == 1 )); then
-      sections+=(
-        'acceptance-tests|Acceptance Tests'
-        'dag|Execution DAG'
-        'xrepo-deps|Cross-Repo Dependencies'
-      )
-    else
-      sections+=('testing|Testing')
-    fi
     local pair key heading
     for pair in "${sections[@]}"; do
       key="${pair%%|*}"
