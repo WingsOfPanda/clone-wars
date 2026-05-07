@@ -93,95 +93,6 @@ separately to walk a design doc.
 
 Set task `0` → `completed`. Set tasks `1.1` and `1.2` → `in_progress`.
 
-### Step 0.5 — Hub-mode classification
-
-After `consult-init.sh` returns `$CONSULT_TOPIC`, the init script has already
-persisted `_consult/hub-mode.txt`. Read it back and surface to the rest of
-the directive:
-
-```
-HUB_MODE=$(cw_consult_hub_mode_load "$TOPIC_DIR/_consult")
-log_info "hub mode: $HUB_MODE"
-```
-
-When `HUB_MODE != single-repo`, Step 1.5 (below) runs target selection
-before research dispatch. When `HUB_MODE == single-repo`, the directive
-proceeds to Step 1 unchanged from v0.10.
-
-### Step 1.5 — Target selection (hub mode only)
-
-Skip this step when `HUB_MODE == single-repo`. Otherwise the conductor
-must let the user pick which leaf sub-projects this consultation should
-cover, BEFORE research dispatch (the research prompt needs the list).
-
-1. Re-run the detector to grab `LEAVES=` (and `HUBS=` for super-hub):
-
-   ```
-   HUB_OUT=$(cw_consult_detect_hub "$(pwd)")
-   LEAVES=$(grep '^LEAVES=' <<< "$HUB_OUT" | cut -d= -f2 | tr ',' '\n')
-   LEAVES_CSV=$(grep '^LEAVES=' <<< "$HUB_OUT" | cut -d= -f2)
-   HUBS=$(grep '^HUBS='   <<< "$HUB_OUT" | cut -d= -f2 | tr ',' '\n' || true)
-   ```
-
-   **v0.11.1 auto-extract prelude** (runs BEFORE the legacy hub-subrepo /
-   super-hub picker below). Parse the user's topic text for sub-project
-   mentions; if any are inferred, offer a single confirm-or-edit gate
-   instead of forcing the full picker:
-
-   ```
-   EXTRACT=$(cw_consult_extract_targets_from_topic "$ARG_RAW" "$LEAVES_CSV") && EX_RC=0 || EX_RC=$?
-   INFERRED=$(grep '^INFERRED=' <<< "$EXTRACT" | cut -d= -f2)
-   KEYWORD_ALL=$(grep '^KEYWORD_ALL=' <<< "$EXTRACT" | cut -d= -f2 || echo 0)
-   ```
-
-   Branch on `(EX_RC, KEYWORD_ALL)`:
-
-   - **(0, 1) — KEYWORD_ALL hit:** `AskUserQuestion` with question
-     `"All leaves auto-selected (KEYWORD_ALL keyword in topic). Continue
-     or Edit selection?"` and options `[Continue: $LEAVES_CSV,
-     Edit selection (open picker)]`. On **Continue**: set
-     `CHOSEN_LEAVES=$LEAVES_CSV` and skip directly to the persist step
-     (item 5). On **Edit selection**: fall through to the legacy picker
-     (items 2-3 below).
-   - **(0, 0) — Inferred ≥1 leaf:** `AskUserQuestion` with question
-     `"Inferred targets from your topic: $INFERRED. Confirm or edit?"`
-     and options `[Confirm: $INFERRED, Edit selection (open picker),
-     Abort]`. On **Confirm**: set `CHOSEN_LEAVES=$INFERRED` and skip to
-     persist (item 5). On **Edit selection**: fall through to the
-     legacy picker (items 2-3). On **Abort**: teardown + archive + exit.
-   - **(1, *) — No inference:** fall through to the legacy hub-subrepo /
-     super-hub picker below (existing behavior unchanged).
-
-2. **hub-subrepo mode:** single `AskUserQuestion` (multi-select), options =
-   `LEAVES` (one option per `<self>/<leaf>`).
-
-3. **super-hub mode:** two-step.
-   - `AskUserQuestion` #1 (multi-select) over `HUBS`.
-   - For each chosen hub, filter `LEAVES` to entries starting `<hub>/`.
-   - `AskUserQuestion` #2 (multi-select) over the filtered leaf list.
-
-4. **Empty-selection re-prompt:** if user selects nothing, re-prompt once.
-   Second empty selection → `AskUserQuestion`: "No targets chosen. Continue
-   as single-repo / Abort?". On Continue, overwrite `_consult/hub-mode.txt`
-   with `single-repo` (re-export `HUB_MODE=single-repo` in this shell) and
-   skip persisting `targets.txt`. On Abort, teardown + archive + exit.
-
-5. Persist the chosen targets via `cw_consult_targets_persist`. When
-   `CHOSEN_LEAVES` is a bash array (legacy picker path):
-
-   ```
-   printf '%s\n' "${CHOSEN_LEAVES[@]}" \
-     | cw_consult_targets_persist "$TOPIC_DIR/_consult"
-   ```
-
-   When `CHOSEN_LEAVES` is a comma-separated string (v0.11.1 prelude
-   confirm path):
-
-   ```
-   printf '%s\n' "${CHOSEN_LEAVES//,/$'\n'}" \
-     | cw_consult_targets_persist "$TOPIC_DIR/_consult"
-   ```
-
 ### Step 1 — Parallel spawn (with auto-retry-once + rollback)
 
 Initialize ONCE before invoking the parallel spawn calls:
@@ -238,22 +149,11 @@ failure case and is invisible on the happy path.
 
 Set tasks `1.3` and `1.4` → `in_progress`.
 
-Hub-mode threading: when `_consult/targets.txt` exists, pass the comma-list
-to research-send via `CW_CONSULT_TARGETS=` env so the prompt builder emits
-the per-sub-project structure block. Single-repo runs leave `TARGETS=""`
-(builder strips the block).
-
 PARALLEL Bash tool calls:
 
 ```
-TARGETS=""
-if [[ -s "$TOPIC_DIR/_consult/targets.txt" ]]; then
-  TARGETS=$(cw_consult_targets_load "$TOPIC_DIR/_consult" | paste -sd, -)
-fi
-CW_CONSULT_TARGETS="$TARGETS" \
-  "$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" rex  codex
-CW_CONSULT_TARGETS="$TARGETS" \
-  "$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" cody claude
+"$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" rex  codex
+"$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" cody claude
 ```
 
 ### Step 3 — Parallel research wait (with question loop)
@@ -307,38 +207,14 @@ a. Read the question payload — `_consult/question-<commander>.txt`. Use
 b. Read `$TOPIC_DIR/<commander>-<model>/findings.md` (if it exists) for
    findings-so-far context.
 
-   **v0.11.1 active-subproject context (hub mode only):**
-
-   When `HUB_MODE != single-repo`, scope the answer-classification context
-   to the trooper's currently-active sub-project before classifying:
-
    ```
    FINDINGS_PATH="$TOPIC_DIR/<commander>-<model>/findings.md"
-   if [[ "$HUB_MODE" != "single-repo" ]]; then
-     ACTIVE_SP=$(cw_consult_findings_active_subproject "$FINDINGS_PATH") || ACTIVE_SP=""
-     if [[ -n "$ACTIVE_SP" ]]; then
-       log_info "active sub-project for question: $ACTIVE_SP"
-       CONTEXT_SLICE=$(awk -v leaf="$ACTIVE_SP" '
-         /^### / && $0 ~ leaf { in_block=1; print; next }
-         /^### / && in_block { in_block=0 }
-         in_block { print }
-       ' "$FINDINGS_PATH")
-     else
-       CONTEXT_SLICE=$(cat "$FINDINGS_PATH")
-     fi
-   else
-     CONTEXT_SLICE=$(cat "$FINDINGS_PATH")
-   fi
    ```
-
-   Pass `$CONTEXT_SLICE` (NOT the full findings.md) into the
-   answer-classification step that follows.
 c. Classify as critical / non-critical (same rules as Pattern 4 below)
-   using `$CONTEXT_SLICE` (active sub-project slice in hub mode, full
-   findings otherwise).
+   using the contents of `$FINDINGS_PATH`.
 d. Get an answer:
    - critical → `AskUserQuestion` with TEXT + OPTIONS.
-   - non-critical → answer from topic + `$CONTEXT_SLICE` yourself.
+   - non-critical → answer from topic + `$FINDINGS_PATH` yourself.
 e. Send the answer:
    ```
    /clone-wars:send --from master-yoda <commander> "$CONSULT_TOPIC" "ANSWER: <your answer>
@@ -383,19 +259,10 @@ Set task `1.5` → `completed`.
 Set tasks `1.6` and `1.7` → `in_progress`.
 
 Send phase — keep parallel sends as foreground (sends complete in <1s).
-Hub-mode threading mirrors Step 2: `CW_CONSULT_TARGETS=` env carries the
-comma-list into verify-send so the verify prompt also embeds the
-per-sub-project structure block.
 
 ```
-TARGETS=""
-if [[ -s "$TOPIC_DIR/_consult/targets.txt" ]]; then
-  TARGETS=$(cw_consult_targets_load "$TOPIC_DIR/_consult" | paste -sd, -)
-fi
-CW_CONSULT_TARGETS="$TARGETS" \
-  "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" rex  codex
-CW_CONSULT_TARGETS="$TARGETS" \
-  "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" cody claude
+"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" rex  codex
+"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" cody claude
 ```
 
 Wait phase — both wait-scripts run as background tasks (Yoda stays
@@ -427,33 +294,15 @@ verify uses `VS=` (not `FS=` — that's research). The verify phase's
 question-loop semantics match Step 3's exactly — see Pattern 4 (updated
 below) for the re-arm recipe.
 
-For each commander whose `VS=question`, apply the **v0.11.1
-active-subproject context (hub mode only)** recipe before classifying.
-The verify phase's findings-so-far context source is the trooper's
-`verify.md` (not `findings.md`); the slice logic is otherwise identical
-to Step 3:
+For each commander whose `VS=question`, the verify phase's findings-so-far
+context source is the trooper's `verify.md` (not `findings.md`):
 
 ```
 FINDINGS_PATH="$TOPIC_DIR/<commander>-<model>/verify.md"
-if [[ "$HUB_MODE" != "single-repo" ]]; then
-  ACTIVE_SP=$(cw_consult_findings_active_subproject "$FINDINGS_PATH") || ACTIVE_SP=""
-  if [[ -n "$ACTIVE_SP" ]]; then
-    log_info "active sub-project for verify question: $ACTIVE_SP"
-    CONTEXT_SLICE=$(awk -v leaf="$ACTIVE_SP" '
-      /^### / && $0 ~ leaf { in_block=1; print; next }
-      /^### / && in_block { in_block=0 }
-      in_block { print }
-    ' "$FINDINGS_PATH")
-  else
-    CONTEXT_SLICE=$(cat "$FINDINGS_PATH")
-  fi
-else
-  CONTEXT_SLICE=$(cat "$FINDINGS_PATH")
-fi
 ```
 
-Pass `$CONTEXT_SLICE` (NOT the full verify.md) into the
-answer-classification prompt before invoking Pattern 4's relay.
+Pass the contents of `$FINDINGS_PATH` into the answer-classification
+prompt before invoking Pattern 4's relay.
 
 If all-UNCERTAIN, consider Pattern 3 intervention. Else set `1.6` and
 `1.7` → `completed`.
@@ -512,10 +361,6 @@ mkdir -p "$DRILL_DIR"
 
 `AskUserQuestion`: "Any aspect to drill deeper before tearing down? (panes still live)"
 Options: `Yes — drill` / `No — proceed to teardown`.
-
-Note: For hub-mode users, include the sub-project name in the `$DRILL_TOPIC`
-if you want to scope the drill to one leaf (e.g., "auth in backend"). Yoda
-will route this through the prose-context the trooper sees.
 
 Loop while user picks "Yes":
 
