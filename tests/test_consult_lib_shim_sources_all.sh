@@ -38,6 +38,10 @@ EXPECTED=(
   cw_consult_outbox_match_endbyte
   cw_consult_design_doc_filename cw_consult_design_doc_assemble
   cw_consult_design_doc_self_review
+  # v0.15.0 additions
+  cw_consult_provider_to_commander
+  cw_consult_eligible_providers
+  cw_consult_load_troopers
 )
 
 missing=()
@@ -49,7 +53,7 @@ if (( ${#missing[@]} > 0 )); then
   printf '  - %s\n' "${missing[@]}"
   exit 1
 fi
-pass "shim sources all ${#EXPECTED[@]} v0.14.0 functions"
+pass "shim sources all ${#EXPECTED[@]} v0.15.0 functions"
 
 # Also assert each split file exists.
 for f in lib/consult.sh lib/consult-prompts.sh; do

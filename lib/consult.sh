@@ -624,3 +624,29 @@ cw_consult_design_doc_self_review() {
   fi
   return $found
 }
+
+# v0.15.0: provider → commander mapping (locked).
+# codex → rex (501st), claude → cody (212th), opencode → bly (327th).
+cw_consult_provider_to_commander() {
+  case "$1" in
+    codex)    echo rex ;;
+    claude)   echo cody ;;
+    opencode) echo bly ;;
+    *)        echo "cw_consult_provider_to_commander: no mapping for '$1'" >&2; return 1 ;;
+  esac
+}
+
+# v0.15.0: filter input stream to consult-eligible providers (codex/claude/opencode).
+# Reads provider names from stdin (one per line); writes filtered list to stdout
+# in the input order. Used by consult-init to derive N from medic's remark.
+cw_consult_eligible_providers() {
+  grep -E '^(codex|claude|opencode)$' || true
+}
+
+# v0.15.0: load _consult/troopers.txt (TSV: <provider>\t<commander>) → stdout TSV.
+# Skips lines starting with '#' (comments) and blank lines. Caller maps to arrays.
+cw_consult_load_troopers() {
+  local file="$1"
+  [[ -f "$file" ]] || { echo "cw_consult_load_troopers: file not found: $file" >&2; return 2; }
+  grep -vE '^[[:space:]]*(#|$)' "$file"
+}
