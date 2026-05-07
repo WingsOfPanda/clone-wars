@@ -100,51 +100,15 @@ SYNTHESIS_FILE="$ART_DIR/synthesis.md"
 SYNTH_PATH=""
 [[ -f "$SYNTHESIS_FILE" ]] && SYNTH_PATH="$SYNTHESIS_FILE"
 
-# Hub-mode: when targets.txt is non-empty in the consult artifact dir, pass
-# the dir as the 6th arg to assemble (triggers hub-mode output) and run the
-# three new section validators before commit.
-TARGETS_DIR=""
-if [[ -s "$ART_DIR/targets.txt" ]]; then
-  TARGETS_DIR="$ART_DIR"
-fi
-
+# v0.14.0: always assemble the flat 5-section output
+# (architecture / components / data-flow / error-handling / testing).
+# Hub-mode (targets.txt + dag/xrepo-deps/acceptance-tests validators) was
+# removed; pass an empty 6th arg for flat-mode behavior.
 cw_consult_design_doc_assemble \
   "$DD_DIR" "$OUT_TMP" "$TITLE" \
   "$TOPIC_TEXT" "$SYNTH_PATH" \
-  "$TARGETS_DIR" \
+  "" \
   || { log_error "assemble failed"; exit 1; }
-
-# Mode-toggle warn (#5): if both legacy testing.md and v0.11 acceptance-tests.md
-# exist in $DD_DIR, the user likely manually edited hub-mode.txt between runs.
-# Hub-mode wins (assemble uses acceptance-tests.md); testing.md is stale.
-if [[ -f "$DD_DIR/testing.md" && -f "$DD_DIR/acceptance-tests.md" ]]; then
-  log_warn "design-doc: both testing.md AND acceptance-tests.md present — likely manual hub-mode.txt edit between runs. Hub-mode wins (testing.md ignored)."
-fi
-
-# Hub-mode validators — run only when targets.txt is non-empty. Validator
-# stderr propagates verbatim so the directive (Task 11) can grep it and
-# re-enter the offending per-section walk.
-#
-# Validator order is load-bearing:
-#  1. dag        — gates the whole DAG block (cycle, unknown refs, repos in targets)
-#  2. xrepo-deps — independent of DAG
-#  3. acceptance-tests — cross-refs DAG step ids; MUST run AFTER dag validates
-# Reordering breaks the implicit step-id cross-ref check in acceptance-tests.
-if [[ -n "$TARGETS_DIR" ]]; then
-  for v in dag:cw_consult_dag_validate \
-           xrepo-deps:cw_consult_xrepo_deps_validate \
-           acceptance-tests:cw_consult_acceptance_tests_validate; do
-    section="${v%%:*}"
-    fn="${v##*:}"
-    if [[ -s "$DD_DIR/$section.md" ]]; then
-      "$fn" "$ART_DIR" < "$DD_DIR/$section.md" \
-        || { log_error "validator $fn rejected $section.md (see stderr above)"; exit 1; }
-    else
-      log_error "hub-mode requires $DD_DIR/$section.md (missing or empty)"
-      exit 1
-    fi
-  done
-fi
 
 # v0.10: when the directive's hub-detection block selected a sub-repo, it
 # exports CW_CONSULT_TARGET_HEADER (e.g. "**Target Sub-Project:** ARS-Perfusion").
