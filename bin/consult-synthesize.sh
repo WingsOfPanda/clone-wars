@@ -57,28 +57,5 @@ CODY_DIR=$(cw_trooper_dir cody claude "$TOPIC")
 cw_consult_synthesize "$TOPIC_TEXT" "$DIFF" "$ADJ" "$REX_DIR" "$CODY_DIR" \
   "$REX_FS" "$CODY_FS" "$REX_VS" "$CODY_VS" "$SYN"
 
-# Findings-conformance metric (#8) — persisted for manual aggregation across
-# runs. Informs v0.12+ decisions about whether the question-protocol heuristic
-# (active-subproject inference) needs upgrading to an explicit trooper-side
-# `subproject` field. Single-repo runs record n/a so trend queries can filter.
-HUB_MODE=$(cw_consult_hub_mode_load "$ART_DIR" 2>/dev/null || echo single-repo)
-{
-  for c in rex cody; do
-    case "$c" in
-      rex)  M=codex  ;;
-      cody) M=claude ;;
-    esac
-    F="$(cw_trooper_dir "$c" "$M" "$TOPIC")/findings.md"
-    if [[ "$HUB_MODE" == "single-repo" ]]; then
-      printf '%s=n/a\n' "$c"
-    elif cw_consult_findings_active_subproject "$F" > /dev/null 2>&1; then
-      printf '%s=conformant\n' "$c"
-    else
-      printf '%s=non-conformant\n' "$c"
-    fi
-  done
-} > "$ART_DIR/findings-conformance.txt" \
-  || log_warn "findings-conformance.txt write failed (non-fatal)"
-
 log_info "[synthesize] wrote $SYN"
 cat "$SYN"
