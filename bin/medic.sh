@@ -190,8 +190,12 @@ fi
 if cw_have_cmd opencode 2>/dev/null \
    && cw_contracts_exists \
    && cw_contracts_providers 2>/dev/null | grep -qx 'opencode'; then
-  if ! cw_opencode_permission_check >/dev/null 2>&1; then
-    rc_pf=$?
+  # Capture rc BEFORE the if-test (the `if ! cmd; then rc=$?` pattern
+  # resets $? to 0 inside the then-block, silently swallowing all
+  # case-arm matches — bug found in v0.13.0 PR2 dogfood).
+  cw_opencode_permission_check >/dev/null 2>&1
+  rc_pf=$?
+  if (( rc_pf != 0 )); then
     msg=$(cw_opencode_permission_check 2>&1 >/dev/null)
     case "$rc_pf" in
       1) log_warn "  opencode auto-approve: $msg"

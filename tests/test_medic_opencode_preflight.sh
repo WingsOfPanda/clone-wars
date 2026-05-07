@@ -135,3 +135,54 @@ pass "preflight: returns rc=1 + empty stdout when no config exists anywhere"
 out=$( bash -c "source $PLUGIN_ROOT/lib/log.sh; source $PLUGIN_ROOT/lib/opencode_preflight.sh; type cw_opencode_permission_check >/dev/null && echo SOURCED" 2>&1)
 assert_contains "$out" "SOURCED" "lib sources cleanly under set -uo pipefail"
 pass "preflight: lib/opencode_preflight.sh sources cleanly"
+
+# === Case 7: medic.sh emits WARN line for opencode.json missing permission ===
+# Regression for the `if ! cmd; then rc=$?` bash-semantics bug that silently
+# swallowed both rc=1 and rc=2 case-arms (v0.13.0 PR1 wiring; fixed in PR2).
+# Stages a state root with opencode in contracts.yaml + a fake opencode
+# binary on PATH + an opencode.json that has no `permission` key, then
+# invokes bin/medic.sh and asserts the WARN line appears.
+mkdir -p "$TMP/medic7/cw" "$TMP/medic7/repo" "$TMP/medic7/bin"
+cp "$PLUGIN_ROOT/config/contracts.yaml" "$TMP/medic7/cw/contracts.yaml"
+cat > "$TMP/medic7/repo/opencode.json" <<'EOF'
+{ "model": "deepseek/deepseek-v4-pro" }
+EOF
+# Fake opencode binary: silent on --version, exits 0.
+cat > "$TMP/medic7/bin/opencode" <<'EOF'
+#!/usr/bin/env bash
+echo "opencode 1.14.39"
+exit 0
+EOF
+chmod +x "$TMP/medic7/bin/opencode"
+out=$(
+  CLONE_WARS_HOME="$TMP/medic7/cw" \
+  PATH="$TMP/medic7/bin:$PATH" \
+  HOME="$TMP/medic7/nohome" \
+  bash -c "cd '$TMP/medic7/repo' && '$PLUGIN_ROOT/bin/medic.sh'" 2>&1
+)
+assert_contains "$out" "opencode auto-approve" "medic emits opencode preflight section"
+assert_contains "$out" "no top-level 'permission' key" "medic prints the missing-key WARN"
+pass "preflight: medic.sh emits WARN for opencode.json without permission key"
+
+# === Case 8: medic.sh emits OK line when opencode.json has permission=allow ===
+mkdir -p "$TMP/medic8/cw" "$TMP/medic8/repo" "$TMP/medic8/bin"
+cp "$PLUGIN_ROOT/config/contracts.yaml" "$TMP/medic8/cw/contracts.yaml"
+cat > "$TMP/medic8/repo/opencode.json" <<'EOF'
+{
+  "permission": "allow"
+}
+EOF
+cat > "$TMP/medic8/bin/opencode" <<'EOF'
+#!/usr/bin/env bash
+echo "opencode 1.14.39"
+exit 0
+EOF
+chmod +x "$TMP/medic8/bin/opencode"
+out=$(
+  CLONE_WARS_HOME="$TMP/medic8/cw" \
+  PATH="$TMP/medic8/bin:$PATH" \
+  HOME="$TMP/medic8/nohome" \
+  bash -c "cd '$TMP/medic8/repo' && '$PLUGIN_ROOT/bin/medic.sh'" 2>&1
+)
+assert_contains "$out" "'permission: allow' detected" "medic prints the OK line"
+pass "preflight: medic.sh emits OK when opencode.json has permission=allow"
