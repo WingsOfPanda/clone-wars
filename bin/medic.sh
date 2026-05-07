@@ -184,28 +184,16 @@ else
   fail=1
 fi
 
-# 5b. opencode auto-approve preflight (warn-only in v0.13.0).
-# Runs only when opencode is on PATH AND has a contracts.yaml row (so users
-# without opencode aren't nagged).
+# 5b. opencode auto-approve preflight (warn-only).
 if cw_have_cmd opencode 2>/dev/null \
    && cw_contracts_exists \
    && cw_contracts_providers 2>/dev/null | grep -qx 'opencode'; then
-  # Capture rc BEFORE the if-test (the `if ! cmd; then rc=$?` pattern
-  # resets $? to 0 inside the then-block, silently swallowing all
-  # case-arm matches — bug found in v0.13.0 PR2 dogfood).
-  cw_opencode_permission_check >/dev/null 2>&1
-  rc_pf=$?
-  if (( rc_pf != 0 )); then
-    msg=$(cw_opencode_permission_check 2>&1 >/dev/null)
-    case "$rc_pf" in
-      1) log_warn "  opencode auto-approve: $msg"
-         warn=1 ;;
-      2) log_warn "  opencode auto-approve: $msg (non-fatal)"
-         warn=1 ;;
-    esac
-  else
-    log_ok "  opencode auto-approve: 'permission: allow' detected"
-  fi
+  msg=$(cw_opencode_permission_check 2>&1 >/dev/null); rc_pf=$?
+  case "$rc_pf" in
+    0) log_ok   "  opencode auto-approve: 'permission: allow' detected" ;;
+    1) log_warn "  opencode auto-approve: $msg"; warn=1 ;;
+    2) log_warn "  opencode auto-approve: $msg (non-fatal)"; warn=1 ;;
+  esac
 fi
 
 echo
