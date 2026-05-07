@@ -17,7 +17,7 @@ Spec: `docs/superpowers/specs/2026-05-06-consult-spec-split-design.md`
 | # | subject | activeForm |
 |---|---|---|
 | 0 | `0 Resolve seed [yoda]`              | `Resolving seed` |
-| 1 | `1 Detect mode (single/hub) [yoda]`  | `Detecting mode` |
+| 1 | `1 (reserved no-op) [yoda]`          | `Reserved` |
 | 2 | `2 Walk sections [yoda]`             | `Walking sections` |
 | 3 | `3 Assemble + self-review [yoda]`    | `Assembling` |
 | 4 | `4 Commit [yoda]`                    | `Committing` |
@@ -74,15 +74,10 @@ Set task `0` → `in_progress`.
 
 Set task `0` → `completed`.
 
-### Step 1 — Detect mode (single-repo / hub-subrepo / super-hub)
+### Step 1 — (reserved; no-op in v0.14.0)
 
-Set task `1` → `in_progress`.
-
-```
-HUB_MODE=$(cat "$TOPIC_DIR/_consult/hub-mode.txt" 2>/dev/null || echo "single-repo")
-```
-
-Set task `1` → `completed`. Log the detected mode.
+Set task `1` → `completed`. (Hub-mode detection lived here pre-v0.14.0;
+removed when /spec became single-context.)
 
 ### Step 2 — Walk sections
 
@@ -93,22 +88,15 @@ Set task `2` → `in_progress`.
 ```
 DD_DIR="$TOPIC_DIR/_consult/design-doc"
 mkdir -p "$DD_DIR"
-if [[ "$HUB_MODE" == "single-repo" ]]; then
-  SECTIONS=(architecture components data-flow error-handling testing)
-  SECTION_TITLES=(Architecture Components "Data Flow" "Error Handling" Testing)
-else
-  SECTIONS=(architecture components data-flow error-handling acceptance-tests dag xrepo-deps)
-  SECTION_TITLES=(Architecture Components "Data Flow" "Error Handling" \
-                  "Acceptance Tests" "Execution DAG" "Cross-Repo Dependencies")
-fi
+SECTIONS=(architecture components data-flow error-handling testing)
+SECTION_TITLES=(Architecture Components "Data Flow" "Error Handling" Testing)
 mapfile -t APPROVED < <(
-  source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
-  cw_consult_design_doc_resume_state "$DD_DIR"
+  source "$CLAUDE_PLUGIN_ROOT/lib/spec.sh"
+  cw_spec_resume_state "$DD_DIR"
 )
 ```
 
-**Per-section loop** (5 iterations in single-repo mode, 7 in hub modes —
-one per section):
+**Per-section loop** (5 iterations — one per section):
 
 For each `i` in `0..$((${#SECTIONS[@]}-1))`:
 
@@ -165,18 +153,6 @@ The script assembles, self-reviews, and commits. Failure modes:
   section boundaries), and re-enters the per-section walk for the
   offending section ONLY. After fix, re-invoke `spec-assemble.sh`.
   Loop until clean or user aborts.
-- **Hub-mode validator failed**: when `targets.txt` exists, `spec-assemble.sh`
-  runs three validators sequentially before commit: `dag` → `xrepo-deps` →
-  `acceptance-tests`. On failure the script exits 1 with stderr
-  `validator <fn> rejected <section>.md (see stderr above)` followed by the
-  validator's own `ERROR:` line(s). Yoda parses the rejected section name
-  (`dag`, `xrepo-deps`, or `acceptance-tests`) and re-enters that section's
-  per-section walk for revision (skip the other 6 sections). After the user
-  re-approves the offending section, re-invoke `spec-assemble.sh`. Loop
-  until clean or user aborts. Section-to-validator mapping:
-  - `dag.md` → `## Execution DAG` walk
-  - `xrepo-deps.md` → `## Cross-Repo Dependencies` walk
-  - `acceptance-tests.md` → `## Acceptance Tests` walk
 - **Git commit failed**: script exits 1, design.md exists uncommitted.
   Yoda surfaces the git error verbatim and asks user to resolve.
 

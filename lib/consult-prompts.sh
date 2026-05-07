@@ -17,53 +17,40 @@ cw_consult_strip_block() {
   '
 }
 
-# _cw_consult_emit_with_optional_targets_block <out> <targets>
-# Internal helper for verify/research prompt builders. When <targets> is empty,
-# strip the per-sub-project block to preserve v0.4.2 byte-equality. The strip
-# range — H2 heading "Per-sub-project structure" through the line ending in
-# "verify pass downstream." — brackets a block whose sentinel placeholders
-# rendered to empty strings; cw_consult_strip_block's trailing-line consume
-# absorbs the blank that follows for byte-exact output.
-_cw_consult_emit_with_optional_targets_block() {
-  local out="$1" targets="$2"
-  if [[ -z "$targets" ]]; then
-    printf '%s\n' "$out" | cw_consult_strip_block '^## Per-sub-project structure$' '^verify pass downstream\\.$'
-  else
-    printf '%s\n' "$out"
-  fi
-}
-
-# cw_consult_build_verify_prompt <items_file> <write_to> [targets]
+# cw_consult_build_verify_prompt <items_file> <write_to>
 # Build the verify-round prompt body. Reads <items_file> (one `[cite] text` per
 # line) and emits a self-contained instruction, terminated by END_OF_INSTRUCTION.
-# If <targets> is non-empty (comma-separated leaves), append a per-sub-project
-# structure block. Empty/omitted preserves v0.10 byte-equal output (single-repo).
+# Prompts are uniform across cwd (v0.14.0 dropped the per-sub-project block).
 cw_consult_build_verify_prompt() {
-  local items_file="$1" write_to="$2" targets="${3:-}"
+  local items_file="$1" write_to="$2"
   local items
   items=$(nl -ba -w1 -s'. ' "$items_file")
   local out
   out=$(cw_consult_load_prompt consult/verify.md \
           "ITEMS=$items" "WRITE_TO=$write_to" \
           "TARGETS_BLOCK_START=" "TARGETS_BLOCK_END=" \
-          "TARGETS=- ${targets//,/$'\n'- }")
-  _cw_consult_emit_with_optional_targets_block "$out" "$targets"
+          "TARGETS=")
+  # Strip the per-sub-project sentinel block to preserve v0.4.2 byte-equality.
+  # The sentinels render as empty inline tokens; the strip range brackets the
+  # H2 heading through the line ending "verify pass downstream." and the
+  # trailing-line consume absorbs the blank that follows.
+  printf '%s\n' "$out" | cw_consult_strip_block '^## Per-sub-project structure$' '^verify pass downstream\\.$'
 }
 
-# cw_consult_build_research_prompt <topic> <write_to> [targets]
+# cw_consult_build_research_prompt <topic> <write_to>
 # Build the research-round prompt body. Emits a self-contained instruction
 # with the required Findings structure and citation rules, terminated by
 # END_OF_INSTRUCTION.
-# If <targets> is non-empty (comma-separated leaves), append a per-sub-project
-# structure block. Empty/omitted preserves v0.10 byte-equal output (single-repo).
+# Prompts are uniform across cwd (v0.14.0 dropped the per-sub-project block).
 cw_consult_build_research_prompt() {
-  local topic="$1" write_to="$2" targets="${3:-}"
+  local topic="$1" write_to="$2"
   local out
   out=$(cw_consult_load_prompt consult/research.md \
           "TOPIC=$topic" "WRITE_TO=$write_to" \
           "TARGETS_BLOCK_START=" "TARGETS_BLOCK_END=" \
-          "TARGETS=- ${targets//,/$'\n'- }")
-  _cw_consult_emit_with_optional_targets_block "$out" "$targets"
+          "TARGETS=")
+  # Strip the per-sub-project sentinel block (see verify builder for rationale).
+  printf '%s\n' "$out" | cw_consult_strip_block '^## Per-sub-project structure$' '^verify pass downstream\\.$'
 }
 
 # cw_consult_design_doc_drilldown_prompt <section> <synthesis-path> <commander> <dd-dir> <focus> [subproject] [out_path_override]

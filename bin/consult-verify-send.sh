@@ -50,7 +50,7 @@ OUTBOX="$TROOPER_DIR/outbox.jsonl"
 
 PROMPT_FILE="$ART_DIR/${COMMANDER}_verify_prompt.md"
 BASE_PROMPT=$(cw_consult_build_verify_prompt \
-  "$PEER_ITEMS" "$TROOPER_DIR/verify.md" "${CW_CONSULT_TARGETS:-}")
+  "$PEER_ITEMS" "$TROOPER_DIR/verify.md")
 cw_consult_skill_hint_append "$ART_DIR/skill.txt" "$BASE_PROMPT" > "$PROMPT_FILE"
 
 OFFSET=$(wc -c < "$OUTBOX" | tr -d ' ')
