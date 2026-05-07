@@ -45,7 +45,7 @@ EXPECTED=(
   cw_consult_question_validate_line cw_consult_question_extract_to_payload
   cw_consult_outbox_match_endbyte
   cw_consult_design_doc_filename cw_consult_design_doc_assemble
-  cw_consult_design_doc_self_review cw_consult_design_doc_resume_state
+  cw_consult_design_doc_self_review
 )
 
 missing=()
@@ -57,7 +57,7 @@ if (( ${#missing[@]} > 0 )); then
   printf '  - %s\n' "${missing[@]}"
   exit 1
 fi
-pass "shim sources all 41 v0.11.0 functions"
+pass "shim sources all 40 v0.14.0 functions"
 
 # Also assert each split file exists.
 for f in lib/consult-hub.sh lib/consult-validators.sh lib/consult-prompts.sh; do

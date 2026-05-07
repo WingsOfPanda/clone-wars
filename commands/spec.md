@@ -102,8 +102,8 @@ else
                   "Acceptance Tests" "Execution DAG" "Cross-Repo Dependencies")
 fi
 mapfile -t APPROVED < <(
-  source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
-  cw_consult_design_doc_resume_state "$DD_DIR"
+  source "$CLAUDE_PLUGIN_ROOT/lib/spec.sh"
+  cw_spec_resume_state "$DD_DIR"
 )
 ```
 

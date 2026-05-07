@@ -13,7 +13,7 @@ grep -q 'bin/spec-assemble.sh'  "$SPEC_MD" || { echo "FAIL: directive missing bi
 ! grep -q 'consult-research-send' "$SPEC_MD" || { echo "FAIL: /spec must NOT dispatch research" >&2; exit 1; }
 ! grep -q 'consult-verify-send'   "$SPEC_MD" || { echo "FAIL: /spec must NOT dispatch verify" >&2; exit 1; }
 ! grep -q 'consult-drilldown'     "$SPEC_MD" || { echo "FAIL: /spec must NOT invoke drill (lives in /consult Step 8.4)" >&2; exit 1; }
-grep -q 'cw_consult_design_doc_resume_state' "$SPEC_MD" || { echo "FAIL: directive missing resume-state helper" >&2; exit 1; }
+grep -q 'cw_spec_resume_state' "$SPEC_MD" || { echo "FAIL: directive missing resume-state helper" >&2; exit 1; }
 grep -q 'hub-mode.txt'           "$SPEC_MD" || { echo "FAIL: directive missing hub-mode detection" >&2; exit 1; }
 grep -q 'SEED_PATH=.*ARGS_DIR' "$SPEC_MD" \
   || { echo "FAIL: directive missing SEED_PATH read-back from \$ARGS_DIR/spec.txt" >&2; exit 1; }
