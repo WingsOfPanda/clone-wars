@@ -10,6 +10,14 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 export CLONE_WARS_HOME="$TMP/cw"
 export CLAUDE_PLUGIN_ROOT="$(cd .. && pwd)"
 
+# v0.15.0: pre-write providers-available.txt fixture (N=2: claude+codex).
+mkdir -p "$CLONE_WARS_HOME"
+cat > "$CLONE_WARS_HOME/providers-available.txt" <<'EOF'
+# fixture
+codex
+claude
+EOF
+
 # === Static wiring: the directive must NOT use the broken $(<repo-hash>) pattern. ===
 grep -q 'spawn-rollback\|rollback'        ../commands/consult.md || { echo "FAIL: directive missing rollback section" >&2; exit 1; }
 grep -q 'consult-teardown'                ../commands/consult.md || { echo "FAIL: directive missing teardown call" >&2; exit 1; }

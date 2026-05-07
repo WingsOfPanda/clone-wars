@@ -7,6 +7,15 @@ source lib/assert.sh
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 export CLONE_WARS_HOME="$TMP/cw"
 
+# v0.15.0: pre-write providers-available.txt fixture (claude+codex == N=2,
+# matches v0.14.0 trooper roster rex+cody so existing assertions don't change).
+mkdir -p "$CLONE_WARS_HOME"
+cat > "$CLONE_WARS_HOME/providers-available.txt" <<'EOF'
+# fixture
+codex
+claude
+EOF
+
 # 1. Long topic-text → slug capped at 20 chars; full topic ≤32.
 out=$(../bin/consult-init.sh "review the authentication middleware for token-refresh edge cases")
 [[ "$out" == consult-* ]] || { echo "FAIL: prefix missing: $out" >&2; exit 1; }

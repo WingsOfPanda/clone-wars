@@ -11,6 +11,14 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 export CLONE_WARS_HOME="$TMP/cw"
 export CLAUDE_PLUGIN_ROOT="$(cd .. && pwd)"
 
+# v0.15.0: pre-write providers-available.txt fixture (N=2: claude+codex).
+mkdir -p "$CLONE_WARS_HOME"
+cat > "$CLONE_WARS_HOME/providers-available.txt" <<'EOF'
+# fixture
+codex
+claude
+EOF
+
 source ../lib/state.sh
 source ../lib/consult.sh
 
