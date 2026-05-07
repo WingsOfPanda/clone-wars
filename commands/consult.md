@@ -1,40 +1,49 @@
 ---
-description: Spawn rex+codex and cody+claude on a topic; cross-verify their findings; synthesize a final report
+description: Spawn N consult-eligible troopers (claude, codex, opencode) on a topic; cross-verify their findings; synthesize a final report
 argument-hint: <topic — what to research>
 ---
 
 # /clone-wars:consult
 
-Run a cross-verified dual-model investigation on `$ARGUMENTS`. Master Yoda
-orchestrates 13 steps via per-phase sub-scripts under `bin/`. Between every
-step, Master Yoda regains control — if a trooper produces unexpected
+Run a cross-verified multi-model investigation on `$ARGUMENTS`. Master
+Yoda orchestrates the run via per-phase sub-scripts under `bin/`. Between
+every step, Master Yoda regains control — if a trooper produces unexpected
 output, Master Yoda can `cw_send` a clarifying prompt before the next
 sub-script runs.
 
-Both panes stay attached for the entire run — `tmux select-pane` to watch.
+The trooper roster is **dynamic** in v0.15.0: `bin/consult-init.sh` reads
+`$state_root/providers-available.txt` (written by `/clone-wars:medic`) and
+writes `_consult/troopers.txt` (TSV: `<provider>\t<commander>`). Supported
+counts: `N=2` (any 2 of claude/codex/opencode) and `N=3` (all three). N=1
+plain-exits with a redirect to ask Claude directly. The directive below
+iterates the roster — every "parallel block" issues `N` Bash tool calls in
+a single message.
 
-Spec: `docs/superpowers/specs/2026-04-29-clone-wars-consult-v2-design.md`
+All panes stay attached for the entire run — `tmux select-pane` to watch.
 
-## Task list (TaskCreate × 13 BEFORE step 1)
+Spec: `docs/superpowers/specs/2026-05-07-consult-3-trooper-design.md`
+(v0.15.0); `docs/superpowers/specs/2026-04-29-clone-wars-consult-v2-design.md`
+(v0.2 baseline).
 
-Create the 12-task list using `TaskCreate`. Update statuses at the
-boundaries below — do NOT print a markdown checklist in chat.
+## Task list (TaskCreate × 10 BEFORE step 1)
+
+Create the task list using `TaskCreate`. Update statuses at the
+boundaries below — do NOT print a markdown checklist in chat. Per-trooper
+rows are intentionally absent (N is variable); each `[troopers]` row
+covers the whole roster in parallel.
 
 | # | subject | activeForm |
 |---|---|---|
-| 0   | `0   Stage args-file [yoda]`               | `Staging args-file` |
-| 1.1 | `1.1 Spawn rex (codex) [yoda]`             | `Spawning rex` |
-| 1.2 | `1.2 Spawn cody (claude) [yoda]`           | `Spawning cody` |
-| 1.3 | `1.3 Research [rex/codex]`                      | `Rex researching` |
-| 1.4 | `1.4 Research [cody/claude]`                    | `Cody researching` |
-| 1.5 | `1.5 Diff findings [yoda]`                 | `Diffing findings` |
-| 1.6 | `1.6 Cross-verify cody-only items [rex/codex]`  | `Rex verifying` |
-| 1.7 | `1.7 Cross-verify rex-only items [cody/claude]` | `Cody verifying` |
-| 2   | `2   Resolve PENDING items [yoda]`         | `Resolving PENDING items` |
-| 3.1 | `3.1 Synthesize report [yoda]`             | `Synthesizing` |
-| 3.2 | `3.2 Teardown panes [yoda]`                | `Tearing down` |
-| 3.3 | `3.3 Archive _consult/ [yoda]`             | `Archiving` |
-| 4   | `4   Present final synthesis [yoda]`       | `Presenting synthesis` |
+| 0 | `0 Stage args-file [yoda]`               | `Staging args-file` |
+| 1 | `1 Spawn troopers (parallel) [yoda]`     | `Spawning troopers` |
+| 2 | `2 Research [troopers]`                  | `Troopers researching` |
+| 3 | `3 Diff findings [yoda]`                 | `Diffing findings` |
+| 4 | `4 Cross-verify [troopers]`              | `Troopers verifying` |
+| 5 | `5 Resolve PENDING items [yoda]`         | `Resolving PENDING items` |
+| 6 | `6 Synthesize report [yoda]`             | `Synthesizing` |
+| 7 | `7 Teardown panes [yoda]`                | `Tearing down` |
+| 8 | `8 Archive _consult/ [yoda]`             | `Archiving` |
+| 9 | `9 Present final synthesis [yoda]`       | `Presenting synthesis` |
 
 ## Steps
 
@@ -79,6 +88,7 @@ separately to walk a design doc.
 
    ```
    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+   source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
    REPO_HASH=$(cw_repo_hash)
    CONSULT_TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/consult-init.sh" "$(cat "$ARGS_DIR/consult.txt")")
    TOPIC_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$CONSULT_TOPIC"
@@ -91,9 +101,22 @@ separately to walk a design doc.
    which would shell out to read a file named `repo-hash`). Always use the
    `$REPO_HASH` variable computed above.
 
-Set task `0` → `completed`. Set tasks `1.1` and `1.2` → `in_progress`.
+4. **v0.15.0: load the trooper roster** that `consult-init.sh` just wrote.
+   The roster drives every parallel block downstream (Steps 1, 2, 3, 5,
+   8.4) — N is `2` or `3`.
 
-### Step 1 — Parallel spawn (with auto-retry-once + rollback)
+   ```
+   mapfile -t TROOPERS < <(cw_consult_load_troopers "$TOPIC_DIR/_consult/troopers.txt")
+   N=${#TROOPERS[@]}
+   log_info "trooper count: N=$N"
+   # Each TROOPERS[i] is "<provider>\t<commander>" (TSV — provider first).
+   # Example N=3: TROOPERS=("codex\trex" "claude\tcody" "opencode\tbly").
+   # Parse with: IFS=$'\t' read -r prov cmdr <<<"${TROOPERS[i]}"
+   ```
+
+Set task `0` → `completed`. Set task `1` → `in_progress`.
+
+### Step 1 — Parallel spawn (N-aware, with auto-retry-once + rollback)
 
 Initialize ONCE before invoking the parallel spawn calls:
 
@@ -101,26 +124,49 @@ Initialize ONCE before invoking the parallel spawn calls:
 SPAWN_RETRY_COUNT=0
 ```
 
-Invoke BOTH spawn calls as PARALLEL Bash tool calls in a single message.
-Capture each rc.
+**Issue `N` parallel `Bash` tool calls in a single message** — one per
+entry in `TROOPERS`. Each call invokes `bin/spawn.sh <commander>
+<provider> "$CONSULT_TOPIC"`. Capture each rc separately.
+
+Canonical N=3 example (codex/rex, claude/cody, opencode/bly — order
+matches `TROOPERS`):
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" rex  codex  "$CONSULT_TOPIC"   # parallel 1
-"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" cody claude "$CONSULT_TOPIC"   # parallel 2
+"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" rex  codex    "$CONSULT_TOPIC"   # parallel 1
+"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" cody claude   "$CONSULT_TOPIC"   # parallel 2
+"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" bly  opencode "$CONSULT_TOPIC"   # parallel 3
 ```
 
-#### Spawn-rollback runbook (CRITICAL)
+For N=2 (the v0.14.0 default — claude+codex), issue 2 calls instead. The
+shape per call is identical; only the count varies. Iterate `TROOPERS` to
+emit the right `<commander> <provider>` pair on each call:
 
-After both parallel spawn calls return, evaluate the rc pair. **The runbook
-supports ONE automatic retry** because codex's first cold-start can blow the
-spawn.sh budget (node-modules load + auth handshake); subsequent invocations
-are warm and almost always succeed. The retry path costs ~30s in the rare
-failure case and is invisible on the happy path.
+```
+for entry in "${TROOPERS[@]}"; do
+  IFS=$'\t' read -r prov cmdr <<<"$entry"
+  # Issue: "$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" "$cmdr" "$prov" "$CONSULT_TOPIC"
+  # — but as a PARALLEL Bash tool call, not a serial loop.
+done
+```
 
-- **Both succeed** → continue to Step 2. Set tasks `1.1` and `1.2` →
-  `completed`.
+(The `for`-loop above is illustrative — Master Yoda emits `N` parallel
+Bash tool calls in one message, NOT a sequential bash loop. The Bash tool
+parallelism is what makes spawns concurrent.)
 
-- **At least one fails AND `SPAWN_RETRY_COUNT == 0`** → **auto-retry-once**:
+#### Spawn-rollback runbook (CRITICAL — N-aware)
+
+After all `N` parallel spawn calls return, evaluate the rc tuple. **The
+runbook supports ONE automatic retry** because codex's first cold-start
+can blow the spawn.sh budget (node-modules load + auth handshake);
+subsequent invocations are warm and almost always succeed. The retry path
+costs ~30s in the rare failure case and is invisible on the happy path.
+Same semantics for opencode (DeepSeek V4 Pro auth handshake on first
+call).
+
+- **All N succeed** → continue to Step 2. Set task `1` → `completed`.
+
+- **At least one of the N fails AND `SPAWN_RETRY_COUNT == 0`** →
+  **auto-retry-once**:
 
   ```
   # Tear down any surviving pane(s), KEEP _consult/ for the retry.
@@ -129,10 +175,12 @@ failure case and is invisible on the happy path.
   log_info "spawn failed (cold start?); retrying parallel spawn once"
   ```
 
-  Then re-issue the parallel spawn calls (back to the parallel block above).
-  By this point codex's runtime is warm; second attempt almost always succeeds.
+  Then re-issue the same N parallel spawn calls (back to the block above).
+  By this point each provider's runtime is warm; second attempt almost
+  always succeeds.
 
-- **At least one fails AND `SPAWN_RETRY_COUNT == 1`** → **retry exhausted**:
+- **At least one of the N fails AND `SPAWN_RETRY_COUNT == 1`** →
+  **retry exhausted**:
 
   ```
   "$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC" 2>/dev/null || true
@@ -140,23 +188,30 @@ failure case and is invisible on the happy path.
   exit 1
   ```
 
-  Mark only any successful spawn task as `completed`; leave failed one(s)
-  `pending`. Tell the user which side failed twice and why (capture stderr
-  from both attempts for diagnostics — typically codex bootstrap timeout or
-  binary-not-found).
+  Tell the user which provider(s) failed twice and why (capture stderr
+  from both attempts for diagnostics — typically codex/opencode bootstrap
+  timeout or binary-not-found). Task `1` stays `pending`.
 
-### Step 2 — Parallel research dispatch
+### Step 2 — Parallel research dispatch (N-aware)
 
-Set tasks `1.3` and `1.4` → `in_progress`.
+Set task `2` → `in_progress`.
 
-PARALLEL Bash tool calls:
+Issue `N` parallel Bash tool calls in a single message — one per entry
+in `TROOPERS`. Each call: `bin/consult-research-send.sh "$CONSULT_TOPIC"
+<commander> <provider>`. Sends complete in <1s, so foreground is fine.
+
+Canonical N=3 example:
 
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" rex  codex
 "$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" cody claude
+"$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" bly  opencode
 ```
 
-### Step 3 — Parallel research wait (with question loop)
+For N=2, issue 2 calls instead. Use the same `TROOPERS` iteration pattern
+(`IFS=$'\t' read -r prov cmdr <<<"$entry"`) to derive each call.
+
+### Step 3 — Parallel research wait (N-aware, with question loop)
 
 Background-await protocol: wait-scripts run as background tasks so Master
 Yoda's pane stays interactive while troopers work. Each wait-script writes
@@ -164,7 +219,11 @@ Yoda's pane stays interactive while troopers work. Each wait-script writes
 `.done` sentinel; the controller reads both on the harness's completion
 notification.
 
-Dispatch BOTH waits as parallel background Bash calls:
+Dispatch `N` parallel **background** Bash tool calls in a single message
+— one per entry in `TROOPERS`. Use the rank-prefixed trooper name in
+the description so Yoda can identify which task fired the notification.
+
+Canonical N=3 example:
 
 ```
 Bash(
@@ -178,11 +237,22 @@ Bash(
   run_in_background: true,
   description='master yoda await commander cody research (background)'
 )
+
+Bash(
+  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" bly  opencode',
+  run_in_background: true,
+  description='master yoda await commander bly research (background)'
+)
 ```
+
+For N=2, issue 2 background calls. Iterate `TROOPERS` to derive the
+`<commander> <provider>` pair for each call; the description string
+should embed the trooper name so notifications are self-identifying.
 
 While the background tasks run, **Yoda's pane remains free** — the user can
 chat, run `/clone-wars:list`, or interrupt with new instructions. You will
-receive one harness completion notification per task.
+receive one harness completion notification per task (`N` notifications
+total — one per trooper).
 
 On EACH notification, do:
 
@@ -235,38 +305,54 @@ f. **Re-arm by removing the `.done` sentinel and re-running the wait-script
    ```
    The new task will fire its own completion notification.
 
-Continue handling notifications until both commanders' state files show
+Continue handling notifications until **all `N` commanders'** state files show
 `FS ∈ {ok, empty, missing, failed, timeout, malformed}`. `FS=question` is a
-transient state — only proceed to Step 4 when both have a terminal value.
+transient state — only proceed to Step 4 when every trooper has a
+terminal value.
 
-- `ok` / `empty` / `missing` → set tasks `1.3` and `1.4` → `completed`.
-- `failed` / `timeout` / `malformed` → consider Pattern 1 (re-prompt)
-  before proceeding; set tasks → `completed` if accepting the degraded
+- All `ok` / `empty` / `missing` → set task `2` → `completed`.
+- Any `failed` / `timeout` / `malformed` → consider Pattern 1 (re-prompt)
+  before proceeding; set task `2` → `completed` if accepting the degraded
   result.
 
-### Step 4 — Diff
+### Step 4 — Diff (N-way Venn)
 
-Set task `1.5` → `in_progress`.
+Set task `3` → `in_progress`.
 
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/consult-diff.sh" "$CONSULT_TOPIC"
 ```
 
-Set task `1.5` → `completed`.
+`consult-diff.sh` reads `_consult/troopers.txt` and produces an N-way
+Venn — for N=2 the legacy `rex_only_items.txt` / `cody_only_items.txt` /
+`overlap_items.txt`; for N=3 a `<cmdr>_only_items.txt` per commander
+plus pair-overlaps and a 3-way `consensus.txt`. Set task `3` →
+`completed`.
 
-### Step 5 — Parallel verify dispatch + wait (with question loop)
+### Step 5 — Parallel verify dispatch + wait (N-aware, with question loop)
 
-Set tasks `1.6` and `1.7` → `in_progress`.
+Set task `4` → `in_progress`.
 
-Send phase — keep parallel sends as foreground (sends complete in <1s).
+Send phase — issue `N` parallel Bash tool calls (foreground; sends
+complete in <1s). Each: `bin/consult-verify-send.sh "$CONSULT_TOPIC"
+<commander> <provider>`. Iterate `TROOPERS` to derive each call.
+
+Canonical N=3 example:
 
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" rex  codex
 "$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" cody claude
+"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" bly  opencode
 ```
 
-Wait phase — both wait-scripts run as background tasks (Yoda stays
-interactive):
+For N=2 issue 2 calls. Verify scope (v0.15.0): each trooper verifies
+the **union of bucket files NOT containing this trooper** — i.e. claims
+nobody-else, the other-trooper-only set, and any pair-overlaps that
+don't include this trooper. `consult-verify-send.sh` computes the scope
+from `_consult/troopers.txt` automatically.
+
+Wait phase — issue `N` parallel **background** Bash tool calls (Yoda
+stays interactive):
 
 ```
 Bash(
@@ -280,7 +366,16 @@ Bash(
   run_in_background: true,
   description='master yoda await commander cody verify (background)'
 )
+
+Bash(
+  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" bly  opencode',
+  run_in_background: true,
+  description='master yoda await commander bly verify (background)'
+)
 ```
+
+For N=2, issue 2 background calls. Iterate `TROOPERS` to derive each
+call. You will receive `N` completion notifications.
 
 On EACH completion notification, read the per-commander verify state file:
 
@@ -304,23 +399,28 @@ FINDINGS_PATH="$TOPIC_DIR/<commander>-<model>/verify.md"
 Pass the contents of `$FINDINGS_PATH` into the answer-classification
 prompt before invoking Pattern 4's relay.
 
-If all-UNCERTAIN, consider Pattern 3 intervention. Else set `1.6` and
-`1.7` → `completed`.
+If **all** troopers report all-UNCERTAIN verdicts, consider Pattern 3
+intervention. Otherwise set task `4` → `completed`.
 
-### Step 6 — Adjudicate (writes draft)
+### Step 6 — Adjudicate (writes 5-tier draft)
 
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/consult-adjudicate.sh" "$CONSULT_TOPIC"
 ```
 
-This writes `_consult/adjudicated-draft.md`. Then copy it to the
-Master Yoda's resolution surface:
+This writes `_consult/adjudicated-draft.md`. v0.15.0 emits 5 sections:
+**Consensus** (all troopers agree), **Cross-verified** (verified across
+the roster), **Contested**, **Refuted**, and **Pending**. For N=2 the
+Consensus + Cross-verified sections collapse onto the legacy 2-trooper
+shape; the structure is byte-equal-or-superset.
+
+Copy the draft to Master Yoda's resolution surface:
 
 ```
 cp "$TOPIC_DIR/_consult/adjudicated-draft.md" "$TOPIC_DIR/_consult/adjudicated.md"
 ```
 
-Set task `2` → `in_progress`.
+Set task `5` → `in_progress`.
 
 ### Step 7 — Resolve PENDING items
 
@@ -334,7 +434,7 @@ d. Edit tool to rewrite:
    - CONFIRMED / REFUTED: replace `- PENDING:` with the verdict + evidence.
    - CONTESTED: move under `## Contested`, drop the prefix.
 
-When no `^- PENDING:` remains, set task `2` → `completed` and task `3.1` →
+When no `^- PENDING:` remains, set task `5` → `completed` and task `6` →
 `in_progress`.
 
 ### Step 8 — Synthesize
@@ -343,10 +443,11 @@ When no `^- PENDING:` remains, set task `2` → `completed` and task `3.1` →
 "$CLAUDE_PLUGIN_ROOT/bin/consult-synthesize.sh" "$CONSULT_TOPIC"
 ```
 
-Refuses if PENDING remains. On success, prints synthesis.md. Set task
-`3.1` → `completed`.
+Refuses if PENDING remains. On success, prints synthesis.md with N-source
+attribution tags (e.g. `[rex+cody+bly]` for 3-way consensus). Set task
+`6` → `completed`.
 
-### Step 8.4 — Drill deeper (optional)
+### Step 8.4 — Drill deeper (optional, N-aware)
 
 Before teardown, offer one or more free-form drill-deeper rounds while
 troopers are still alive. Each round writes to
@@ -366,19 +467,65 @@ Loop while user picks "Yes":
 
 1. `AskUserQuestion`: "Drill subject?" — free-form text response. → `$DRILL_TOPIC=<response>`
 2. `AskUserQuestion`: "Focus angle? (e.g., 'tradeoffs feel hand-wavy')" — free-form. → `$DRILL_FOCUS=<response>`
-3. `AskUserQuestion`: "Which trooper?" Options: `rex (codex)` / `cody (claude)` / `both (parallel)`. → `$DRILL_TROOPER=<choice>`
-4. Invoke the drill bin script. Single trooper:
+3. `AskUserQuestion`: "Which trooper(s)?" — option list **depends on `N`**:
+
+   - **N=2** (3 options): the 2 singles + parallel-all.
+     - For roster `(rex/codex, cody/claude)`:
+       `rex (codex)` / `cody (claude)` / `both (parallel)`
+     - For other 2-trooper rosters (e.g. claude+opencode → cody+bly), use
+       the actual commanders from `TROOPERS` rather than the literal
+       names above.
+
+   - **N=3** (7 options): 3 singles + 3 pairs + 1 fan-out.
+     - `rex (codex)` / `cody (claude)` / `bly (opencode)`
+     - `rex + cody` / `rex + bly` / `cody + bly`
+     - `all three (parallel)`
+
+   → `$DRILL_TROOPER=<choice>`
+
+4. Invoke the drill bin script. `bin/consult-drilldown.sh` accepts at
+   most 2 trooper pairs per invocation (arg counts: 6 = single trooper,
+   7 = single + sub-project, 8 = two troopers, 9 = two + sub-project).
+   To fan out to 3 troopers, issue **multiple parallel** drill calls.
+
+   Argument shape: 4 fixed args (`<topic> <drill-topic> <dd-dir>
+   <focus>`) followed by `K ∈ {1, 2}` pairs of `<commander> <provider>`,
+   optionally followed by a sub-project token.
+
+   Single trooper (`K=1`, 6 args):
    ```
    "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
      "$CONSULT_TOPIC" "$DRILL_TOPIC" "$DRILL_DIR" "$DRILL_FOCUS" \
-     <commander> <model>
+     <commander> <provider>
    ```
-   Both troopers in parallel:
+
+   Two troopers in parallel (`K=2`, 8 args) — covers N=2 "both" or any
+   N=3 pair (`rex + cody`, `rex + bly`, `cody + bly`):
    ```
    "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
      "$CONSULT_TOPIC" "$DRILL_TOPIC" "$DRILL_DIR" "$DRILL_FOCUS" \
      rex codex cody claude
    ```
+
+   Three troopers (N=3 "all three (parallel)") — issue **two parallel
+   Bash tool calls in a single message**: one K=2 pair + one K=1 single.
+   The two calls share `$DRILL_TOPIC` and `$DRILL_DIR` so all three
+   produced files land in `$DRILL_DIR/_scratch/` under the same slug:
+   ```
+   # Bash tool call 1 (parallel) — first 2 troopers
+   "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
+     "$CONSULT_TOPIC" "$DRILL_TOPIC" "$DRILL_DIR" "$DRILL_FOCUS" \
+     rex codex cody claude
+
+   # Bash tool call 2 (parallel) — third trooper
+   "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
+     "$CONSULT_TOPIC" "$DRILL_TOPIC" "$DRILL_DIR" "$DRILL_FOCUS" \
+     bly opencode
+   ```
+   Treat the run as success if at least one of the two invocations
+   returned `rc=0`. The 3 produced files share the same `<slug>` so
+   `/clone-wars:spec` consumes them as a single drill round.
+
 5. Read the produced drilldown file(s) under `$DRILL_DIR/_scratch/` —
    filename pattern `drilldown-<slug>-<commander>.md` (slug = lowercased
    `$DRILL_TOPIC` with spaces as hyphens) — and print a brief summary of
@@ -403,18 +550,19 @@ design-doc walk.
 "$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC"
 ```
 
-Set task `3.2` → `completed`.
+`consult-teardown.sh` reads `_consult/troopers.txt` and tears down every
+listed trooper (no hardcoded pair). Set task `7` → `completed`.
 
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/consult-archive.sh" "$CONSULT_TOPIC"
 ```
 
-Set task `3.3` → `completed`. Set task `4` → `in_progress`.
+Set task `8` → `completed`. Set task `9` → `in_progress`.
 
 ### Step 10 — Present synthesis
 
 Show the user the final synthesis (already printed by step 8). Set task
-`4` → `completed`.
+`9` → `completed`.
 
 ## Intervention patterns
 
@@ -505,8 +653,8 @@ When a wait-script reports `FS=question` (research) or `VS=question`
    trooper either re-emits FS=question (loop), produces a terminal event,
    or times out.
 
-Both troopers may emit questions independently. Notifications can arrive
-in any order; process each as it lands.
+Any of the `N` troopers may emit questions independently. Notifications
+can arrive in any order; process each as it lands.
 
 **Kill switch:** if the question protocol misbehaves (storming,
 mis-classification), set `CW_CONSULT_SKILL_OVERRIDE=none` in the
