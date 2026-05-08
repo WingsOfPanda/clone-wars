@@ -119,3 +119,19 @@ cw_repo_root() {
   root=$(git rev-parse --show-toplevel 2>/dev/null) && { printf '%s\n' "$root"; return 0; }
   printf '%s\n' "$PWD"
 }
+
+# cw_active_providers_path — canonical path the consult roster reads.
+# Prefers providers-active.txt (user-selected via /clone-wars:medic) over
+# providers-available.txt (medic-detected). Pure path resolution; does
+# not validate contents — callers grep -vE '#' / blank as today.
+#
+# Used by bin/consult-init.sh and any future consumer that needs to know
+# "which providers should /consult use right now".
+cw_active_providers_path() {
+  local sr; sr="$(cw_state_root)"
+  if [[ -f "$sr/providers-active.txt" ]]; then
+    printf '%s\n' "$sr/providers-active.txt"
+  else
+    printf '%s\n' "$sr/providers-available.txt"
+  fi
+}
