@@ -55,10 +55,11 @@ fi
 [[ $# -ge 1 ]] || { echo "Usage: $0 [--targets a,b,c] <topic-text>" >&2; exit 2; }
 TOPIC_TEXT="$*"
 
-# v0.15.0: provider gate — read medic's remark.
-PROVIDERS_FILE="$(cw_state_root)/providers-available.txt"
+# v0.18.0: provider gate — prefer providers-active.txt (user-selected
+# via /clone-wars:medic) over providers-available.txt (medic-detected).
+PROVIDERS_FILE="$(cw_active_providers_path)"
 [[ -f "$PROVIDERS_FILE" ]] || {
-  log_error "providers-available.txt not found at $PROVIDERS_FILE"
+  log_error "$PROVIDERS_FILE not found"
   log_error "run /clone-wars:medic first to detect installed providers."
   exit 2
 }
