@@ -377,39 +377,124 @@ cw_consult_parse_verdicts() {
 #   skipped = no work was needed (other side had no _ONLY items)
 #   Banners fire on any status except ok and skipped.
 #
-# Emits the 6-section synthesis with banners when any status is not ok/skipped.
+# v0.16.0: emits the canonical design-doc (rigid 6 sections + trust-label
+# header) at <out>. <out> should be the path returned by
+# cw_consult_design_doc_canonical_path. The legacy synthesis.md write was
+# dropped — no fallback, no symlink.
+#
+# Section mapping (adjudicated.md → design-doc):
+#   diff.md ## Agreed                  → ## Findings (head)
+#   adj.md  ## Cross-verified          → ## Findings (cross-verified body)
+#   adj.md  ## Adjudicated             → ## Findings (resolved body)
+#   adj.md  ## Contested               → ## Tradeoffs
+#   adj.md  ## Not-verified            → ## Open Questions
+#   trooper artifact paths             → ## Sources
+#
+# Trust-label header values (env-overridable):
+#   CW_SOURCE_LABEL  — defaults to 'rex+cody cross-verified'
+#   CW_PATH_LABEL    — defaults to 'escalated-from-signals'
+# Banners are emitted between the trust-label header and ## Summary.
 cw_consult_synthesize() {
   local topic="$1" diff="$2" adj="$3" rex_dir="$4" cody_dir="$5"
   local rex_fs="$6" cody_fs="$7" rex_vs="$8" cody_vs="$9" out="${10}"
 
-  {
-    printf '# Consultation: %s\n\n' "$topic"
+  local source_label="${CW_SOURCE_LABEL:-rex+cody cross-verified}"
+  local path_label="${CW_PATH_LABEL:-escalated-from-signals}"
+  local generated_at
+  generated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-    # Banners
+  # Title-case the topic for the H1.
+  local title
+  title=$(printf '%s' "$topic" | awk '{
+    for (i=1; i<=NF; i++) $i = toupper(substr($i,1,1)) tolower(substr($i,2))
+  } 1')
+
+  # Buffer the section bodies up-front so we can emit `_(not applicable)_`
+  # placeholders when a section is empty.
+  local agreed_body cross_body contested_body notverified_body
+  agreed_body=$(awk '/^## Agreed/{f=1;next} /^## /{f=0} f' "$diff")
+  cross_body=$(awk '
+    /^## Cross-verified/{f=1; next}
+    /^## Adjudicated/   {f=1; next}
+    /^## /              {f=0}
+    f
+  ' "$adj")
+  contested_body=$(awk '
+    /^## Contested/{f=1; next}
+    /^## /         {f=0}
+    f
+  ' "$adj")
+  notverified_body=$(awk '
+    /^## Not-verified/{f=1; next}
+    /^## /            {f=0}
+    f
+  ' "$adj")
+
+  # Strip leading/trailing blank lines from each buffered body.
+  _cw_consult_strip_blank_edges() {
+    awk 'NF {seen=1} seen' <<<"$1" | awk '{lines[NR]=$0} END{
+      n=NR; while (n>0 && lines[n] ~ /^[[:space:]]*$/) n--;
+      for (i=1; i<=n; i++) print lines[i]
+    }'
+  }
+  agreed_body=$(_cw_consult_strip_blank_edges "$agreed_body")
+  cross_body=$(_cw_consult_strip_blank_edges "$cross_body")
+  contested_body=$(_cw_consult_strip_blank_edges "$contested_body")
+  notverified_body=$(_cw_consult_strip_blank_edges "$notverified_body")
+  unset -f _cw_consult_strip_blank_edges
+
+  {
+    printf '# %s\n\n' "$title"
+
+    printf '> **Source:** %s\n' "$source_label"
+    printf '> **Generated:** %s\n' "$generated_at"
+    printf '> **Path:** %s\n\n' "$path_label"
+
+    # Banners (preserved from v0.15: surface non-ok/skipped statuses).
     case "$rex_fs"  in malformed|missing|empty) printf '> NOTE: REX findings.md %s — diff/synthesis ran on best-effort parse.\n\n' "$rex_fs" ;; esac
     case "$cody_fs" in malformed|missing|empty) printf '> NOTE: CODY findings.md %s — diff/synthesis ran on best-effort parse.\n\n' "$cody_fs" ;; esac
     case "$rex_vs"  in timeout|error|send-failed|missing|empty) printf '> NOTE: REX verify dispatch %s — partial cross-verification; some Cody-only items not graded.\n\n' "$rex_vs" ;; esac
     case "$cody_vs" in timeout|error|send-failed|missing|empty) printf '> NOTE: CODY verify dispatch %s — partial cross-verification; some Rex-only items not graded.\n\n' "$cody_vs" ;; esac
 
-    printf '## Agreed findings (both raised independently)\n'
-    awk '/^## Agreed/{f=1;next} /^## /{f=0} f' "$diff"
-    printf '\n'
+    printf '## Summary\n'
+    printf '_(not applicable — Master Yoda fills this in during the /spec walk; the trooper-path captures only cross-verified findings.)_\n\n'
 
-    awk '
-      /^## Cross-verified/{f=1; print; next}
-      /^## Adjudicated/   {f=1; print; next}
-      /^## Contested/     {f=1; print; next}
-      /^## Not-verified/  {f=1; print; next}
-      /^## /              {f=0}
-      f
-    ' "$adj"
-    printf '\n'
+    printf '## Findings\n'
+    if [[ -n "$agreed_body" || -n "$cross_body" ]]; then
+      if [[ -n "$agreed_body" ]]; then
+        printf '### Agreed (both raised independently)\n'
+        printf '%s\n\n' "$agreed_body"
+      fi
+      if [[ -n "$cross_body" ]]; then
+        printf '### Cross-verified\n'
+        printf '%s\n\n' "$cross_body"
+      fi
+    else
+      printf '_(not applicable)_\n\n'
+    fi
 
-    printf '## Trooper artifacts\n'
-    printf -- '- REX research:  %s/findings.md\n' "$rex_dir"
-    printf -- '- REX verify:    %s/verify.md\n'   "$rex_dir"
-    printf -- '- CODY research: %s/findings.md\n' "$cody_dir"
-    printf -- '- CODY verify:   %s/verify.md\n'   "$cody_dir"
+    printf '## Tradeoffs\n'
+    if [[ -n "$contested_body" ]]; then
+      printf '%s\n\n' "$contested_body"
+    else
+      printf '_(not applicable)_\n\n'
+    fi
+
+    printf '## Recommendation\n'
+    printf '_(not applicable — Master Yoda fills this in during the /spec walk based on the cross-verified findings above.)_\n\n'
+
+    printf '## Open Questions\n'
+    if [[ -n "$notverified_body" ]]; then
+      printf '%s\n\n' "$notverified_body"
+    else
+      printf '_(not applicable)_\n\n'
+    fi
+
+    printf '## Sources\n'
+    printf -- '- `%s/findings.md` — REX research output\n' "$rex_dir"
+    printf -- '- `%s/verify.md` — REX cross-verification verdicts\n'  "$rex_dir"
+    printf -- '- `%s/findings.md` — CODY research output\n' "$cody_dir"
+    printf -- '- `%s/verify.md` — CODY cross-verification verdicts\n' "$cody_dir"
   } > "$out"
 }
 
@@ -1091,4 +1176,15 @@ cw_consult_load_troopers() {
   local file="$1"
   [[ -f "$file" ]] || { echo "cw_consult_load_troopers: file not found: $file" >&2; return 2; }
   grep -vE '^[[:space:]]*(#|$)' "$file"
+}
+
+# v0.16.0: canonical design-doc path within an art-dir.
+# Format: <art_dir>/design-doc/<YYYY-MM-DD>-<slug>-design.md
+# Used by both fast-path (Yoda solo) and trooper-path (consult-synthesize)
+# so /spec reads ONE pattern. Date is UTC.
+cw_consult_design_doc_canonical_path() {
+  local art_dir="$1" slug="$2"
+  [[ -n "$art_dir" ]] || { echo "cw_consult_design_doc_canonical_path: art_dir required" >&2; return 2; }
+  [[ -n "$slug" ]]    || { echo "cw_consult_design_doc_canonical_path: slug required" >&2; return 2; }
+  printf '%s/design-doc/%s-%s-design.md\n' "$art_dir" "$(date -u +%Y-%m-%d)" "$slug"
 }

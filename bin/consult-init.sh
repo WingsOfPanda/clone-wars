@@ -59,7 +59,10 @@ while [[ -d "$TOPIC_DIR" ]]; do
   n=$((n + 1))
 done
 
-mkdir -p "$TOPIC_DIR/_consult"
+# v0.16.0: pre-create design-doc/ subdir so downstream writers
+# (Yoda fast-path + trooper-path consult-synthesize) don't need their own
+# mkdir logic. The _consult/ parent is auto-created.
+mkdir -p "$TOPIC_DIR/_consult/design-doc"
 ART_DIR="$TOPIC_DIR/_consult"
 printf '%s' "$TOPIC_TEXT" > "$ART_DIR/topic.txt"
 

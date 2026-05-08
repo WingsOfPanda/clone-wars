@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
-# bin/consult-synthesize.sh — write synthesis.md after PENDING resolution.
+# bin/consult-synthesize.sh — write the canonical design-doc after PENDING
+# resolution.
 #
 # Usage: bin/consult-synthesize.sh <consult-topic>
 #
-# Refuses if adjudicated.md missing OR contains any ^- PENDING: line OR
-# synthesis.md already exists.
+# v0.16.0: writes the design-doc at
+#   _consult/design-doc/<YYYY-MM-DD>-<slug>-design.md
+# with the rigid 6-section schema (Summary / Findings / Tradeoffs /
+# Recommendation / Open Questions / Sources) and the Source/Generated/Path
+# trust-label header. The legacy _consult/synthesis.md write is REMOVED
+# entirely — no fallback, no symlink.
+#
+# Refuses if adjudicated.md is missing OR contains any ^- PENDING: line OR
+# the canonical design-doc path already exists.
 
 set -uo pipefail
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -34,8 +42,17 @@ if grep -q '^- PENDING:' "$ADJ"; then
   exit 1
 fi
 
-SYN="$ART_DIR/synthesis.md"
-[[ ! -e "$SYN" ]] || { log_error "$SYN already exists; rm to regenerate"; exit 1; }
+# v0.16.0: canonical design-doc path replaces synthesis.md.
+SLUG="${TOPIC#consult-}"
+[[ -n "$SLUG" && "$SLUG" != "$TOPIC" ]] || { log_error "topic '$TOPIC' missing 'consult-' prefix"; exit 2; }
+DESIGN_DOC=$(cw_consult_design_doc_canonical_path "$ART_DIR" "$SLUG") \
+  || { log_error "could not derive design-doc canonical path"; exit 1; }
+
+[[ ! -e "$DESIGN_DOC" ]] || { log_error "$DESIGN_DOC already exists; rm to regenerate"; exit 1; }
+
+# consult-init pre-creates the design-doc/ subdir; mkdir -p as belt-and-braces
+# so direct invocations (e.g. tests) still work.
+mkdir -p "$(dirname "$DESIGN_DOC")"
 
 # Load statuses with safe fallbacks. Each stage file is KEY=VAL lines; we read
 # one specific key per file and apply a per-stage default if missing/empty.
@@ -55,7 +72,7 @@ REX_DIR=$(cw_trooper_dir rex codex "$TOPIC")
 CODY_DIR=$(cw_trooper_dir cody claude "$TOPIC")
 
 cw_consult_synthesize "$TOPIC_TEXT" "$DIFF" "$ADJ" "$REX_DIR" "$CODY_DIR" \
-  "$REX_FS" "$CODY_FS" "$REX_VS" "$CODY_VS" "$SYN"
+  "$REX_FS" "$CODY_FS" "$REX_VS" "$CODY_VS" "$DESIGN_DOC"
 
-log_info "[synthesize] wrote $SYN"
-cat "$SYN"
+log_info "[synthesize] wrote $DESIGN_DOC"
+cat "$DESIGN_DOC"
