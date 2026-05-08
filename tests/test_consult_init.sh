@@ -25,6 +25,12 @@ RH=$(bash -c 'source ../lib/state.sh; cw_repo_hash')
 [[ -f "$CLONE_WARS_HOME/state/$RH/$out/_consult/topic.txt" ]] || { echo "FAIL: topic.txt missing" >&2; exit 1; }
 pass "init creates capped slug + _consult/ + topic.txt"
 
+# 1a. v0.16.0: _consult/design-doc/ pre-created so fast-path + trooper-path
+# writers don't need their own mkdir logic.
+[[ -d "$CLONE_WARS_HOME/state/$RH/$out/_consult/design-doc" ]] \
+  || { echo "FAIL: _consult/design-doc/ not created" >&2; exit 1; }
+pass "consult-init creates _consult/design-doc/ subdir"
+
 # 2. topic.txt preserves the raw topic-text.
 saved=$(cat "$CLONE_WARS_HOME/state/$RH/$out/_consult/topic.txt")
 assert_eq "$saved" "review the authentication middleware for token-refresh edge cases" "topic.txt round-trips"
