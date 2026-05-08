@@ -35,12 +35,32 @@ SLUG="${TOPIC#consult-}"
 DATE=$(date -u +%Y-%m-%d)
 OUT="$ART/design-doc/$DATE-$SLUG-design.md"
 
-# Single-repo section order.
-SECTIONS=(problem goal architecture components testing success-criteria)
+# Multi-repo detection: read _consult/multi-repo.txt + targets.txt.
+MULTI_REPO=0
+TARGET_SLUGS=""
+if [[ -f "$ART/multi-repo.txt" ]]; then
+  mode=$(tr -d '[:space:]' < "$ART/multi-repo.txt")
+  if [[ "$mode" == "multi" ]]; then
+    [[ -f "$ART/targets.txt" ]] || { log_error "walk-assemble: multi-repo.txt=multi but targets.txt missing"; exit 1; }
+    MULTI_REPO=1
+    TARGET_SLUGS=$(grep -v '^#' "$ART/targets.txt" | awk -F'\t' 'NF{print $1}' | paste -sd ',' - | sed 's/,/, /g')
+  fi
+fi
+
+if (( MULTI_REPO )); then
+  SECTIONS=(problem goal architecture components execution-dag cross-repo-notes testing success-criteria)
+else
+  SECTIONS=(problem goal architecture components testing success-criteria)
+fi
 
 TMPF=$(mktemp); trap 'rm -f "$TMPF"' EXIT
 
 printf '# %s\n\n' "$TITLE" > "$TMPF"
+
+if (( MULTI_REPO )); then
+  printf '**Date:** %s\n' "$DATE" >> "$TMPF"
+  printf '**Target Sub-Project(s):** %s\n\n' "$TARGET_SLUGS" >> "$TMPF"
+fi
 
 for section in "${SECTIONS[@]}"; do
   src="$DR/$section.md"
@@ -53,6 +73,8 @@ for section in "${SECTIONS[@]}"; do
       goal)             heading="## Goal" ;;
       architecture)     heading="## Architecture" ;;
       components)       heading="## Components" ;;
+      execution-dag)    heading="## Execution DAG" ;;
+      cross-repo-notes) heading="## Cross-Repo Notes" ;;
       testing)          heading="## Testing" ;;
       success-criteria) heading="## Success Criteria" ;;
     esac
