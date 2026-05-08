@@ -113,29 +113,45 @@ Branch on `DETECTED` count:
 
 #### Step D — Preset-subset menu (N=2 or N=3)
 
-One `AskUserQuestion`. Build the options list from `DETECTED`, mapping
-each provider to its commander via the lookup `codex → rex`,
-`claude → cody`, `opencode → bly` (matches `cw_consult_provider_to_commander`
-in `lib/consult.sh:1157`).
+Build options from `DETECTED`, mapping each provider to its commander
+via `codex → rex`, `claude → cody`, `opencode → bly` (matches
+`cw_consult_provider_to_commander` in `lib/consult.sh:1157`).
 
-For **N=2** (`DETECTED = [A, B]`), 4 options:
+`AskUserQuestion`'s schema caps each question at 4 options, so the
+menu shape differs by N:
+
+For **N=2** (`DETECTED = [A, B]`) — single `AskUserQuestion`, 4 options:
 
 - `Both <commander-A> + <commander-B>` (default recommended)
 - `<commander-A> only`
 - `<commander-B> only`
 - `Customize…`
 
-For **N=3** (`DETECTED = [A, B, C]`), 5 options:
+For **N=3** (`DETECTED = [A, B, C]`) — two-step nested
+`AskUserQuestion`, because a flat 5-option menu (`All three` + 3 pairs +
+`Customize`) exceeds the 4-option cap. Step D.1 is the high-level
+choice (3 options); Step D.2 only fires if the user picks `Pick a pair`.
+
+**Step D.1** (high-level, 3 options):
 
 - `All three (<commander-A> + <commander-B> + <commander-C>)` (default recommended)
+- `Pick a pair (drill in)`
+- `Customize…`
+
+**Step D.2** — fires only when D.1 returns `Pick a pair`. 3 options:
+
 - `<commander-A> + <commander-B>` (drop C)
 - `<commander-A> + <commander-C>` (drop B)
 - `<commander-B> + <commander-C>` (drop A)
-- `Customize…`
 
-If `PRIOR` matches one of the preset subsets exactly, relabel that
-option to start with `Keep current selection (…)` and present it as
-the recommended (top) option instead of the default "all".
+If `PRIOR` matches one of the preset subsets exactly:
+
+- N=2 — relabel the matching top-level option to start with
+  `Keep current selection (…)` and recommend it.
+- N=3 — if `PRIOR` is exactly all three, relabel the `All three` option
+  with `Keep current selection (…)`. If `PRIOR` is one of the pairs,
+  recommend `Pick a pair` in D.1 and pre-select the matching pair in
+  D.2's recommendation.
 
 User picks anything except `Customize…` → write `providers-active.txt`
 via the Write tool with the chosen subset (one provider per line, in

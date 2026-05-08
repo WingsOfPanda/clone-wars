@@ -36,4 +36,14 @@ assert_contains "$BODY" "auto-selected" "directive auto-handles N=1"
 # Customize fallback path must exist for N=4.
 assert_contains "$BODY" "Customize" "directive offers Customize fallback"
 
-pass "commands/medic.md v0.18.0 static wiring complete"
+# v0.18.1: N=3 menu must use 2-step nested pattern (AskUserQuestion caps
+# at 4 options, so a flat 5-option menu is unimplementable). Lock in the
+# Step D.1 / D.2 structure.
+assert_contains "$BODY" "Step D.1" "N=3 uses Step D.1 high-level question"
+assert_contains "$BODY" "Step D.2" "N=3 has Step D.2 pair-drill question"
+assert_contains "$BODY" "Pick a pair" "Step D.1 offers Pick a pair drill option"
+# Negative: directive must NOT claim a flat 5-option menu for N=3.
+! grep -qE 'For \*\*N=3\*\*.*5 options' "$DIR" \
+  || { echo "FAIL: directive still claims flat 5-option menu for N=3" >&2; exit 1; }
+
+pass "commands/medic.md v0.18.1 static wiring complete"
