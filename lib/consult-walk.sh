@@ -53,3 +53,35 @@ cw_consult_emit_soft_dag() {
     fi
   done < "$tsv"
 }
+
+# cw_consult_detect_multi_repo <cwd> <topic-prose>
+# Walks $cwd's first-level subdirs (skipping dotfiles), keeps those that
+# contain a CLAUDE.md or AGENTS.md, and filters them by case-insensitive
+# substring match against $topic-prose.
+# Emits TSV "<slug>\t<absolute-path>" to stdout, one match per line.
+# rc=0 always on valid args (zero hits prints nothing).
+# rc=1 if $cwd doesn't exist; rc=2 if either arg empty.
+cw_consult_detect_multi_repo() {
+  local cwd="${1:-}" topic="${2:-}"
+  [[ -n "$cwd"   ]] || { echo "cw_consult_detect_multi_repo: cwd required"   >&2; return 2; }
+  [[ -n "$topic" ]] || { echo "cw_consult_detect_multi_repo: topic required" >&2; return 2; }
+  [[ -d "$cwd"   ]] || { echo "cw_consult_detect_multi_repo: not a directory: $cwd" >&2; return 1; }
+  local topic_lower
+  topic_lower=$(printf '%s' "$topic" | tr '[:upper:]' '[:lower:]')
+  local entry slug abs marker
+  for entry in "$cwd"/*/; do
+    [[ -d "$entry" ]] || continue
+    slug=$(basename "$entry")
+    [[ "$slug" != .* ]] || continue   # skip hidden
+    if   [[ -f "$entry/CLAUDE.md" ]]; then marker="$entry/CLAUDE.md"
+    elif [[ -f "$entry/AGENTS.md" ]]; then marker="$entry/AGENTS.md"
+    else continue
+    fi
+    # Case-insensitive substring match (slug → topic-lower).
+    local slug_lower
+    slug_lower=$(printf '%s' "$slug" | tr '[:upper:]' '[:lower:]')
+    [[ "$topic_lower" == *"$slug_lower"* ]] || continue
+    abs=$(cd "$entry" && pwd)/$(basename "$marker")
+    printf '%s\t%s\n' "$slug" "$abs"
+  done
+}
