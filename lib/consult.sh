@@ -1092,3 +1092,14 @@ cw_consult_load_troopers() {
   [[ -f "$file" ]] || { echo "cw_consult_load_troopers: file not found: $file" >&2; return 2; }
   grep -vE '^[[:space:]]*(#|$)' "$file"
 }
+
+# v0.16.0: canonical design-doc path within an art-dir.
+# Format: <art_dir>/design-doc/<YYYY-MM-DD>-<slug>-design.md
+# Used by both fast-path (Yoda solo) and trooper-path (consult-synthesize)
+# so /spec reads ONE pattern. Date is UTC.
+cw_consult_design_doc_canonical_path() {
+  local art_dir="$1" slug="$2"
+  [[ -n "$art_dir" ]] || { echo "cw_consult_design_doc_canonical_path: art_dir required" >&2; return 2; }
+  [[ -n "$slug" ]]    || { echo "cw_consult_design_doc_canonical_path: slug required" >&2; return 2; }
+  printf '%s/design-doc/%s-%s-design.md\n' "$art_dir" "$(date -u +%Y-%m-%d)" "$slug"
+}
