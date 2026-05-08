@@ -50,3 +50,146 @@ The user's `$ARGUMENTS` may contain shell metacharacters. To prevent injection, 
 6. If the verdict is `OK`, no further action is needed; the user is ready to spawn troopers
    (once the runtime commands ship in v0.0.1 — until then, `/clone-wars:spawn` etc. print
    stub messages).
+
+## Trooper selection (v0.18.0)
+
+After the health table renders (steps 1–6 above), interactively pick which
+detected providers should be the active roster for `/clone-wars:consult`.
+Selection persists at `$state_root/providers-active.txt` (global, one per
+machine/install). `bin/consult-init.sh` prefers this file over
+`providers-available.txt` when present; this is the user's "preference layer"
+on top of medic's mechanical detection.
+
+**Always-interactive policy:** every `/clone-wars:medic` invocation runs
+Steps A–G. Whether the user actually sees an `AskUserQuestion` prompt
+depends on the detected count (Step C — auto-handles 0 and 1, prompts
+for 2+).
+
+#### Step A — Read detected set
+
+Use the Bash tool:
+
+```
+state_root="${CLONE_WARS_HOME:-$HOME/.clone-wars}"
+grep -vE '^[[:space:]]*(#|$)' "$state_root/providers-available.txt" 2>/dev/null
+```
+
+Capture the result as `DETECTED` (one provider per line). If the file is
+missing or unreadable, log `warn: providers-available.txt not found;
+skipping trooper selection` and exit this section — Steps B–G are
+skipped. (medic's existing FAIL handling has already surfaced the
+underlying problem in step 5 above.)
+
+#### Step B — Read prior selection if any
+
+```
+[[ -f "$state_root/providers-active.txt" ]] \
+  && grep -vE '^[[:space:]]*(#|$)' "$state_root/providers-active.txt"
+```
+
+Capture the result as `PRIOR`. Filter `PRIOR` against `DETECTED` (drop
+entries that are no longer detected — e.g. user uninstalled a binary
+or the provider was removed from `contracts.yaml`). For each entry
+dropped, print one line:
+
+```
+note: removed <provider> from active set (no longer detected)
+```
+
+If `PRIOR` is empty after filtering, treat it as no-prior for Steps D
+and E (recommended option defaults switch from "keep current" to
+"include all").
+
+#### Step C — Decide whether to prompt
+
+Branch on `DETECTED` count:
+
+| Count | Behavior |
+|---|---|
+| `0`   | No prompt. medic already FAILed; nothing to choose. Skip Steps D–G. |
+| `1`   | No prompt. Auto-write `providers-active.txt` with that one provider via Write tool. Print `auto-selected: <provider> (only detected provider)`. Skip Steps D–G. |
+| `2`–`3` | Go to Step D (preset menu). |
+| `4`   | Skip Step D (11+ subset options is too cluttered). Go directly to Step E (per-provider walk). |
+
+#### Step D — Preset-subset menu (N=2 or N=3)
+
+One `AskUserQuestion`. Build the options list from `DETECTED`, mapping
+each provider to its commander via the lookup `codex → rex`,
+`claude → cody`, `opencode → bly` (matches `cw_consult_provider_to_commander`
+in `lib/consult.sh:1157`).
+
+For **N=2** (`DETECTED = [A, B]`), 4 options:
+
+- `Both <commander-A> + <commander-B>` (default recommended)
+- `<commander-A> only`
+- `<commander-B> only`
+- `Customize…`
+
+For **N=3** (`DETECTED = [A, B, C]`), 5 options:
+
+- `All three (<commander-A> + <commander-B> + <commander-C>)` (default recommended)
+- `<commander-A> + <commander-B>` (drop C)
+- `<commander-A> + <commander-C>` (drop B)
+- `<commander-B> + <commander-C>` (drop A)
+- `Customize…`
+
+If `PRIOR` matches one of the preset subsets exactly, relabel that
+option to start with `Keep current selection (…)` and present it as
+the recommended (top) option instead of the default "all".
+
+User picks anything except `Customize…` → write `providers-active.txt`
+via the Write tool with the chosen subset (one provider per line, in
+the same order they appear in `DETECTED`). Skip Steps E and F. Go to
+Step G's confirmation print.
+
+User picks `Customize…` → fall through to Step E.
+
+#### Step E — Per-provider walk (Customize, or N≥4)
+
+For each provider in `DETECTED` (in order), one `AskUserQuestion` with
+question `Include <commander> (<provider>)?` and 2 options:
+
+- `Include`
+- `Exclude`
+
+Pre-select `Include` as the recommended option if the provider is in
+`PRIOR` (after Step B's stale filter), OR if `PRIOR` is empty
+(first-time selection). Otherwise `Exclude` is recommended.
+
+After walking all providers, collect the included subset → `INCLUDED`.
+
+#### Step F — Empty-set guard
+
+If `INCLUDED` is empty (user excluded every provider), print:
+
+```
+error: must select at least one provider; selection unchanged
+```
+
+and exit this section. **Do not** write `providers-active.txt`. Prior
+state is left intact (or absent if it didn't exist). Don't auto re-prompt;
+the user can re-run `/clone-wars:medic` if they want another shot.
+
+#### Step G — Atomic write
+
+Use the **Write tool** to write `$state_root/providers-active.txt`.
+File contents (replace tokens in angle brackets):
+
+```
+# generated <ISO-8601 UTC timestamp> by /clone-wars:medic
+# active providers selected by user
+<provider-1>
+<provider-2>
+…
+```
+
+Generate the timestamp with Bash: `date -u +%Y-%m-%dT%H:%M:%SZ`.
+
+Print a confirmation line:
+
+```
+active set: <commander-A>, <commander-B> (written to providers-active.txt)
+```
+
+(Use commander names, not provider names, in the confirmation — matches
+the AskUserQuestion option labels the user just saw.)
