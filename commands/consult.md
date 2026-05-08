@@ -25,7 +25,7 @@ Spec: `docs/superpowers/specs/2026-05-07-consult-3-trooper-design.md`
 (v0.15.0); `docs/superpowers/specs/2026-04-29-clone-wars-consult-v2-design.md`
 (v0.2 baseline).
 
-## Task list (TaskCreate × 10 BEFORE step 1)
+## Task list (TaskCreate × 17 BEFORE step 1)
 
 Create the task list using `TaskCreate`. Update statuses at the
 boundaries below — do NOT print a markdown checklist in chat. Per-trooper
@@ -34,16 +34,23 @@ covers the whole roster in parallel.
 
 | # | subject | activeForm |
 |---|---|---|
-| 0 | `0 Stage args-file [yoda]`               | `Staging args-file` |
-| 1 | `1 Spawn troopers (parallel) [yoda]`     | `Spawning troopers` |
-| 2 | `2 Research [troopers]`                  | `Troopers researching` |
-| 3 | `3 Diff findings [yoda]`                 | `Diffing findings` |
-| 4 | `4 Cross-verify [troopers]`              | `Troopers verifying` |
-| 5 | `5 Resolve PENDING items [yoda]`         | `Resolving PENDING items` |
-| 6 | `6 Synthesize report [yoda]`             | `Synthesizing` |
-| 7 | `7 Teardown panes [yoda]`                | `Tearing down` |
-| 8 | `8 Archive _consult/ [yoda]`             | `Archiving` |
-| 9 | `9 Present final synthesis [yoda]`       | `Presenting synthesis` |
+| 0  | `0 Stage args-file [yoda]`                      | `Staging args-file` |
+| 1  | `1 Phrasing trigger check [yoda]`               | `Checking phrasing` |
+| 2  | `2 4-signal complexity check + route [yoda]`    | `Checking complexity` |
+| 3  | `3 Spawn troopers (parallel) [yoda]`            | `Spawning troopers` |
+| 4  | `4 Research dispatch [troopers]`                | `Dispatching research` |
+| 5  | `5 Research wait [troopers]`                    | `Troopers researching` |
+| 6  | `6 Diff findings [yoda]`                        | `Diffing findings` |
+| 7  | `7 Verify dispatch [troopers]`                  | `Dispatching verify` |
+| 8  | `8 Verify wait [troopers]`                      | `Troopers verifying` |
+| 9  | `9 Adjudicate + resolve PENDING [yoda]`         | `Adjudicating` |
+| 10 | `10 Multi-repo detect [yoda]`                   | `Detecting multi-repo` |
+| 11 | `11 Per-section design walk [yoda + user]`      | `Walking design sections` |
+| 12 | `12 Assemble + audit gate [yoda]`               | `Assembling + auditing` |
+| 13 | `13 Drill deeper (optional) [yoda + troopers]`  | `Drilling deeper` |
+| 14 | `14 Teardown panes [yoda]`                      | `Tearing down` |
+| 15 | `15 Archive _consult/ [yoda]`                   | `Archiving` |
+| 16 | `16 Present final design doc [yoda]`            | `Presenting design-doc` |
 
 ## Steps
 
@@ -66,19 +73,20 @@ PARSE=$(cw_consult_parse_design_doc_flag "$ARGUMENTS")
 DESIGN_DOC="${PARSE%%	*}"
 ARG_RAW="${PARSE#*	}"
 if [[ "$DESIGN_DOC" == "1" ]]; then
-  log_warn "--design-doc is deprecated as of v0.12.0. Run /clone-wars:spec separately after consult finishes."
+  log_warn "--design-doc is obsolete as of v0.17.0 (silently ignored). /clone-wars:consult now produces a deploy-audit-passing design doc directly; /clone-wars:spec was removed."
 fi
 ```
 
 Use `$ARG_RAW` (not `$ARGUMENTS`) for the topic text from this point.
-The flag is parsed only for back-compat — a deprecation warning fires
-above and `$DESIGN_DOC` is otherwise unused. Run `/clone-wars:spec`
-separately to walk a design doc.
+The flag is parsed for back-compat ONLY — a deprecation warning fires
+above and `$DESIGN_DOC` is otherwise unused. v0.17.0 always produces a
+deploy-audit-passing design doc; the v0.12 split (consult → spec) is
+gone.
 
 **v0.16.0 — `--use-force` flag parsing (after `--design-doc` parse, BEFORE init):**
 
 The `--use-force` flag escalates immediately to the trooper roster, skipping
-the Yoda fast-path block (Step 0.5). Mirrors `cw_consult_parse_design_doc_flag`'s
+the Yoda fast-path block (Step 2). Mirrors `cw_consult_parse_design_doc_flag`'s
 token-aware semantics — only EXACT `--use-force` tokens are stripped (not
 `--use-force-please`, `--use-forced`, etc.).
 
@@ -136,14 +144,16 @@ and `--use-force` still escalates.
 
 Set task `0` → `completed`.
 
-### Step 0.4 — Escalation phrasing-trigger detection (v0.16.0)
+### Step 1 — Escalation phrasing-trigger detection
 
-If `USE_FORCE=1`, skip this step (already escalating).
+Set task `1` → `in_progress`.
+
+If `USE_FORCE=1`, skip the trigger scan (already escalating).
 
 Otherwise, scan the topic text for case-insensitive escalation keywords.
 The keywords below indicate the user explicitly wants the multi-trooper
 cross-verification (rather than Yoda's fast-path single-source answer).
-If any match, set `ESCALATE_FROM_PHRASING=1` and skip Step 0.5 (fast-path).
+If any match, set `ESCALATE_FROM_PHRASING=1` and skip Step 2 (fast-path).
 
 ```
 ESCALATE_FROM_PHRASING=0
@@ -166,10 +176,25 @@ if [[ "$USE_FORCE" != "1" ]]; then
 fi
 ```
 
-### Step 0.5 — Yoda fast-path (v0.16.0)
+Set task `1` → `completed`.
 
-If `USE_FORCE=1` or `ESCALATE_FROM_PHRASING=1`, skip this step entirely
-and proceed to Step 1.
+### Step 2 — 4-signal complexity check + ROUTE
+
+Set task `2` → `in_progress`.
+
+**Routing rules** (any one triggers escalated path):
+- `--use-force` flag present
+- Phrasing trigger fires (Step 1)
+- Any 4-signal fires (below)
+- `--targets a,b,c` was passed (treated as explicit escalation signal — even
+  on trivial topics, an explicit multi-repo declaration deserves the full
+  pipeline)
+
+If none of the above → fast path.
+
+If `USE_FORCE=1` or `ESCALATE_FROM_PHRASING=1` or `--targets` was supplied
+(detect by `[[ -f "$TOPIC_DIR/_consult/targets.txt" ]]`), skip the 4-signal
+check entirely and proceed to Step 3 (parallel spawn).
 
 Otherwise, Master Yoda performs a fast-path research pass to determine
 whether the topic warrants spawning the trooper roster. The goal is to
@@ -187,7 +212,7 @@ sufficiently bounded; on any sign of complexity, escalate.
   (Drive, Calendar, Gmail, Notion, etc.).
 
 Time-box research roughly equivalent to what one trooper would spend
-in Step 2 (a few minutes of focused investigation, not an open-ended
+in Step 5 (a few minutes of focused investigation, not an open-ended
 deep dive).
 
 **2. Run the 4-signal complexity check.** Favor rigor — **any 1+ signal
@@ -207,78 +232,76 @@ fires** → escalate to troopers. The signals are:
   from cross-verified perspectives.
 
 **3. If any signal fires:** set `ESCALATE_FROM_SIGNALS=1`, log the firing
-signal name, and proceed to Step 1.
+signal name, and proceed to Step 3 (parallel spawn).
 
 ```
 ESCALATE_FROM_SIGNALS=1
 log_info "fast-path: signal '<which-fired>' fired; escalating to troopers"
 ```
 
-**4. If no signal fires:** Yoda writes the canonical design-doc INLINE
-and exits. No trooper-spawn, no `_consult/` working artifacts beyond
-what `consult-init.sh` already created (`topic.txt` + the empty
-`design-doc/` dir).
-
-Compute the canonical path:
+**4. If no signal fires:** FAST PATH. Yoda writes a deploy-audit-passing
+6-section design-doc by drafting each section inline, staging the drafts
+under `.draft/<section>.md`, and invoking
+`bin/consult-walk-assemble.sh` to assemble + audit. Then exit.
 
 ```
-DESIGN_DOC_PATH=$(cw_consult_design_doc_canonical_path \
-    "$TOPIC_DIR/_consult" "$CONSULT_TOPIC")
+DRAFT_DIR="$TOPIC_DIR/_consult/design-doc/.draft"
+mkdir -p "$DRAFT_DIR"
 ```
 
-Then write the rigid 6-section design-doc using the **Write tool**
-(atomic single-shot write, not append). The trust-label header is fixed
-on the fast path:
+Use the **Write tool** to draft each of the 6 sections to its draft file
+(atomic single-shot writes, not appends). Section file mapping:
+
+- `$DRAFT_DIR/problem.md`         — `## Problem` heading + 1-3 sentences
+  on the current state being addressed.
+- `$DRAFT_DIR/goal.md`            — `## Goal` heading + 1 paragraph on
+  what the world looks like after this is done.
+- `$DRAFT_DIR/architecture.md`    — `## Architecture` heading + Yoda's
+  recommended approach, the bulk of the doc.
+- `$DRAFT_DIR/components.md`      — `## Components` heading + bullets
+  for files / functions / classes touched.
+- `$DRAFT_DIR/testing.md`         — `## Testing` heading + bullets for
+  what tests cover the change.
+- `$DRAFT_DIR/success-criteria.md` — `## Success Criteria` heading +
+  measurable bullets (e.g. `- [ ] p99 latency < 50ms`).
+
+Each draft body should cite sources inline where applicable
+(`path/to/file:line`, URLs, runtime observations). Goal / Architecture /
+Testing / Success Criteria are deploy-audit-required — do NOT emit them
+empty. If a section truly doesn't apply (e.g. pure-research topic with
+no testing implications), still emit the heading with a one-line
+explanation rather than `_(skipped)_`.
+
+After all 6 drafts are written, invoke walk-assemble:
 
 ```
-> **Source:** Master Yoda (single-source)
-> **Generated:** <ISO-8601 UTC timestamp>
-> **Path:** fast
+DD_PATH=$("$CLAUDE_PLUGIN_ROOT/bin/consult-walk-assemble.sh" "$CONSULT_TOPIC" 2>/tmp/cw-fastpath-err) || {
+  log_error "fast-path: walk-assemble FAILED — see /tmp/cw-fastpath-err"
+  exit 1
+}
+log_ok "fast-path: design-doc at $DD_PATH"
 ```
 
-The 6 sections must all be present. Sections that don't apply for this
-topic get the literal placeholder `_(not applicable)_` (so downstream
-tooling can detect "intentionally empty" vs accidentally missing). For
-a typical pure-research question, the section mapping is:
+If `walk-assemble.sh` exits non-zero (audit FAIL), parse `ISSUE=` lines
+from `/tmp/cw-fastpath-err` and re-draft the offending section once via
+`cw_consult_audit_issue_to_section`. If audit still fails after one
+re-draft, surface the ISSUE list to the user and exit 1.
 
-- **Summary** — 1-3 sentences: the question + Yoda's answer.
-- **Findings** — what Yoda's research revealed, with citations inline
-  (`path/to/file:line` for code, URL for web sources, MCP tool name +
-  observation for MCP-derived facts).
-- **Tradeoffs** — `_(not applicable)_` if there's no choice between
-  alternatives (pure research questions); otherwise, list the considered
-  options with their pros/cons.
-- **Recommendation** — what action Yoda would suggest the user take next
-  (one specific actionable step, not a hedged paragraph).
-- **Open Questions** — anything Yoda didn't fully resolve and would
-  recommend escalating with `--use-force` if the user wants to push
-  further.
-- **Sources** — citations as bullets:
-  - `path/to/file:line` for code sources
-  - `https://url` for web sources (Tavily + WebSearch)
-  - `runtime: <observation>` for facts derived from running commands
-    (e.g. `runtime: bash --version → 5.2.21`)
+On audit PASS: print the design-doc path to the user, set all tasks
+(`3`–`16`) to `completed` (the trooper-roster + walk tasks are skipped on
+fast path), exit 0. No teardown call is needed — the only stateful
+side-effects are `topic.txt`, `design-doc/.draft/*.md`, the assembled
+`design-doc/<date>-<slug>-design.md`, and `audit.log`.
 
-After writing, **print the full design-doc text to chat** so the user
-sees the answer immediately, then `exit 0`. No teardown call is needed
-on the fast path — the only stateful side-effects are `topic.txt`,
-the empty `design-doc/` dir, and the design-doc itself, all of which
-are the canonical fast-path topic-dir layout. (Optionally invoke
-`consult-archive.sh` if you want the topic dir moved to `archive/`
-on success; not required by the v0.16.0 contract.)
+Set task `2` → `completed`.
 
-Set the relevant tasks (`1`–`9`) to `completed` if you used `TaskCreate`
-at the top of the run; the trooper-roster tasks are skipped on the
-fast path. Tell the user the answer in plain prose with the design-doc
-path so they can re-open it later.
+### Step 3 — Parallel spawn (N-aware, with auto-retry-once + rollback)
 
-### Step 1 — Parallel spawn (N-aware, with auto-retry-once + rollback)
-
-Set task `1` → `in_progress`.
+Set task `3` → `in_progress`.
 
 **Reached from one of three escalation paths:** `--use-force` flag,
-phrasing trigger, or 4-signal escalation from Step 0.5. Set
-`CW_PATH_LABEL` accordingly — it is consumed by Step 8 (synthesize)
+phrasing trigger, or 4-signal escalation from Step 2. Set
+`CW_PATH_LABEL` accordingly — it is consumed by Step 11 (synthesize)
 to stamp the design-doc trust header:
 
 ```
@@ -336,7 +359,7 @@ costs ~30s in the rare failure case and is invisible on the happy path.
 Same semantics for opencode (DeepSeek V4 Pro auth handshake on first
 call).
 
-- **All N succeed** → continue to Step 2. Set task `1` → `completed`.
+- **All N succeed** → continue to Step 4. Set task `3` → `completed`.
 
 - **At least one of the N fails AND `SPAWN_RETRY_COUNT == 0`** →
   **auto-retry-once**:
@@ -363,11 +386,11 @@ call).
 
   Tell the user which provider(s) failed twice and why (capture stderr
   from both attempts for diagnostics — typically codex/opencode bootstrap
-  timeout or binary-not-found). Task `1` stays `pending`.
+  timeout or binary-not-found). Task `3` stays `pending`.
 
-### Step 2 — Parallel research dispatch (N-aware)
+### Step 4 — Parallel research dispatch (N-aware)
 
-Set task `2` → `in_progress`.
+Set task `4` → `in_progress`.
 
 Issue `N` parallel Bash tool calls in a single message — one per entry
 in `TROOPERS`. Each call: `bin/consult-research-send.sh "$CONSULT_TOPIC"
@@ -384,7 +407,11 @@ Canonical N=3 example:
 For N=2, issue 2 calls instead. Use the same `TROOPERS` iteration pattern
 (`IFS=$'\t' read -r prov cmdr <<<"$entry"`) to derive each call.
 
-### Step 3 — Parallel research wait (N-aware, with question loop)
+Set task `4` → `completed`.
+
+### Step 5 — Parallel research wait (N-aware, with question loop)
+
+Set task `5` → `in_progress`.
 
 Background-await protocol: wait-scripts run as background tasks so Master
 Yoda's pane stays interactive while troopers work. Each wait-script writes
@@ -480,17 +507,17 @@ f. **Re-arm by removing the `.done` sentinel and re-running the wait-script
 
 Continue handling notifications until **all `N` commanders'** state files show
 `FS ∈ {ok, empty, missing, failed, timeout, malformed}`. `FS=question` is a
-transient state — only proceed to Step 4 when every trooper has a
+transient state — only proceed to Step 6 when every trooper has a
 terminal value.
 
-- All `ok` / `empty` / `missing` → set task `2` → `completed`.
+- All `ok` / `empty` / `missing` → set task `5` → `completed`.
 - Any `failed` / `timeout` / `malformed` → consider Pattern 1 (re-prompt)
-  before proceeding; set task `2` → `completed` if accepting the degraded
+  before proceeding; set task `5` → `completed` if accepting the degraded
   result.
 
-### Step 4 — Diff (N-way Venn)
+### Step 6 — Diff (N-way Venn)
 
-Set task `3` → `in_progress`.
+Set task `6` → `in_progress`.
 
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/consult-diff.sh" "$CONSULT_TOPIC"
@@ -499,12 +526,12 @@ Set task `3` → `in_progress`.
 `consult-diff.sh` reads `_consult/troopers.txt` and produces an N-way
 Venn — for N=2 the legacy `rex_only_items.txt` / `cody_only_items.txt` /
 `overlap_items.txt`; for N=3 a `<cmdr>_only_items.txt` per commander
-plus pair-overlaps and a 3-way `consensus.txt`. Set task `3` →
+plus pair-overlaps and a 3-way `consensus.txt`. Set task `6` →
 `completed`.
 
-### Step 5 — Parallel verify dispatch + wait (N-aware, with question loop)
+### Step 7 — Parallel verify dispatch (N-aware)
 
-Set task `4` → `in_progress`.
+Set task `7` → `in_progress`.
 
 Send phase — issue `N` parallel Bash tool calls (foreground; sends
 complete in <1s). Each: `bin/consult-verify-send.sh "$CONSULT_TOPIC"
@@ -523,6 +550,10 @@ the **union of bucket files NOT containing this trooper** — i.e. claims
 nobody-else, the other-trooper-only set, and any pair-overlaps that
 don't include this trooper. `consult-verify-send.sh` computes the scope
 from `_consult/troopers.txt` automatically.
+
+### Step 8 — Parallel verify wait (N-aware, with question loop)
+
+Set task `8` → `in_progress`.
 
 Wait phase — issue `N` parallel **background** Bash tool calls (Yoda
 stays interactive):
@@ -557,9 +588,9 @@ STATE_FILE="$TOPIC_DIR/_consult/verify-<commander>.txt"
 DONE_SENTINEL="${STATE_FILE%.txt}.done"
 ```
 
-Same 4-step parse as Step 3 (sentinel check + grep `^VS=`). Note that
+Same 4-step parse as Step 5 (sentinel check + grep `^VS=`). Note that
 verify uses `VS=` (not `FS=` — that's research). The verify phase's
-question-loop semantics match Step 3's exactly — see Pattern 4 (updated
+question-loop semantics match Step 5's exactly — see Pattern 4 (updated
 below) for the re-arm recipe.
 
 For each commander whose `VS=question`, the verify phase's findings-so-far
@@ -573,9 +604,11 @@ Pass the contents of `$FINDINGS_PATH` into the answer-classification
 prompt before invoking Pattern 4's relay.
 
 If **all** troopers report all-UNCERTAIN verdicts, consider Pattern 3
-intervention. Otherwise set task `4` → `completed`.
+intervention. Otherwise set task `8` → `completed`.
 
-### Step 6 — Adjudicate (writes 5-tier draft)
+### Step 9 — Adjudicate + Yoda resolves PENDING
+
+Set task `9` → `in_progress`.
 
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/consult-adjudicate.sh" "$CONSULT_TOPIC"
@@ -593,12 +626,8 @@ Copy the draft to Master Yoda's resolution surface:
 cp "$TOPIC_DIR/_consult/adjudicated-draft.md" "$TOPIC_DIR/_consult/adjudicated.md"
 ```
 
-Set task `5` → `in_progress`.
-
-### Step 7 — Resolve PENDING items
-
-Open `_consult/adjudicated.md` with the Read tool. For every line
-beginning `- PENDING:`:
+**Resolve PENDING items.** Open `_consult/adjudicated.md` with the Read
+tool. For every line beginning `- PENDING:`:
 
 a. Note `[citation]` + claim.
 b. Read the cited source (file or WebFetch URL).
@@ -607,14 +636,56 @@ d. Edit tool to rewrite:
    - CONFIRMED / REFUTED: replace `- PENDING:` with the verdict + evidence.
    - CONTESTED: move under `## Contested`, drop the prefix.
 
-When no `^- PENDING:` remains, set task `5` → `completed` and task `6` →
-`in_progress`.
+When no `^- PENDING:` remains, set task `9` → `completed`.
 
-### Step 8 — Synthesize
+### Step 10 — Multi-repo detection
 
-**v0.16.0:** set `CW_SOURCE_LABEL` based on the roster size; `CW_PATH_LABEL`
-was already exported in Step 1. Both are consumed by `consult-synthesize.sh`
-to stamp the design-doc trust header.
+Set task `10` → `in_progress`.
+
+If `--targets a,b,c` was passed on the command line, `bin/consult-init.sh`
+already wrote `_consult/targets.txt` and `_consult/multi-repo.txt=multi`.
+Skip auto-detection in that case.
+
+```
+if [[ -f "$TOPIC_DIR/_consult/multi-repo.txt" && -f "$TOPIC_DIR/_consult/targets.txt" ]]; then
+  log_info "[step 10] multi-repo set by --targets; skipping auto-detect"
+else
+  source "$CLAUDE_PLUGIN_ROOT/lib/consult-walk.sh"
+  HITS=$(cw_consult_detect_multi_repo "$PWD" "$(cat "$TOPIC_DIR/_consult/topic.txt")")
+fi
+```
+
+If `$HITS` is empty (no sibling matches OR --targets was set):
+- single-repo path. Write `_consult/multi-repo.txt = single` if not already
+  present. Skip the AskUserQuestion confirmation.
+
+If `$HITS` is non-empty (auto-detect found candidate slugs):
+- Issue `AskUserQuestion`:
+  - Question: "Detected multi-repo topic candidates: <slug list>. Use
+    these as targets, edit, or proceed single-repo?"
+  - Options: `Use auto-detected list` / `Edit list` / `Proceed single-repo`
+- On `Use auto-detected list`: write `_consult/targets.txt` from `$HITS`
+  + `_consult/multi-repo.txt = multi`.
+- On `Edit list`: AskUserQuestion (free-form) for the edited slug list
+  (comma-separated). Validate each against `${CW_SLUG_REGEX_BASE}` and
+  re-prompt on rejection. Write `targets.txt` + `multi-repo.txt = multi`.
+- On `Proceed single-repo`: write `_consult/multi-repo.txt = single`. No
+  targets.txt.
+
+Set task `10` → `completed`.
+
+### Step 11 — Per-section design walk
+
+Set task `11` → `in_progress`.
+
+**Setup.** Run `bin/consult-synthesize.sh` to produce SEED DRAFTS under
+`$TOPIC_DIR/_consult/design-doc/.draft/<section>.md`. (Note: in v0.17.0
+synthesize emits seeds, NOT a final design-doc — assembly happens in Step 12.)
+
+Set the trust-label envs first (`CW_PATH_LABEL` was exported in Step 3;
+`CW_SOURCE_LABEL` reflects the roster size). Both are consumed by
+`cw_consult_synthesize` to stamp seed drafts; the assembled design-doc
+inherits the labels via Step 12.
 
 ```
 case "$N" in
@@ -627,17 +698,137 @@ CW_SOURCE_LABEL="$CW_SOURCE_LABEL" CW_PATH_LABEL="$CW_PATH_LABEL" \
   "$CLAUDE_PLUGIN_ROOT/bin/consult-synthesize.sh" "$CONSULT_TOPIC"
 ```
 
-Refuses if PENDING remains. On success, prints the canonical design-doc
-with N-source attribution tags (e.g. `[rex+cody+bly]` for 3-way
-consensus). Set task `6` → `completed`.
+Determine section list based on multi-repo flag:
 
-### Step 8.4 — Drill deeper (optional, N-aware)
+```
+MULTI_REPO=$(tr -d '[:space:]' < "$TOPIC_DIR/_consult/multi-repo.txt" 2>/dev/null || echo "single")
+if [[ "$MULTI_REPO" == "multi" ]]; then
+  SECTIONS=(problem goal architecture components execution-dag cross-repo-notes testing success-criteria)
+  SECTION_TITLES=(Problem Goal Architecture Components "Execution DAG" "Cross-Repo Notes" Testing "Success Criteria")
+else
+  SECTIONS=(problem goal architecture components testing success-criteria)
+  SECTION_TITLES=(Problem Goal Architecture Components Testing "Success Criteria")
+fi
+DRAFT_DIR="$TOPIC_DIR/_consult/design-doc/.draft"
+mkdir -p "$DRAFT_DIR"
+```
+
+Load resume state (sections approved on prior runs):
+
+```
+mapfile -t APPROVED < <(cw_consult_walk_section_state "$DRAFT_DIR")
+```
+
+**Per-section loop.** For each `i` in `0..${#SECTIONS[@]}-1`:
+
+1. `key=${SECTIONS[$i]}; title=${SECTION_TITLES[$i]}`.
+2. **Resume check.** If `$key` appears in `${APPROVED[@]}` AND the existing
+   `$DRAFT_DIR/$key.md` is approved (not `_(skipped)_`):
+   - `AskUserQuestion`: "Section '$title' already approved on a prior run.
+     Reuse / Redo / Skip?"
+   - Reuse → continue to next `i`.
+   - Redo → `rm "$DRAFT_DIR/$key.md"`, fall through to draft loop.
+   - Skip → `printf '_(skipped)_\n' > "$DRAFT_DIR/$key.md"`, next `i`.
+3. **Critical-section skip block.** If `$key` is `goal` or `architecture`,
+   the AskUserQuestion options DO NOT include `Skip` (they're required by
+   `cw_deploy_audit_doc`). Banner: "This section is required by
+   cw_deploy_audit_doc; Skip not available — pick Approve or Revise."
+4. **Draft loop:**
+   - REVISE_COUNT=0
+   - Yoda reads `$TOPIC_DIR/_consult/adjudicated.md`,
+     `$DRAFT_DIR/$key.md` (the seed from synthesize), and the matching
+     trooper's `findings.md`/`verify.md`.
+   - For multi-repo + `key=architecture`: also reads `targets.txt`; drafts
+     `### <slug>` subsections (one per target).
+   - For multi-repo + `key=execution-dag`: drafts a soft DAG using
+     `cw_consult_emit_soft_dag` from a TSV that Yoda constructs based on
+     trooper findings about cross-repo dependencies. (User can re-edit
+     during Revise.)
+   - Yoda presents the draft in chat (markdown formatting preserved).
+   - `AskUserQuestion` (3 options for non-critical sections, 2 for critical):
+     - **Approve** → write the approved draft to `$DRAFT_DIR/$key.md` (atomic
+       tmp+mv), break draft loop, advance to next `i`.
+     - **Revise** → AskUserQuestion: "What should change?" (free-form).
+       Fold response into draft. REVISE_COUNT++. Re-loop to present.
+       - If REVISE_COUNT == 4 (i.e., user picked Revise four times):
+         AskUserQuestion: "Revise loop has hit the cap (3 revisions).
+         Force-approve current draft / Skip (not available for goal/architecture) /
+         Abort consult." Force-approve writes the last presented draft.
+     - **Skip** (non-critical only) → write `_(skipped)_` to
+       `$DRAFT_DIR/$key.md`, break draft loop, advance.
+
+Set task `11` → `completed`.
+
+### Step 12 — Assemble + deploy-audit gate
+
+Set task `12` → `in_progress`.
+
+```
+ATTEMPT=1
+MAX_ATTEMPT_PER_SECTION=2
+while :; do
+  if DD_PATH=$("$CLAUDE_PLUGIN_ROOT/bin/consult-walk-assemble.sh" "$CONSULT_TOPIC" 2>/tmp/cw-walk-err); then
+    log_ok "[step 12] design-doc assembled + audit PASS: $DD_PATH"
+    break
+  fi
+  # Audit FAILED. Parse ISSUE= lines and re-walk the offending section(s).
+  mapfile -t ISSUE_LINES < <(grep '^ISSUE=' /tmp/cw-walk-err || true)
+  [[ ${#ISSUE_LINES[@]} -gt 0 ]] || { log_error "[step 12] audit FAIL but no ISSUE= lines parsed"; exit 1; }
+
+  source "$CLAUDE_PLUGIN_ROOT/lib/consult-walk.sh"
+  for line in "${ISSUE_LINES[@]}"; do
+    KEY="${line#ISSUE=}"
+    TARGET=$(cw_consult_audit_issue_to_section "$KEY")
+    case "$TARGET" in
+      goal|architecture|components|testing|success-criteria|execution-dag|cross-repo-notes|problem)
+        log_info "[step 12] re-walking $TARGET (ISSUE=$KEY)"
+        rm -f "$TOPIC_DIR/_consult/design-doc/.draft/$TARGET.md"
+        # Re-enter Step 11's per-section walk for this section ONLY.
+        # (Walk only this one key; other approved sections preserved.)
+        ;;
+      ASK)
+        # Marker issue (TBD/TODO/etc.) — Yoda must locate the section.
+        # AskUserQuestion: which section contains the marker? Options derived
+        # from sections that have non-skipped drafts. Then re-walk that one.
+        log_info "[step 12] marker issue $KEY; asking user to identify section"
+        ;;
+      header)
+        # Target Sub-Project slug invalid. Re-prompt for targets in Step 10.
+        log_error "[step 12] target_subproject_when_invalid; re-running Step 10 multi-repo detect"
+        rm -f "$TOPIC_DIR/_consult/multi-repo.txt" "$TOPIC_DIR/_consult/targets.txt"
+        # (Directive falls back to Step 10 by goto-style logic; in practice,
+        # surface the error to user and ask to abort or retry.)
+        ;;
+      *)
+        log_error "[step 12] unknown ISSUE=$KEY (no mapping)"
+        # AskUserQuestion: "Audit emitted unknown ISSUE=$KEY. Commit failing doc / Abort?"
+        ;;
+    esac
+  done
+
+  ATTEMPT=$((ATTEMPT+1))
+  if (( ATTEMPT > MAX_ATTEMPT_PER_SECTION )); then
+    # AskUserQuestion: "Audit retry budget exhausted. Commit failing doc with banner / Abort?"
+    # On "Commit failing doc with banner": re-run walk-assemble one more time
+    # to write doc despite audit FAIL; banner appended to top of doc by Yoda
+    # using Edit tool. Then break.
+    log_error "[step 12] aborting"; exit 1
+  fi
+done
+```
+
+Set task `12` → `completed`.
+
+### Step 13 — Drill deeper (optional, N-aware)
+
+Set task `13` → `in_progress`.
 
 Before teardown, offer one or more free-form drill-deeper rounds while
 troopers are still alive. Each round writes to
 `$TOPIC_DIR/_consult/drilldowns/_scratch/drilldown-<slug>-<commander>.md`
-(slug = lowercased drill topic with spaces as hyphens) and becomes part
-of the archive that `/clone-wars:spec` consumes.
+(slug = lowercased drill topic with spaces as hyphens). Drilldowns
+persist in the archive as supplemental context for the user (Yoda may
+also reference them when re-walking sections during Step 11).
 
 ```
 DRILL_DIR="$TOPIC_DIR/_consult/drilldowns"
@@ -708,7 +899,7 @@ Loop while user picks "Yes":
    ```
    Treat the run as success if at least one of the two invocations
    returned `rc=0`. The 3 produced files share the same `<slug>` so
-   `/clone-wars:spec` consumes them as a single drill round.
+   they're recognizable as a single drill round in the archive.
 
 5. Read the produced drilldown file(s) under `$DRILL_DIR/_scratch/` —
    filename pattern `drilldown-<slug>-<commander>.md` (slug = lowercased
@@ -724,36 +915,44 @@ Loop while user picks "Yes":
     - Skip and continue: fall through to step 6.
 6. `AskUserQuestion`: "Drill another aspect?" Options: `Yes` / `No — proceed to teardown`.
 
-Drilldowns are part of the archive (`_consult/drilldowns/`) and become
-available to `/clone-wars:spec` as supplemental context for the
-design-doc walk.
+Drilldowns are part of the archive (`_consult/drilldowns/`) and remain
+available to the user as supplemental context after teardown.
 
-### Step 9 — Teardown + archive
+Set task `13` → `completed`.
+
+### Step 14 — Teardown panes
+
+Set task `14` → `in_progress`.
 
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC"
 ```
 
 `consult-teardown.sh` reads `_consult/troopers.txt` and tears down every
-listed trooper (no hardcoded pair). Set task `7` → `completed`.
+listed trooper (no hardcoded pair). Set task `14` → `completed`.
+
+### Step 15 — Archive _consult/
+
+Set task `15` → `in_progress`.
 
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/consult-archive.sh" "$CONSULT_TOPIC"
 ```
 
-Set task `8` → `completed`. Set task `9` → `in_progress`.
+Set task `15` → `completed`. Set task `16` → `in_progress`.
 
-### Step 10 — Present synthesis
+### Step 16 — Present final design-doc
 
-Show the user the final synthesis (already printed by step 8). Set task
-`9` → `completed`.
+Show the user the final design-doc assembled in Step 12 at
+`$TOPIC_DIR/_consult/design-doc/<date>-<slug>-design.md` (path also
+echoed by `bin/consult-walk-assemble.sh`). Set task `16` → `completed`.
 
 ## Intervention patterns
 
 ### Pattern 1: Malformed findings re-prompt
 
 > The wait-script runs in background; read state file + `.done` sentinel
-> from the controller's notification handler (see Step 3).
+> from the controller's notification handler (see Step 5).
 
 If `research-<commander>.txt` shows `FS=malformed`:
 
@@ -769,7 +968,7 @@ Bash(
   run_in_background: true,
   description='master yoda await <commander> research re-prompt (background)'
 )
-# Wait for completion notification, then read state file as in Step 3.
+# Wait for completion notification, then read state file as in Step 5.
 
 "$CLAUDE_PLUGIN_ROOT/bin/consult-diff.sh" "$CONSULT_TOPIC"
 ```
@@ -777,7 +976,7 @@ Bash(
 ### Pattern 3: All-UNCERTAIN verify re-prompt
 
 > The wait-script runs in background; read state file + `.done` sentinel
-> from the controller's notification handler (see Step 3).
+> from the controller's notification handler (see Step 5).
 
 If `verify-<commander>.txt` verdicts are all UNCERTAIN:
 
@@ -793,7 +992,7 @@ Bash(
   run_in_background: true,
   description='master yoda await <commander> verify re-prompt (background)'
 )
-# Wait for completion notification, then read state file as in Step 3.
+# Wait for completion notification, then read state file as in Step 5.
 
 "$CLAUDE_PLUGIN_ROOT/bin/consult-adjudicate.sh" "$CONSULT_TOPIC"
 cp "$TOPIC_DIR/_consult/adjudicated-draft.md" "$TOPIC_DIR/_consult/adjudicated.md"
