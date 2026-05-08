@@ -85,3 +85,34 @@ cw_consult_detect_multi_repo() {
     printf '%s\t%s\n' "$slug" "$abs"
   done
 }
+
+# cw_consult_walk_section_state [--with-status] <draft-dir>
+# Lists section names that already have draft files in $draft-dir, sorted
+# alphabetically. With --with-status, emits TSV "<name>\t<approved|skipped>".
+# A draft file whose contents are exactly "_(skipped)_" (one line, with or
+# without trailing newline) is "skipped"; anything else is "approved".
+# rc=0 on success; rc=1 if dir missing; rc=2 if arg missing.
+cw_consult_walk_section_state() {
+  local with_status=0
+  if [[ "${1:-}" == "--with-status" ]]; then
+    with_status=1; shift
+  fi
+  local dir="${1:-}"
+  [[ -n "$dir" ]] || { echo "cw_consult_walk_section_state: draft-dir required" >&2; return 2; }
+  [[ -d "$dir" ]] || { echo "cw_consult_walk_section_state: not a directory: $dir" >&2; return 1; }
+  local f name body
+  for f in "$dir"/*.md; do
+    [[ -f "$f" ]] || continue
+    name=$(basename "$f" .md)
+    if (( with_status )); then
+      body=$(tr -d '[:space:]' < "$f")
+      if [[ "$body" == "_(skipped)_" ]]; then
+        printf '%s\tskipped\n' "$name"
+      else
+        printf '%s\tapproved\n' "$name"
+      fi
+    else
+      printf '%s\n' "$name"
+    fi
+  done | sort
+}
