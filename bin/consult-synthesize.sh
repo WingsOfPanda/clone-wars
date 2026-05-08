@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-# bin/consult-synthesize.sh — write the canonical design-doc after PENDING
-# resolution.
+# bin/consult-synthesize.sh — produce per-section seed drafts after PENDING
+# resolution. The final design-doc is assembled by bin/consult-walk-assemble.sh
+# (v0.17.0 split).
 #
 # Usage: bin/consult-synthesize.sh <consult-topic>
 #
-# v0.16.0: writes the design-doc at
-#   _consult/design-doc/<YYYY-MM-DD>-<slug>-design.md
-# with the rigid 6-section schema (Summary / Findings / Tradeoffs /
-# Recommendation / Open Questions / Sources) and the Source/Generated/Path
-# trust-label header. The legacy _consult/synthesis.md write is REMOVED
-# entirely — no fallback, no symlink.
+# v0.17.0: writes 6 seed drafts to
+#   _consult/design-doc/.draft/{problem,goal,architecture,components,testing,success-criteria}.md
+# from the adjudicated.md content. Each draft starts with the heading and a
+# bracketed seed body grep'd from adjudicated.md. The directive's Step 11
+# walk consumes these as starting points for Yoda's per-section drafts.
 #
-# Refuses if adjudicated.md is missing OR contains any ^- PENDING: line OR
-# the canonical design-doc path already exists.
+# Refuses if adjudicated.md is missing OR contains any ^- PENDING: line.
+# Does NOT emit the final design-doc — that's walk-assemble's job.
+# Does NOT write the legacy _consult/synthesis.md (removed in v0.12).
 
 set -uo pipefail
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -42,37 +43,51 @@ if grep -q '^- PENDING:' "$ADJ"; then
   exit 1
 fi
 
-# v0.16.0: canonical design-doc path replaces synthesis.md.
-SLUG="${TOPIC#consult-}"
-[[ -n "$SLUG" && "$SLUG" != "$TOPIC" ]] || { log_error "topic '$TOPIC' missing 'consult-' prefix"; exit 2; }
-DESIGN_DOC=$(cw_consult_design_doc_canonical_path "$ART_DIR" "$SLUG") \
-  || { log_error "could not derive design-doc canonical path"; exit 1; }
+# v0.17.0: per-section seed drafts replace the v0.16 single design-doc emit.
+DRAFT_DIR="$ART_DIR/design-doc/.draft"
+mkdir -p "$DRAFT_DIR"
 
-[[ ! -e "$DESIGN_DOC" ]] || { log_error "$DESIGN_DOC already exists; rm to regenerate"; exit 1; }
+# Single-repo 6-section shape. Multi-repo extras (execution-dag,
+# cross-repo-notes) are NOT seeded here — Yoda drafts them fresh during the
+# walk because they require targets.txt content not present in adjudicated.md.
+SECTIONS=(problem goal architecture components testing success-criteria)
+for section in "${SECTIONS[@]}"; do
+  case "$section" in
+    problem)          heading="## Problem" ;;
+    goal)             heading="## Goal" ;;
+    architecture)     heading="## Architecture" ;;
+    components)       heading="## Components" ;;
+    testing)          heading="## Testing" ;;
+    success-criteria) heading="## Success Criteria" ;;
+  esac
+  DRAFT_FILE="$DRAFT_DIR/$section.md"
+  TMPF=$(mktemp)
+  printf '%s\n\n' "$heading" > "$TMPF"
+  case "$section" in
+    problem)
+      printf '<!-- seed: cross-verified facts about the current state -->\n' >> "$TMPF"
+      grep -E '^- \[' "$ADJ" 2>/dev/null >> "$TMPF" || true ;;
+    goal)
+      printf '<!-- seed: claims tagged [Goal] in adjudicated.md -->\n' >> "$TMPF"
+      grep -iE '^- \[Goal' "$ADJ" 2>/dev/null >> "$TMPF" || true ;;
+    architecture)
+      printf '<!-- seed: claims tagged [Architecture] -->\n' >> "$TMPF"
+      grep -iE '^- \[Architecture' "$ADJ" 2>/dev/null >> "$TMPF" || true ;;
+    components)
+      printf '<!-- seed: claims tagged [Components] -->\n' >> "$TMPF"
+      grep -iE '^- \[Components' "$ADJ" 2>/dev/null >> "$TMPF" || true ;;
+    testing)
+      printf '<!-- seed: claims tagged [Testing] or containing "test" -->\n' >> "$TMPF"
+      grep -iE '^- \[Testing|^- .*\btest' "$ADJ" 2>/dev/null >> "$TMPF" || true ;;
+    success-criteria)
+      printf '<!-- seed: claims tagged [Success Criteria] -->\n' >> "$TMPF"
+      grep -iE '^- \[Success' "$ADJ" 2>/dev/null >> "$TMPF" || true ;;
+  esac
+  # Ensure non-empty body (placeholder if no seed content matched).
+  if [[ $(wc -l < "$TMPF") -le 2 ]]; then
+    printf '_(no seed content matched; Yoda drafts from scratch in Step 11)_\n' >> "$TMPF"
+  fi
+  mv "$TMPF" "$DRAFT_FILE"
+done
 
-# consult-init pre-creates the design-doc/ subdir; mkdir -p as belt-and-braces
-# so direct invocations (e.g. tests) still work.
-mkdir -p "$(dirname "$DESIGN_DOC")"
-
-# Load statuses with safe fallbacks. Each stage file is KEY=VAL lines; we read
-# one specific key per file and apply a per-stage default if missing/empty.
-load_stage_status() {
-  local file="$1" key="$2" default="$3" val=""
-  [[ -f "$file" ]] && val=$(awk -F= -v k="$key" '$1==k{print $2; exit}' "$file")
-  printf '%s\n' "${val:-$default}"
-}
-REX_FS=$(load_stage_status  "$ART_DIR/research-rex.txt"  FS missing)
-CODY_FS=$(load_stage_status "$ART_DIR/research-cody.txt" FS missing)
-REX_VS=$(load_stage_status  "$ART_DIR/verify-rex.txt"    VS skipped)
-CODY_VS=$(load_stage_status "$ART_DIR/verify-cody.txt"   VS skipped)
-
-TOPIC_TEXT=$(cat "$ART_DIR/topic.txt")
-DIFF="$ART_DIR/diff.md"
-REX_DIR=$(cw_trooper_dir rex codex "$TOPIC")
-CODY_DIR=$(cw_trooper_dir cody claude "$TOPIC")
-
-cw_consult_synthesize "$TOPIC_TEXT" "$DIFF" "$ADJ" "$REX_DIR" "$CODY_DIR" \
-  "$REX_FS" "$CODY_FS" "$REX_VS" "$CODY_VS" "$DESIGN_DOC"
-
-log_info "[synthesize] wrote $DESIGN_DOC"
-cat "$DESIGN_DOC"
+log_info "[synthesize] wrote ${#SECTIONS[@]} seed drafts to $DRAFT_DIR"

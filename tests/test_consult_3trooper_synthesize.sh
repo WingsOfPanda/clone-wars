@@ -69,21 +69,24 @@ MD
 # Run synthesize.
 ../bin/consult-synthesize.sh "$TOPIC" >/dev/null
 
-# v0.16: design-doc replaces synthesis.md.
-SLUG="${TOPIC#consult-}"
-DESIGN_DOC=$(bash -c "source ../lib/consult.sh; cw_consult_design_doc_canonical_path '$TD/_consult' '$SLUG'")
-assert_file_exists "$DESIGN_DOC" "design-doc should be written at canonical path"
+# v0.17.0: synthesize emits per-section seed drafts, NOT a final design-doc.
+DRAFT_DIR="$TD/_consult/design-doc/.draft"
+[[ -d "$DRAFT_DIR" ]] || { echo "FAIL: $DRAFT_DIR missing" >&2; exit 1; }
+
+# v0.17.0 negative: legacy synthesis.md and final *-design.md should NOT exist.
 [[ ! -f "$TD/_consult/synthesis.md" ]] || { echo "FAIL: legacy synthesis.md still written" >&2; exit 1; }
+DD=$(find "$TD/_consult/design-doc" -maxdepth 1 -name '*-design.md' 2>/dev/null | head -1)
+[[ -z "$DD" ]] || { echo "FAIL: synthesize emitted final $DD (should be walk-assemble's job)" >&2; exit 1; }
 
-DD_CONTENT=$(cat "$DESIGN_DOC")
+# Concatenate all seed drafts; assert every v0.15 source-set tag appears.
+ALL_SEEDS=$(cat "$DRAFT_DIR"/*.md)
 
-# Singletons (3 tags).
-assert_contains "$DD_CONTENT" '[rex+cody+bly]'                                 "all-three tag preserved"
-assert_contains "$DD_CONTENT" '[rex+cody, verified by bly: AGREE]'             "rex+cody pair tag preserved"
-assert_contains "$DD_CONTENT" '[rex+bly, verified by cody: AGREE]'             "rex+bly pair tag preserved"
-assert_contains "$DD_CONTENT" '[cody+bly, verified by rex: AGREE]'             "cody+bly pair tag preserved"
-assert_contains "$DD_CONTENT" '[rex, verified by cody: AGREE, bly: AGREE]'     "rex singleton tag preserved"
-assert_contains "$DD_CONTENT" '[cody, verified by rex: AGREE, bly: AGREE]'     "cody singleton tag preserved"
-assert_contains "$DD_CONTENT" '[bly, verified by rex: AGREE, cody: AGREE]'     "bly singleton tag preserved"
-assert_contains "$DD_CONTENT" '[rex+cody, verified by bly: DISPUTE]'           "DISPUTE annotation preserved"
-pass "design-doc preserves all 7 v0.15.0 source-set tag forms + verifier annotations"
+assert_contains "$ALL_SEEDS" '[rex+cody+bly]'                                 "all-three tag in seeds"
+assert_contains "$ALL_SEEDS" '[rex+cody, verified by bly: AGREE]'             "rex+cody pair tag in seeds"
+assert_contains "$ALL_SEEDS" '[rex+bly, verified by cody: AGREE]'             "rex+bly pair tag in seeds"
+assert_contains "$ALL_SEEDS" '[cody+bly, verified by rex: AGREE]'             "cody+bly pair tag in seeds"
+assert_contains "$ALL_SEEDS" '[rex, verified by cody: AGREE, bly: AGREE]'     "rex singleton tag in seeds"
+assert_contains "$ALL_SEEDS" '[cody, verified by rex: AGREE, bly: AGREE]'     "cody singleton tag in seeds"
+assert_contains "$ALL_SEEDS" '[bly, verified by rex: AGREE, cody: AGREE]'     "bly singleton tag in seeds"
+assert_contains "$ALL_SEEDS" '[rex+cody, verified by bly: DISPUTE]'           "DISPUTE annotation in seeds"
+pass "v0.17 seed drafts preserve all 7 v0.15.0 source-set tag forms + verifier annotations"
