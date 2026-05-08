@@ -73,14 +73,15 @@ PARSE=$(cw_consult_parse_design_doc_flag "$ARGUMENTS")
 DESIGN_DOC="${PARSE%%	*}"
 ARG_RAW="${PARSE#*	}"
 if [[ "$DESIGN_DOC" == "1" ]]; then
-  log_warn "--design-doc is deprecated as of v0.12.0. Run /clone-wars:spec separately after consult finishes."
+  log_warn "--design-doc is obsolete as of v0.17.0 (silently ignored). /clone-wars:consult now produces a deploy-audit-passing design doc directly; /clone-wars:spec was removed."
 fi
 ```
 
 Use `$ARG_RAW` (not `$ARGUMENTS`) for the topic text from this point.
-The flag is parsed only for back-compat — a deprecation warning fires
-above and `$DESIGN_DOC` is otherwise unused. Run `/clone-wars:spec`
-separately to walk a design doc.
+The flag is parsed for back-compat ONLY — a deprecation warning fires
+above and `$DESIGN_DOC` is otherwise unused. v0.17.0 always produces a
+deploy-audit-passing design doc; the v0.12 split (consult → spec) is
+gone.
 
 **v0.16.0 — `--use-force` flag parsing (after `--design-doc` parse, BEFORE init):**
 
@@ -825,8 +826,9 @@ Set task `13` → `in_progress`.
 Before teardown, offer one or more free-form drill-deeper rounds while
 troopers are still alive. Each round writes to
 `$TOPIC_DIR/_consult/drilldowns/_scratch/drilldown-<slug>-<commander>.md`
-(slug = lowercased drill topic with spaces as hyphens) and becomes part
-of the archive that `/clone-wars:spec` consumes.
+(slug = lowercased drill topic with spaces as hyphens). Drilldowns
+persist in the archive as supplemental context for the user (Yoda may
+also reference them when re-walking sections during Step 11).
 
 ```
 DRILL_DIR="$TOPIC_DIR/_consult/drilldowns"
@@ -897,7 +899,7 @@ Loop while user picks "Yes":
    ```
    Treat the run as success if at least one of the two invocations
    returned `rc=0`. The 3 produced files share the same `<slug>` so
-   `/clone-wars:spec` consumes them as a single drill round.
+   they're recognizable as a single drill round in the archive.
 
 5. Read the produced drilldown file(s) under `$DRILL_DIR/_scratch/` —
    filename pattern `drilldown-<slug>-<commander>.md` (slug = lowercased
@@ -913,9 +915,8 @@ Loop while user picks "Yes":
     - Skip and continue: fall through to step 6.
 6. `AskUserQuestion`: "Drill another aspect?" Options: `Yes` / `No — proceed to teardown`.
 
-Drilldowns are part of the archive (`_consult/drilldowns/`) and become
-available to `/clone-wars:spec` as supplemental context for the
-design-doc walk.
+Drilldowns are part of the archive (`_consult/drilldowns/`) and remain
+available to the user as supplemental context after teardown.
 
 Set task `13` → `completed`.
 
