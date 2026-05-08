@@ -85,4 +85,19 @@ done
 mv "$TMPF" "$OUT"
 trap - EXIT
 log_info "[walk-assemble] wrote $OUT"
+
+# Audit gate.
+source "$ROOT/lib/deploy.sh"
+AUDIT_LOG="$ART/design-doc/audit.log"
+AUDIT_OUT=$(cw_deploy_audit_doc "$OUT" 2>&1) && AUDIT_RC=0 || AUDIT_RC=$?
+printf '%s\n' "$AUDIT_OUT" > "$AUDIT_LOG"
+if (( AUDIT_RC != 0 )); then
+  # Emit ISSUE= lines (and only ISSUE= lines) on stderr for the directive
+  # to parse and route to per-section re-walks via
+  # cw_consult_audit_issue_to_section.
+  echo "$AUDIT_OUT" | grep -E '^ISSUE=' >&2 || true
+  log_error "walk-assemble: cw_deploy_audit_doc FAILED on $OUT (see $AUDIT_LOG)"
+  exit 1
+fi
+log_info "[walk-assemble] audit PASSED for $OUT"
 printf '%s\n' "$OUT"
