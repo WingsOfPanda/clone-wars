@@ -673,26 +673,78 @@ If `$HITS` is non-empty (auto-detect found candidate slugs):
 
 Set task `10` → `completed`.
 
-### Step 11 — Synthesize
+### Step 11 — Per-section design walk
 
-**v0.16.0:** set `CW_SOURCE_LABEL` based on the roster size; `CW_PATH_LABEL`
-was already exported in Step 3. Both are consumed by `consult-synthesize.sh`
-to stamp the design-doc trust header.
+Set task `11` → `in_progress`.
+
+**Setup.** Run `bin/consult-synthesize.sh` to produce SEED DRAFTS under
+`$TOPIC_DIR/_consult/design-doc/.draft/<section>.md`. (Note: in v0.17.0
+synthesize emits seeds, NOT a final design-doc — assembly happens in Step 12.)
 
 ```
-case "$N" in
-  2) export CW_SOURCE_LABEL="rex+cody cross-verified (N=2)" ;;
-  3) export CW_SOURCE_LABEL="rex+cody+bly cross-verified (N=3)" ;;
-  *) export CW_SOURCE_LABEL="cross-verified (N=$N)" ;;
-esac
-
-CW_SOURCE_LABEL="$CW_SOURCE_LABEL" CW_PATH_LABEL="$CW_PATH_LABEL" \
-  "$CLAUDE_PLUGIN_ROOT/bin/consult-synthesize.sh" "$CONSULT_TOPIC"
+"$CLAUDE_PLUGIN_ROOT/bin/consult-synthesize.sh" "$CONSULT_TOPIC"
 ```
 
-Refuses if PENDING remains. On success, prints the canonical design-doc
-with N-source attribution tags (e.g. `[rex+cody+bly]` for 3-way
-consensus). Set task `11` → `completed`.
+Determine section list based on multi-repo flag:
+
+```
+MULTI_REPO=$(tr -d '[:space:]' < "$TOPIC_DIR/_consult/multi-repo.txt" 2>/dev/null || echo "single")
+if [[ "$MULTI_REPO" == "multi" ]]; then
+  SECTIONS=(problem goal architecture components execution-dag cross-repo-notes testing success-criteria)
+  SECTION_TITLES=(Problem Goal Architecture Components "Execution DAG" "Cross-Repo Notes" Testing "Success Criteria")
+else
+  SECTIONS=(problem goal architecture components testing success-criteria)
+  SECTION_TITLES=(Problem Goal Architecture Components Testing "Success Criteria")
+fi
+DRAFT_DIR="$TOPIC_DIR/_consult/design-doc/.draft"
+mkdir -p "$DRAFT_DIR"
+```
+
+Load resume state (sections approved on prior runs):
+
+```
+mapfile -t APPROVED < <(cw_consult_walk_section_state "$DRAFT_DIR")
+```
+
+**Per-section loop.** For each `i` in `0..${#SECTIONS[@]}-1`:
+
+1. `key=${SECTIONS[$i]}; title=${SECTION_TITLES[$i]}`.
+2. **Resume check.** If `$key` appears in `${APPROVED[@]}` AND the existing
+   `$DRAFT_DIR/$key.md` is approved (not `_(skipped)_`):
+   - `AskUserQuestion`: "Section '$title' already approved on a prior run.
+     Reuse / Redo / Skip?"
+   - Reuse → continue to next `i`.
+   - Redo → `rm "$DRAFT_DIR/$key.md"`, fall through to draft loop.
+   - Skip → `printf '_(skipped)_\n' > "$DRAFT_DIR/$key.md"`, next `i`.
+3. **Critical-section skip block.** If `$key` is `goal` or `architecture`,
+   the AskUserQuestion options DO NOT include `Skip` (they're required by
+   `cw_deploy_audit_doc`). Banner: "This section is required by
+   cw_deploy_audit_doc; Skip not available — pick Approve or Revise."
+4. **Draft loop:**
+   - REVISE_COUNT=0
+   - Yoda reads `$TOPIC_DIR/_consult/adjudicated.md`,
+     `$DRAFT_DIR/$key.md` (the seed from synthesize), and the matching
+     trooper's `findings.md`/`verify.md`.
+   - For multi-repo + `key=architecture`: also reads `targets.txt`; drafts
+     `### <slug>` subsections (one per target).
+   - For multi-repo + `key=execution-dag`: drafts a soft DAG using
+     `cw_consult_emit_soft_dag` from a TSV that Yoda constructs based on
+     trooper findings about cross-repo dependencies. (User can re-edit
+     during Revise.)
+   - Yoda presents the draft in chat (markdown formatting preserved).
+   - `AskUserQuestion` (3 options for non-critical sections, 2 for critical):
+     - **Approve** → write the approved draft to `$DRAFT_DIR/$key.md` (atomic
+       tmp+mv), break draft loop, advance to next `i`.
+     - **Revise** → AskUserQuestion: "What should change?" (free-form).
+       Fold response into draft. REVISE_COUNT++. Re-loop to present.
+       - If REVISE_COUNT == 4 (i.e., user picked Revise four times):
+         AskUserQuestion: "Revise loop has hit the cap (3 revisions).
+         Force-approve current draft / Skip (not available for goal/architecture) /
+         Abort consult." Force-approve writes the last presented draft.
+     - **Skip** (non-critical only) → write `_(skipped)_` to
+       `$DRAFT_DIR/$key.md`, break draft loop, advance.
+
+Set task `11` → `completed`.
 
 ### Step 13 — Drill deeper (optional, N-aware)
 
