@@ -1,6 +1,6 @@
 ---
 description: Walk a design doc from a consult synthesis (or any seed) — conductor-only, no troopers spawned
-argument-hint: [<seed-path-to-synthesis.md>]
+argument-hint: [<seed-path-to-design-doc.md>]
 allowed-tools: Bash, Write
 ---
 
@@ -56,7 +56,7 @@ Set task `0` → `in_progress`.
 2. Resolve seed and topic:
    ```
    eval "$("$CLAUDE_PLUGIN_ROOT/bin/spec-init.sh" "${SEED_PATH:-}")"
-   # Sets TOPIC=<x> and SEED=<absolute-path-to-synthesis.md> from stdout.
+   # Sets TOPIC=<x> and SEED=<absolute-path-to-design-doc.md> from stdout.
    ```
 
 3. Compute REPO_HASH and topic dir paths (the consult parent of the seed):
@@ -64,12 +64,13 @@ Set task `0` → `in_progress`.
    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
    REPO_HASH=$(cw_repo_hash)
    STATE_ROOT=$(cw_state_root)
-   # SEED is at <root>/<topic>/_consult/synthesis.md → topic-dir is two-up:
-   TOPIC_DIR=$(dirname "$(dirname "$SEED")")
+   # SEED is at <root>/<topic>/_consult/design-doc/<date>-<slug>-design.md
+   # → topic-dir is three-up:
+   TOPIC_DIR=$(dirname "$(dirname "$(dirname "$SEED")")")
    CONSULT_TOPIC="$TOPIC"   # for compatibility with lifted Step 8.5 code
    ```
 
-4. AskUserQuestion to confirm: "Use this synthesis as seed? <SEED>" Options:
+4. AskUserQuestion to confirm: "Use this design-doc as seed? <SEED>" Options:
    `Use this` / `Cancel`. Cancel → exit 0.
 
 Set task `0` → `completed`.
@@ -108,9 +109,10 @@ For each `i` in `0..$((${#SECTIONS[@]}-1))`:
    - Redo → `rm "$DD_DIR/$key.md"`, fall through to draft loop.
    - Skip → `printf '_(skipped on resume)_\n' > "$DD_DIR/$key.md"`, next `i`.
 3. **Draft loop:**
-   - Yoda reads `$TOPIC_DIR/_consult/synthesis.md`,
-     `$TOPIC_DIR/_consult/adjudicated.md`, both troopers'
-     `findings.md` and `verify.md`. Drafts the section text inline,
+   - Yoda reads the design-doc seed (`$SEED`),
+     `$TOPIC_DIR/_consult/adjudicated.md` (if present, for trooper-path
+     consults), and any trooper `findings.md` / `verify.md` under
+     `$TOPIC_DIR/_consult/` siblings. Drafts the section text inline,
      scaled to complexity.
    - Yoda presents the draft in chat (markdown formatting preserved).
    - `AskUserQuestion`:
