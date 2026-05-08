@@ -746,6 +746,66 @@ mapfile -t APPROVED < <(cw_consult_walk_section_state "$DRAFT_DIR")
 
 Set task `11` → `completed`.
 
+### Step 12 — Assemble + deploy-audit gate
+
+Set task `12` → `in_progress`.
+
+```
+ATTEMPT=1
+MAX_ATTEMPT_PER_SECTION=2
+while :; do
+  if DD_PATH=$("$CLAUDE_PLUGIN_ROOT/bin/consult-walk-assemble.sh" "$CONSULT_TOPIC" 2>/tmp/cw-walk-err); then
+    log_ok "[step 12] design-doc assembled + audit PASS: $DD_PATH"
+    break
+  fi
+  # Audit FAILED. Parse ISSUE= lines and re-walk the offending section(s).
+  mapfile -t ISSUE_LINES < <(grep '^ISSUE=' /tmp/cw-walk-err || true)
+  [[ ${#ISSUE_LINES[@]} -gt 0 ]] || { log_error "[step 12] audit FAIL but no ISSUE= lines parsed"; exit 1; }
+
+  source "$CLAUDE_PLUGIN_ROOT/lib/consult-walk.sh"
+  for line in "${ISSUE_LINES[@]}"; do
+    KEY="${line#ISSUE=}"
+    TARGET=$(cw_consult_audit_issue_to_section "$KEY")
+    case "$TARGET" in
+      goal|architecture|components|testing|success-criteria|execution-dag|cross-repo-notes|problem)
+        log_info "[step 12] re-walking $TARGET (ISSUE=$KEY)"
+        rm -f "$TOPIC_DIR/_consult/design-doc/.draft/$TARGET.md"
+        # Re-enter Step 11's per-section walk for this section ONLY.
+        # (Walk only this one key; other approved sections preserved.)
+        ;;
+      ASK)
+        # Marker issue (TBD/TODO/etc.) — Yoda must locate the section.
+        # AskUserQuestion: which section contains the marker? Options derived
+        # from sections that have non-skipped drafts. Then re-walk that one.
+        log_info "[step 12] marker issue $KEY; asking user to identify section"
+        ;;
+      header)
+        # Target Sub-Project slug invalid. Re-prompt for targets in Step 10.
+        log_error "[step 12] target_subproject_when_invalid; re-running Step 10 multi-repo detect"
+        rm -f "$TOPIC_DIR/_consult/multi-repo.txt" "$TOPIC_DIR/_consult/targets.txt"
+        # (Directive falls back to Step 10 by goto-style logic; in practice,
+        # surface the error to user and ask to abort or retry.)
+        ;;
+      *)
+        log_error "[step 12] unknown ISSUE=$KEY (no mapping)"
+        # AskUserQuestion: "Audit emitted unknown ISSUE=$KEY. Commit failing doc / Abort?"
+        ;;
+    esac
+  done
+
+  ATTEMPT=$((ATTEMPT+1))
+  if (( ATTEMPT > MAX_ATTEMPT_PER_SECTION )); then
+    # AskUserQuestion: "Audit retry budget exhausted. Commit failing doc with banner / Abort?"
+    # On "Commit failing doc with banner": re-run walk-assemble one more time
+    # to write doc despite audit FAIL; banner appended to top of doc by Yoda
+    # using Edit tool. Then break.
+    log_error "[step 12] aborting"; exit 1
+  fi
+done
+```
+
+Set task `12` → `completed`.
+
 ### Step 13 — Drill deeper (optional, N-aware)
 
 Set task `13` → `in_progress`.
