@@ -29,3 +29,27 @@ cw_consult_audit_issue_to_section() {
     *)                             printf '\n' ;;
   esac
 }
+
+# cw_consult_emit_soft_dag <tsv-path>
+# Formats a numbered prose DAG from a TSV file with columns:
+#   <step-num>\t<repo>\t<description>\t<deps-csv|none>
+# Each output line: "<n>. <repo> — <description>" optionally followed by
+# " (depends on M, N, ...)" when deps != "none".
+# Empty input → empty output. Missing file → rc=1. Missing arg → rc=2.
+cw_consult_emit_soft_dag() {
+  local tsv="${1:-}"
+  [[ -n "$tsv" ]] || { echo "cw_consult_emit_soft_dag: tsv-path required" >&2; return 2; }
+  [[ -f "$tsv" ]] || { echo "cw_consult_emit_soft_dag: file not found: $tsv" >&2; return 1; }
+  local step repo desc deps
+  while IFS=$'\t' read -r step repo desc deps; do
+    [[ -n "$step" ]] || continue
+    if [[ "$deps" == "none" || -z "$deps" ]]; then
+      printf '%s. %s — %s\n' "$step" "$repo" "$desc"
+    else
+      # Reformat "1,2" → "1, 2" for readability.
+      local pretty_deps
+      pretty_deps=$(printf '%s' "$deps" | sed 's/,/, /g')
+      printf '%s. %s — %s (depends on %s)\n' "$step" "$repo" "$desc" "$pretty_deps"
+    fi
+  done < "$tsv"
+}
