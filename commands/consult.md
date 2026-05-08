@@ -681,8 +681,20 @@ Set task `11` → `in_progress`.
 `$TOPIC_DIR/_consult/design-doc/.draft/<section>.md`. (Note: in v0.17.0
 synthesize emits seeds, NOT a final design-doc — assembly happens in Step 12.)
 
+Set the trust-label envs first (`CW_PATH_LABEL` was exported in Step 3;
+`CW_SOURCE_LABEL` reflects the roster size). Both are consumed by
+`cw_consult_synthesize` to stamp seed drafts; the assembled design-doc
+inherits the labels via Step 12.
+
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/consult-synthesize.sh" "$CONSULT_TOPIC"
+case "$N" in
+  2) export CW_SOURCE_LABEL="rex+cody cross-verified (N=2)" ;;
+  3) export CW_SOURCE_LABEL="rex+cody+bly cross-verified (N=3)" ;;
+  *) export CW_SOURCE_LABEL="cross-verified (N=$N)" ;;
+esac
+
+CW_SOURCE_LABEL="$CW_SOURCE_LABEL" CW_PATH_LABEL="$CW_PATH_LABEL" \
+  "$CLAUDE_PLUGIN_ROOT/bin/consult-synthesize.sh" "$CONSULT_TOPIC"
 ```
 
 Determine section list based on multi-repo flag:
