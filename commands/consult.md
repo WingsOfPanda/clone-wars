@@ -637,6 +637,42 @@ d. Edit tool to rewrite:
 
 When no `^- PENDING:` remains, set task `9` → `completed`.
 
+### Step 10 — Multi-repo detection
+
+Set task `10` → `in_progress`.
+
+If `--targets a,b,c` was passed on the command line, `bin/consult-init.sh`
+already wrote `_consult/targets.txt` and `_consult/multi-repo.txt=multi`.
+Skip auto-detection in that case.
+
+```
+if [[ -f "$TOPIC_DIR/_consult/multi-repo.txt" && -f "$TOPIC_DIR/_consult/targets.txt" ]]; then
+  log_info "[step 10] multi-repo set by --targets; skipping auto-detect"
+else
+  source "$CLAUDE_PLUGIN_ROOT/lib/consult-walk.sh"
+  HITS=$(cw_consult_detect_multi_repo "$PWD" "$(cat "$TOPIC_DIR/_consult/topic.txt")")
+fi
+```
+
+If `$HITS` is empty (no sibling matches OR --targets was set):
+- single-repo path. Write `_consult/multi-repo.txt = single` if not already
+  present. Skip the AskUserQuestion confirmation.
+
+If `$HITS` is non-empty (auto-detect found candidate slugs):
+- Issue `AskUserQuestion`:
+  - Question: "Detected multi-repo topic candidates: <slug list>. Use
+    these as targets, edit, or proceed single-repo?"
+  - Options: `Use auto-detected list` / `Edit list` / `Proceed single-repo`
+- On `Use auto-detected list`: write `_consult/targets.txt` from `$HITS`
+  + `_consult/multi-repo.txt = multi`.
+- On `Edit list`: AskUserQuestion (free-form) for the edited slug list
+  (comma-separated). Validate each against `${CW_SLUG_REGEX_BASE}` and
+  re-prompt on rejection. Write `targets.txt` + `multi-repo.txt = multi`.
+- On `Proceed single-repo`: write `_consult/multi-repo.txt = single`. No
+  targets.txt.
+
+Set task `10` → `completed`.
+
 ### Step 11 — Synthesize
 
 **v0.16.0:** set `CW_SOURCE_LABEL` based on the roster size; `CW_PATH_LABEL`
