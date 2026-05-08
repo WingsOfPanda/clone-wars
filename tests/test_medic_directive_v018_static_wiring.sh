@@ -46,4 +46,31 @@ assert_contains "$BODY" "Pick a pair" "Step D.1 offers Pick a pair drill option"
 ! grep -qE 'For \*\*N=3\*\*.*5 options' "$DIR" \
   || { echo "FAIL: directive still claims flat 5-option menu for N=3" >&2; exit 1; }
 
-pass "commands/medic.md v0.18.1 static wiring complete"
+# v0.18.2: review-polish patches.
+# Frontmatter must list AskUserQuestion (Steps D and E require it).
+grep -qE '^allowed-tools:.*AskUserQuestion' "$DIR" \
+  || { echo "FAIL: frontmatter allowed-tools missing AskUserQuestion" >&2; exit 1; }
+
+# A one-line preamble must distinguish bash-wrapper (1–6) from Claude-side (A–G).
+assert_contains "$BODY" "bash wrapper" "directive distinguishes bash wrapper"
+assert_contains "$BODY" "Claude-side interactive" "directive labels Claude-side flow"
+
+# Trigger-phrase examples must be present so future-Claude can route users
+# to /clone-wars:medic from natural-language requests.
+assert_contains "$BODY" "Trigger phrases" "directive lists trigger phrases"
+assert_contains "$BODY" "switch consult roster" "directive includes 'switch consult roster' trigger"
+
+# FAIL-verdict carve-out must be documented (Steps A–G run on FAIL too,
+# as long as providers-available.txt has ≥1 entry).
+grep -qE 'verdict is `?FAIL`?' "$DIR" \
+  || { echo "FAIL: directive does not document FAIL-verdict behavior for Steps A–G" >&2; exit 1; }
+
+# Negative: drift-prone line-number cite must be gone.
+! grep -qE 'lib/consult\.sh:[0-9]+' "$DIR" \
+  || { echo "FAIL: directive still cites lib/consult.sh with a line number (drift-prone)" >&2; exit 1; }
+
+# Negative: pre-v0.0.6 stub-message parenthetical must be gone.
+! grep -qE 'spawn\.sh.*stub messages|print[s]? stub messages' "$DIR" \
+  || { echo "FAIL: stale 'print stub messages' parenthetical still present in Step 6" >&2; exit 1; }
+
+pass "commands/medic.md v0.18.2 static wiring complete"

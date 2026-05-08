@@ -1,14 +1,19 @@
 ---
-description: Health check for Clone Wars — verifies tmux, `$CLONE_WARS_HOME`, config files, and provider binaries
+description: Health check (tmux/state/config/providers) plus interactive trooper-roster picker — selects the active set for /clone-wars:consult
 argument-hint: (no args)
-allowed-tools: Bash, Write
+allowed-tools: Bash, Write, AskUserQuestion
 ---
 
 # /clone-wars:medic
 
-Run the Clone Wars health check by invoking the medic script.
+Run the Clone Wars health check, then interactively pick which detected
+providers should be the active roster for `/clone-wars:consult`.
 
 ## Steps
+
+Steps 1–6 below are the bash wrapper around `bin/medic.sh` (mechanical
+health checks). Steps A–G are the Claude-side interactive
+trooper-selection flow added in v0.18.0.
 
 The user's `$ARGUMENTS` may contain shell metacharacters. To prevent injection, we keep it out of any bash source: write it via the Write tool (a literal string parameter), then invoke the bin script with `--args-file`.
 
@@ -47,9 +52,8 @@ The user's `$ARGUMENTS` may contain shell metacharacters. To prevent injection, 
    - **config file missing** → reinstall the plugin: `/plugin install clone-wars@clone-wars`.
    - **all providers missing** → install at least one of `codex`, `gemini`, `claude`.
 
-6. If the verdict is `OK`, no further action is needed; the user is ready to spawn troopers
-   (once the runtime commands ship in v0.0.1 — until then, `/clone-wars:spawn` etc. print
-   stub messages).
+6. If the verdict is `OK`, no further action is needed; the user is ready
+   to run `/clone-wars:consult` or `/clone-wars:deploy`.
 
 ## Trooper selection (v0.18.0)
 
@@ -63,7 +67,16 @@ on top of medic's mechanical detection.
 **Always-interactive policy:** every `/clone-wars:medic` invocation runs
 Steps A–G. Whether the user actually sees an `AskUserQuestion` prompt
 depends on the detected count (Step C — auto-handles 0 and 1, prompts
-for 2+).
+for 2+). Steps A–G also run when the verdict is `FAIL` — as long as
+`providers-available.txt` exists with ≥1 entry, the user can still pick
+an active subset; if the file is missing or empty, Step A exits the
+section cleanly.
+
+**Trigger phrases.** Beyond explicit `/clone-wars:medic` invocation,
+suggest this command when the user says any of: "switch consult roster",
+"change which troopers /consult uses", "use only rex and cody", "pick
+troopers", "re-pick the roster", or after they install/uninstall a
+provider binary (claude / codex / opencode).
 
 #### Step A — Read detected set
 
@@ -115,7 +128,7 @@ Branch on `DETECTED` count:
 
 Build options from `DETECTED`, mapping each provider to its commander
 via `codex → rex`, `claude → cody`, `opencode → bly` (matches
-`cw_consult_provider_to_commander` in `lib/consult.sh:1157`).
+`cw_consult_provider_to_commander` in `lib/consult.sh`).
 
 `AskUserQuestion`'s schema caps each question at 4 options, so the
 menu shape differs by N:
