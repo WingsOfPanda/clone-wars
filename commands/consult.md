@@ -75,6 +75,26 @@ The flag is parsed only for back-compat — a deprecation warning fires
 above and `$DESIGN_DOC` is otherwise unused. Run `/clone-wars:spec`
 separately to walk a design doc.
 
+**v0.16.0 — `--use-force` flag parsing (after `--design-doc` parse, BEFORE init):**
+
+The `--use-force` flag escalates immediately to the trooper roster, skipping
+the Yoda fast-path block (Step 0.5). Mirrors `cw_consult_parse_design_doc_flag`'s
+token-aware semantics — only EXACT `--use-force` tokens are stripped (not
+`--use-force-please`, `--use-forced`, etc.).
+
+```
+PARSE_UF=$(cw_consult_parse_use_force_flag "$ARG_RAW")
+USE_FORCE="${PARSE_UF%%	*}"
+ARG_RAW="${PARSE_UF#*	}"
+if [[ "$USE_FORCE" == "1" ]]; then
+  log_info "--use-force: trooper escalation will skip Yoda fast-path"
+fi
+```
+
+Continue using `$ARG_RAW` for the topic from this point. Both flags can
+coexist (legal but unusual): the `--design-doc` deprecation warning fires
+and `--use-force` still escalates.
+
 1. Resolve args path:
 
    ```
@@ -114,9 +134,162 @@ separately to walk a design doc.
    # Parse with: IFS=$'\t' read -r prov cmdr <<<"${TROOPERS[i]}"
    ```
 
-Set task `0` → `completed`. Set task `1` → `in_progress`.
+Set task `0` → `completed`.
+
+### Step 0.4 — Escalation phrasing-trigger detection (v0.16.0)
+
+If `USE_FORCE=1`, skip this step (already escalating).
+
+Otherwise, scan the topic text for case-insensitive escalation keywords.
+The keywords below indicate the user explicitly wants the multi-trooper
+cross-verification (rather than Yoda's fast-path single-source answer).
+If any match, set `ESCALATE_FROM_PHRASING=1` and skip Step 0.5 (fast-path).
+
+```
+ESCALATE_FROM_PHRASING=0
+if [[ "$USE_FORCE" != "1" ]]; then
+  PHRASING_TRIGGERS=(
+    "deeply"
+    "verify"               # also matches "verify rigorously", "cross-verify"
+    "compare carefully"
+    "second opinion"
+    "consult thoroughly"
+  )
+  TOPIC_LOWER=$(printf '%s' "$ARG_RAW" | tr '[:upper:]' '[:lower:]')
+  for trigger in "${PHRASING_TRIGGERS[@]}"; do
+    if [[ "$TOPIC_LOWER" == *"$trigger"* ]]; then
+      ESCALATE_FROM_PHRASING=1
+      log_info "phrasing trigger '$trigger' fired; escalating to troopers"
+      break
+    fi
+  done
+fi
+```
+
+### Step 0.5 — Yoda fast-path (v0.16.0)
+
+If `USE_FORCE=1` or `ESCALATE_FROM_PHRASING=1`, skip this step entirely
+and proceed to Step 1.
+
+Otherwise, Master Yoda performs a fast-path research pass to determine
+whether the topic warrants spawning the trooper roster. The goal is to
+answer the user as a single source if (and only if) the topic is
+sufficiently bounded; on any sign of complexity, escalate.
+
+**1. Research the topic** using the full toolkit:
+
+- `Read` / `Grep` / `Bash` for code-side research in this repository.
+- `WebSearch` + `mcp__tavily__tavily-search` (paired per the global
+  dual-search rule — issue both in a single tool-call block).
+- Any `superpowers:*` skills that fit the topic
+  (e.g. `superpowers:systematic-debugging`, `superpowers:brainstorming`).
+- `mcp__claude_ai_*` MCP tools when external services are relevant
+  (Drive, Calendar, Gmail, Notion, etc.).
+
+Time-box research roughly equivalent to what one trooper would spend
+in Step 2 (a few minutes of focused investigation, not an open-ended
+deep dive).
+
+**2. Run the 4-signal complexity check.** Favor rigor — **any 1+ signal
+fires** → escalate to troopers. The signals are:
+
+- **Conflicting evidence** — Yoda's research surfaced sources that
+  disagreed with each other on a key claim (e.g. one doc says X is
+  required, another says X is forbidden).
+- **Significant assumptions** — answer required Yoda to assume facts
+  not in evidence (e.g. "I think the user means Y, but the topic
+  doesn't say").
+- **High-stakes decision** — topic implicates architecture / security /
+  irreversibility / production data (e.g. choice of auth model, schema
+  migration direction, retention policy).
+- **Subjective tradeoffs** — no objective right answer ("compare A vs B",
+  "should we adopt X", "which approach is better for Z") — these benefit
+  from cross-verified perspectives.
+
+**3. If any signal fires:** set `ESCALATE_FROM_SIGNALS=1`, log the firing
+signal name, and proceed to Step 1.
+
+```
+ESCALATE_FROM_SIGNALS=1
+log_info "fast-path: signal '<which-fired>' fired; escalating to troopers"
+```
+
+**4. If no signal fires:** Yoda writes the canonical design-doc INLINE
+and exits. No trooper-spawn, no `_consult/` working artifacts beyond
+what `consult-init.sh` already created (`topic.txt` + the empty
+`design-doc/` dir).
+
+Compute the canonical path:
+
+```
+DESIGN_DOC_PATH=$(cw_consult_design_doc_canonical_path \
+    "$TOPIC_DIR/_consult" "$CONSULT_TOPIC")
+```
+
+Then write the rigid 6-section design-doc using the **Write tool**
+(atomic single-shot write, not append). The trust-label header is fixed
+on the fast path:
+
+```
+> **Source:** Master Yoda (single-source)
+> **Generated:** <ISO-8601 UTC timestamp>
+> **Path:** fast
+```
+
+The 6 sections must all be present. Sections that don't apply for this
+topic get the literal placeholder `_(not applicable)_` (so downstream
+tooling can detect "intentionally empty" vs accidentally missing). For
+a typical pure-research question, the section mapping is:
+
+- **Summary** — 1-3 sentences: the question + Yoda's answer.
+- **Findings** — what Yoda's research revealed, with citations inline
+  (`path/to/file:line` for code, URL for web sources, MCP tool name +
+  observation for MCP-derived facts).
+- **Tradeoffs** — `_(not applicable)_` if there's no choice between
+  alternatives (pure research questions); otherwise, list the considered
+  options with their pros/cons.
+- **Recommendation** — what action Yoda would suggest the user take next
+  (one specific actionable step, not a hedged paragraph).
+- **Open Questions** — anything Yoda didn't fully resolve and would
+  recommend escalating with `--use-force` if the user wants to push
+  further.
+- **Sources** — citations as bullets:
+  - `path/to/file:line` for code sources
+  - `https://url` for web sources (Tavily + WebSearch)
+  - `runtime: <observation>` for facts derived from running commands
+    (e.g. `runtime: bash --version → 5.2.21`)
+
+After writing, **print the full design-doc text to chat** so the user
+sees the answer immediately, then `exit 0`. No teardown call is needed
+on the fast path — the only stateful side-effects are `topic.txt`,
+the empty `design-doc/` dir, and the design-doc itself, all of which
+are the canonical fast-path topic-dir layout. (Optionally invoke
+`consult-archive.sh` if you want the topic dir moved to `archive/`
+on success; not required by the v0.16.0 contract.)
+
+Set the relevant tasks (`1`–`9`) to `completed` if you used `TaskCreate`
+at the top of the run; the trooper-roster tasks are skipped on the
+fast path. Tell the user the answer in plain prose with the design-doc
+path so they can re-open it later.
 
 ### Step 1 — Parallel spawn (N-aware, with auto-retry-once + rollback)
+
+Set task `1` → `in_progress`.
+
+**Reached from one of three escalation paths:** `--use-force` flag,
+phrasing trigger, or 4-signal escalation from Step 0.5. Set
+`CW_PATH_LABEL` accordingly — it is consumed by Step 8 (synthesize)
+to stamp the design-doc trust header:
+
+```
+case "$USE_FORCE,$ESCALATE_FROM_PHRASING,${ESCALATE_FROM_SIGNALS:-0}" in
+  1,*,*) export CW_PATH_LABEL="escalated-from-flag" ;;
+  *,1,*) export CW_PATH_LABEL="escalated-from-phrasing" ;;
+  *,*,1) export CW_PATH_LABEL="escalated-from-signals" ;;
+  *)     export CW_PATH_LABEL="escalated-from-signals" ;;  # defensive default
+esac
+log_info "trooper escalation path: $CW_PATH_LABEL"
+```
 
 Initialize ONCE before invoking the parallel spawn calls:
 
@@ -439,13 +612,24 @@ When no `^- PENDING:` remains, set task `5` → `completed` and task `6` →
 
 ### Step 8 — Synthesize
 
+**v0.16.0:** set `CW_SOURCE_LABEL` based on the roster size; `CW_PATH_LABEL`
+was already exported in Step 1. Both are consumed by `consult-synthesize.sh`
+to stamp the design-doc trust header.
+
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/consult-synthesize.sh" "$CONSULT_TOPIC"
+case "$N" in
+  2) export CW_SOURCE_LABEL="rex+cody cross-verified (N=2)" ;;
+  3) export CW_SOURCE_LABEL="rex+cody+bly cross-verified (N=3)" ;;
+  *) export CW_SOURCE_LABEL="cross-verified (N=$N)" ;;
+esac
+
+CW_SOURCE_LABEL="$CW_SOURCE_LABEL" CW_PATH_LABEL="$CW_PATH_LABEL" \
+  "$CLAUDE_PLUGIN_ROOT/bin/consult-synthesize.sh" "$CONSULT_TOPIC"
 ```
 
-Refuses if PENDING remains. On success, prints synthesis.md with N-source
-attribution tags (e.g. `[rex+cody+bly]` for 3-way consensus). Set task
-`6` → `completed`.
+Refuses if PENDING remains. On success, prints the canonical design-doc
+with N-source attribution tags (e.g. `[rex+cody+bly]` for 3-way
+consensus). Set task `6` → `completed`.
 
 ### Step 8.4 — Drill deeper (optional, N-aware)
 

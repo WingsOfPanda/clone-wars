@@ -44,6 +44,7 @@ EXPECTED=(
   cw_consult_load_troopers
   # v0.16.0 additions
   cw_consult_design_doc_canonical_path
+  cw_consult_parse_use_force_flag
 )
 
 missing=()
@@ -55,7 +56,7 @@ if (( ${#missing[@]} > 0 )); then
   printf '  - %s\n' "${missing[@]}"
   exit 1
 fi
-pass "shim sources all ${#EXPECTED[@]} v0.16.0 functions"
+pass "shim sources all ${#EXPECTED[@]} v0.16.0 functions (incl. parse_use_force_flag)"
 
 # Also assert each split file exists.
 for f in lib/consult.sh lib/consult-prompts.sh; do
