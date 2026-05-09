@@ -34,7 +34,7 @@ Spec:
 - `docs/superpowers/specs/2026-05-07-consult-3-trooper-design.md` (v0.15.0)
 - `docs/superpowers/specs/2026-04-29-clone-wars-consult-v2-design.md` (v0.2 baseline)
 
-## Task list (TaskCreate × 17 BEFORE Step 0)
+## Task list (TaskCreate × 18 BEFORE Step 0)
 
 Create the task list using `TaskCreate`. Update statuses at the
 boundaries below — do NOT print a markdown checklist in chat. Per-trooper
@@ -46,7 +46,8 @@ covers the whole roster in parallel.
 | 0  | `0 Stage args-file [yoda]`                              | `Staging args-file` |
 | 1  | `1 Phrasing trigger scan (skipped if --use-force) [yoda]` | `Checking phrasing` |
 | 2  | `2 4-signal complexity check + route (fast-path or escalate) [yoda]` | `Checking complexity` |
-| 3  | `3 Spawn troopers (parallel) [yoda]`            | `Spawning troopers` |
+| 3a | `3a Preflight pane allocation [yoda]`           | `Preflight pane allocation` |
+| 3b | `3b Parallel spawn dispatch [yoda]`             | `Spawning troopers (parallel dispatch)` |
 | 4  | `4 Research dispatch [troopers]`                | `Dispatching research` |
 | 5  | `5 Research wait [troopers]`                    | `Troopers researching` |
 | 6  | `6 Diff findings [yoda]`                        | `Diffing findings` |
@@ -326,9 +327,9 @@ side-effects are `topic.txt`, `design-doc/.draft/*.md`, the assembled
 
 Set task `2` → `completed`.
 
-### Step 3 — Parallel spawn (N-aware, with auto-retry-once + rollback)
+### Step 3a — Preflight pane allocation
 
-Set task `3` → `in_progress`.
+Set task `3a` → `in_progress`.
 
 **Reached from one of three escalation paths:** `--use-force` flag,
 phrasing trigger, or 4-signal escalation from Step 2. Set
@@ -345,79 +346,160 @@ esac
 log_info "trooper escalation path: $CW_PATH_LABEL"
 ```
 
-Initialize ONCE before invoking the parallel spawn calls:
+Initialize the retry counter ONCE before invoking preflight:
 
 ```
 SPAWN_RETRY_COUNT=0
 ```
 
+**Run preflight (single foreground bash call):**
+
+```
+"$CLAUDE_PLUGIN_ROOT/bin/preflight-layout.sh" "$CONSULT_TOPIC" "$N"
+```
+
+Expected behavior:
+
+- On rc=0: `_consult/preflight-panes.txt` is now populated with N ordered
+  TSV lines (`<commander>\t<pane_id>`). The user's tmux window now shows
+  Yoda on the left + N evenly-sized sentinel panes on the right (via
+  `tmux select-layout main-vertical`).
+- On rc≠0: preflight rolled back any panes it created. Surface the error
+  to the user. Retry semantics are handled in Step 3b's failure-tuple
+  evaluation (Stage 1 retry-once + Stage 2 partial-success offer).
+
+After preflight succeeds, load the pane assignments into a shell array:
+
+```
+declare -A PREFLIGHT_PANES
+while IFS=$'\t' read -r cmdr pane; do
+  [[ -n "$cmdr" && -n "$pane" ]] && PREFLIGHT_PANES["$cmdr"]="$pane"
+done < "$TOPIC_DIR/_consult/preflight-panes.txt"
+```
+
+Set task `3a` → `completed`.
+
+### Step 3b — Parallel spawn dispatch (N-aware, with Stage 1 retry + Stage 2 partial-success)
+
+Set task `3b` → `in_progress`.
+
 **Issue `N` parallel `Bash` tool calls in a single message** — one per
-entry in `TROOPERS`. Each call invokes `bin/spawn.sh <commander>
-<provider> "$CONSULT_TOPIC"`. Capture each rc separately.
+entry in `TROOPERS`. Each call invokes
+`bin/spawn.sh <commander> <provider> "$CONSULT_TOPIC" --target-pane "${PREFLIGHT_PANES[$cmdr]}"`.
+Capture each rc separately.
 
 Canonical N=3 example (codex/rex, claude/cody, opencode/bly — order
 matches `TROOPERS`):
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" rex  codex    "$CONSULT_TOPIC"   # parallel 1
-"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" cody claude   "$CONSULT_TOPIC"   # parallel 2
-"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" bly  opencode "$CONSULT_TOPIC"   # parallel 3
+"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" rex  codex    "$CONSULT_TOPIC" --target-pane "${PREFLIGHT_PANES[rex]}"   # parallel 1
+"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" cody claude   "$CONSULT_TOPIC" --target-pane "${PREFLIGHT_PANES[cody]}"  # parallel 2
+"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" bly  opencode "$CONSULT_TOPIC" --target-pane "${PREFLIGHT_PANES[bly]}"   # parallel 3
 ```
 
-For N=2 (any 2-provider subset selected via `/clone-wars:medic`), issue 2 calls instead. The
-shape per call is identical; only the count varies. Iterate `TROOPERS` to
-emit the right `<commander> <provider>` pair on each call:
+For N=2 (any 2-provider subset selected via `/clone-wars:medic`), issue
+2 calls. Iterate `TROOPERS` to derive each call:
 
 ```
 for entry in "${TROOPERS[@]}"; do
   IFS=$'\t' read -r prov cmdr <<<"$entry"
-  # Issue: "$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" "$cmdr" "$prov" "$CONSULT_TOPIC"
+  # Issue: "$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" "$cmdr" "$prov" "$CONSULT_TOPIC" --target-pane "${PREFLIGHT_PANES[$cmdr]}"
   # — but as a PARALLEL Bash tool call, not a serial loop.
 done
 ```
 
 (The `for`-loop above is illustrative — Master Yoda emits `N` parallel
-Bash tool calls in one message, NOT a sequential bash loop. The Bash tool
-parallelism is what makes spawns concurrent.)
+Bash tool calls in one message, NOT a sequential bash loop. With
+preflight-panes already allocated, the spawns are truly parallel — no
+shared mutable state between the N processes.)
 
-#### Spawn-rollback runbook (CRITICAL — N-aware)
+#### Failure handling — Stage 1 retry-once + Stage 2 partial-success
 
-After all `N` parallel spawn calls return, evaluate the rc tuple. **The
-runbook supports ONE automatic retry** because codex's first cold-start
-can blow the spawn.sh budget (node-modules load + auth handshake);
-subsequent invocations are warm and almost always succeed. The retry path
-costs ~30s in the rare failure case and is invisible on the happy path.
-Same semantics for opencode (DeepSeek V4 Pro auth handshake on first
-call).
+After all `N` parallel spawn calls return, evaluate the rc tuple.
 
-- **All N succeed** → continue to Step 4. Set task `3` → `completed`.
+- **All N succeed** → continue to Step 4. Set task `3b` → `completed`.
 
-- **At least one of the N fails AND `SPAWN_RETRY_COUNT == 0`** →
-  **auto-retry-once**:
+- **At least one fails AND `SPAWN_RETRY_COUNT == 0`** → **Stage 1 retry-once**:
 
   ```
-  # Tear down any surviving pane(s), KEEP _consult/ for the retry.
+  # Tear down everything (preflight panes + any spawned troopers); KEEP _consult/.
   "$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC" 2>/dev/null || true
   SPAWN_RETRY_COUNT=1
-  log_info "spawn failed (cold start?); retrying parallel spawn once"
+  log_info "Stage 1: spawn failed (cold start?); retrying preflight + parallel spawn once"
   ```
 
-  Then re-issue the same N parallel spawn calls (back to the block above).
-  By this point each provider's runtime is warm; second attempt almost
-  always succeeds.
+  Then re-run Step 3a (preflight) and re-issue the N parallel spawn calls.
+  Most cold-start failures (codex / opencode auth handshake on first call)
+  are absorbed at Stage 1 invisibly.
 
-- **At least one of the N fails AND `SPAWN_RETRY_COUNT == 1`** →
-  **retry exhausted**:
+- **At least one fails AND `SPAWN_RETRY_COUNT == 1`** → **Stage 2 partial-success offer**:
+
+  Determine which troopers succeeded vs failed by checking each
+  commander's state-dir:
 
   ```
-  "$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC" 2>/dev/null || true
-  rm -rf "$TOPIC_DIR"
-  exit 1
+  declare -a SUCCEEDED FAILED
+  for entry in "${TROOPERS[@]}"; do
+    IFS=$'\t' read -r prov cmdr <<<"$entry"
+    if [[ -f "$TOPIC_DIR/$cmdr-$prov/pane.json" ]]; then
+      SUCCEEDED+=( "$cmdr ($prov)" )
+    else
+      FAILED+=( "$cmdr ($prov)" )
+    fi
+  done
   ```
 
-  Tell the user which provider(s) failed twice and why (capture stderr
-  from both attempts for diagnostics — typically codex/opencode bootstrap
-  timeout or binary-not-found). Task `3` stays `pending`.
+  If `${#SUCCEEDED[@]} -lt 2`, force abort: only one trooper alive, the
+  protocol requires N≥2. Run teardown + `rm -rf "$TOPIC_DIR"` + exit 1
+  with a message redirecting to ask Claude directly (matches the existing
+  N=1 plain-exit semantics from `consult-init.sh`).
+
+  Otherwise, ask the user:
+
+  ```
+  AskUserQuestion:
+    question: "${#SUCCEEDED[@]}/$N troopers spawned after retry.
+               Successes: ${SUCCEEDED[*]}. Failures: ${FAILED[*]}.
+               Proceed degraded with N=${#SUCCEEDED[@]} or abort all?"
+    options:  "Proceed degraded" / "Abort all"
+  ```
+
+  - **Proceed degraded** — rewrite `_consult/troopers.txt` to drop the
+    failed entries (atomic tmp+mv), update the conductor's `$N` and
+    `$TROOPERS` array to match the surviving roster, run
+    `bin/consult-teardown.sh` to clean preflight orphan panes (the
+    teardown extension from v0.19.0 handles this), then continue to
+    Step 4 with N=${#SUCCEEDED[@]}.
+
+    ```
+    # Rewrite troopers.txt
+    TMP=$(mktemp)
+    for entry in "${TROOPERS[@]}"; do
+      IFS=$'\t' read -r prov cmdr <<<"$entry"
+      [[ -f "$TOPIC_DIR/$cmdr-$prov/pane.json" ]] && printf '%s\t%s\n' "$prov" "$cmdr" >> "$TMP"
+    done
+    mv "$TMP" "$TOPIC_DIR/_consult/troopers.txt"
+
+    # Reload TROOPERS + N
+    mapfile -t TROOPERS < <(cw_consult_load_troopers "$TOPIC_DIR/_consult/troopers.txt")
+    N=${#TROOPERS[@]}
+    log_info "Stage 2: proceeding degraded with N=$N"
+
+    # consult-teardown's preflight-orphan extension cleans the failed sentinels
+    "$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC" 2>/dev/null || true
+    ```
+
+  - **Abort all** — full teardown + exit 1:
+
+    ```
+    "$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC" 2>/dev/null || true
+    rm -rf "$TOPIC_DIR"
+    exit 1
+    ```
+
+  Set task `3b` → `completed` only on Stage 1 success or Stage 2
+  "Proceed degraded" → continued to Step 4. Otherwise task `3b` stays
+  `pending`.
 
 ### Step 4 — Parallel research dispatch (N-aware)
 
