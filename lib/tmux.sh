@@ -37,6 +37,22 @@ cw_pane_spawn_down() {
   printf '%s\n' "$pane"
 }
 
+# cw_pane_respawn <pane_id> <commander> <model> <topic> <launch_cmd> [<cwd>]
+# Replaces the sentinel banner in <pane_id> with <launch_cmd> via
+# tmux respawn-pane -k; re-stamps @cw_label / @cw_color / @cw_label_fmt
+# so the existing border-format hook still works. Returns the pane id.
+# Used by bin/spawn.sh --target-pane and bin/preflight-layout.sh's banner stage.
+cw_pane_respawn() {
+  local pane="$1" commander="$2" model="$3" topic="$4" launch="$5" cwd="${6:-}"
+  local cmd="$launch"
+  if [[ -n "$cwd" ]]; then
+    cmd="cd '$cwd' && exec $launch"
+  fi
+  tmux respawn-pane -k -t "$pane" "$cmd"
+  cw_pane_label_set "$pane" "$commander" "$model" "$topic"
+  printf '%s\n' "$pane"
+}
+
 # cw_pane_label_set <pane> <commander> <model> <topic>
 # Stamps the three @cw_* user-options on a pane. Idempotent.
 cw_pane_label_set() {
