@@ -449,8 +449,8 @@ The `--art-dir` flag points preflight at the deploy art-dir
 (preflight-layout.sh accepts this flag as of v0.20.0). The `--cwd-from`
 flag (v0.20.3) points preflight at deploy-multi-init's per-commander
 cwd map, so each preflight pane is allocated already-rooted in its
-sub-repo cwd via `tmux split-window -c` — matching `/executeorder66`'s
-discipline (no transient hub-cwd, no `cd` later).
+sub-repo cwd via `tmux split-window -c` — no transient hub-cwd, no
+`cd` later.
 
 Load pane assignments:
 
