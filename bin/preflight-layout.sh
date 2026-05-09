@@ -47,8 +47,12 @@ mapfile -t ROSTER < <(cw_consult_load_troopers "$ROSTER_FILE")
   exit 1
 }
 
-# Discover Yoda's pane (the pane the conductor is running in)
-YODA_PANE=$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)
+# Discover Yoda's pane — the pane the conductor (this script's caller) is
+# running in. Prefer $TMUX_PANE (set by tmux per-pane env), fall back to
+# `tmux display-message` which returns the active pane in the active client.
+# The fallback is unsafe in headless contexts (no client = "active pane"
+# defaults to the client's last focus) so $TMUX_PANE must win when present.
+YODA_PANE="${TMUX_PANE:-$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)}"
 [[ -n "$YODA_PANE" ]] || { log_error "could not discover Yoda's pane; not in tmux?"; exit 1; }
 
 # Created panes — used by trap-driven rollback
