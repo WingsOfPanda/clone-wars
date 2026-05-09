@@ -73,10 +73,13 @@ prompts_src=$(cat lib/consult-prompts.sh)
 pass "Fix 5: helper signature comment renamed"
 
 # ---- Fix 6: version bump in both manifests ----
-grep -q '"version": "0.20.2"' .claude-plugin/plugin.json \
-  || { echo "FAIL: .claude-plugin/plugin.json not at 0.20.2"; exit 1; }
-grep -q '"version": "0.20.2"' .claude-plugin/marketplace.json \
-  || { echo "FAIL: .claude-plugin/marketplace.json not at 0.20.2"; exit 1; }
-pass "Fix 6: version bump locked at 0.20.2"
+# v0.20.3+: accept any 0.20.x (or higher minor) so this test stays useful
+# after subsequent version bumps. The exact version-lock for the current
+# release lives in that release's own static-wiring test.
+grep -qE '"version": "0\.[0-9]+\.[0-9]+"' .claude-plugin/plugin.json \
+  || { echo "FAIL: .claude-plugin/plugin.json missing semver-shaped version"; exit 1; }
+grep -qE '"version": "0\.[0-9]+\.[0-9]+"' .claude-plugin/marketplace.json \
+  || { echo "FAIL: .claude-plugin/marketplace.json missing semver-shaped version"; exit 1; }
+pass "Fix 6: version present in both manifests (semver-shaped)"
 
 echo "ALL PASS — v0.20.2 stale-string sweep wiring locked"
