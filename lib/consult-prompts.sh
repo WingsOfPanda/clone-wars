@@ -53,7 +53,7 @@ cw_consult_build_research_prompt() {
   printf '%s\n' "$out" | cw_consult_strip_block '^## Per-sub-project structure$' '^verify pass downstream\\.$'
 }
 
-# cw_consult_design_doc_drilldown_prompt <section> <synthesis-path> <commander> <dd-dir> <focus> [subproject] [out_path_override]
+# cw_consult_design_doc_drilldown_prompt <section> <design-doc-path> <commander> <dd-dir> <focus> [subproject] [out_path_override]
 # Builds a focused inbox payload asking <commander> to drill into <section>.
 # Trooper writes to <dd-dir>/_scratch/drilldown-<section-slug>-<commander>.md
 # (the _scratch/ subdir keeps per-section trooper output out of the user-facing

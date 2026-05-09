@@ -457,7 +457,7 @@ cw_consult_synthesize() {
     case "$cody_vs" in timeout|error|send-failed|missing|empty) printf '> NOTE: CODY verify dispatch %s — partial cross-verification; some Rex-only items not graded.\n\n' "$cody_vs" ;; esac
 
     printf '## Summary\n'
-    printf '_(not applicable — Master Yoda fills this in during the /spec walk; the trooper-path captures only cross-verified findings.)_\n\n'
+    printf '_(not applicable — Master Yoda fills this in during the design-doc walk; the trooper-path captures only cross-verified findings.)_\n\n'
 
     printf '## Findings\n'
     if [[ -n "$agreed_body" || -n "$cross_body" ]]; then
@@ -481,7 +481,7 @@ cw_consult_synthesize() {
     fi
 
     printf '## Recommendation\n'
-    printf '_(not applicable — Master Yoda fills this in during the /spec walk based on the cross-verified findings above.)_\n\n'
+    printf '_(not applicable — Master Yoda fills this in during the design-doc walk based on the cross-verified findings above.)_\n\n'
 
     printf '## Open Questions\n'
     if [[ -n "$notverified_body" ]]; then
@@ -1181,7 +1181,7 @@ cw_consult_load_troopers() {
 # v0.16.0: canonical design-doc path within an art-dir.
 # Format: <art_dir>/design-doc/<YYYY-MM-DD>-<slug>-design.md
 # Used by both fast-path (Yoda solo) and trooper-path (consult-synthesize)
-# so /spec reads ONE pattern. Date is UTC.
+# so the assemble step reads ONE pattern. Date is UTC.
 cw_consult_design_doc_canonical_path() {
   local art_dir="$1" slug="$2"
   [[ -n "$art_dir" ]] || { echo "cw_consult_design_doc_canonical_path: art_dir required" >&2; return 2; }

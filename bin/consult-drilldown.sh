@@ -3,22 +3,23 @@
 #
 # Usage:
 #   bin/consult-drilldown.sh <consult-topic> <section-title> <dd-dir> <focus> \
-#       <commander1> <model1> [<commander2> <model2>] [<subproject>]
+#       <design-doc-path> <commander1> <model1> [<commander2> <model2>] [<subproject>]
 #
 # Single-trooper:
-#   bin/consult-drilldown.sh consult-foo "Architecture" /path/to/dd "more depth" rex codex
+#   bin/consult-drilldown.sh consult-foo "Architecture" /path/to/dd "more depth" \
+#       /path/to/_consult/design-doc/2026-05-09-foo-design.md rex codex
 #
 # Single-trooper with sub-project (hub mode):
 #   bin/consult-drilldown.sh consult-foo "Architecture" /path/to/dd "more depth" \
-#       rex codex backend
+#       /path/to/_consult/design-doc/2026-05-09-foo-design.md rex codex backend
 #
 # Both-trooper (parallel):
 #   bin/consult-drilldown.sh consult-foo "Architecture" /path/to/dd "more depth" \
-#       rex codex cody claude
+#       /path/to/_consult/design-doc/2026-05-09-foo-design.md rex codex cody claude
 #
 # Both-trooper (parallel) with sub-project (hub mode):
 #   bin/consult-drilldown.sh consult-foo "Architecture" /path/to/dd "more depth" \
-#       rex codex cody claude backend
+#       /path/to/_consult/design-doc/2026-05-09-foo-design.md rex codex cody claude backend
 #
 # Output:
 #   - drilldown-<section-slug>[-<subproject>]-<commander>.md per trooper at
@@ -40,30 +41,31 @@ source "$PLUGIN_ROOT/lib/ipc.sh"
 source "$PLUGIN_ROOT/lib/consult.sh"
 
 usage() {
-  echo "Usage: $0 <topic> <section-title> <dd-dir> <focus> <commander1> <model1> [<commander2> <model2>] [<subproject>]" >&2
+  echo "Usage: $0 <topic> <section-title> <dd-dir> <focus> <design-doc-path> <commander1> <model1> [<commander2> <model2>] [<subproject>]" >&2
 }
 
 # Argument shapes:
-#   6 → single-trooper, no subproject
-#   7 → single-trooper + subproject (last arg)
-#   8 → both-trooper, no subproject
-#   9 → both-trooper + subproject (last arg)
-[[ $# -eq 6 || $# -eq 7 || $# -eq 8 || $# -eq 9 ]] || { usage; exit 2; }
+#   7 → single-trooper, no subproject
+#   8 → single-trooper + subproject (last arg)
+#   9 → both-trooper, no subproject
+#   10 → both-trooper + subproject (last arg)
+[[ $# -eq 7 || $# -eq 8 || $# -eq 9 || $# -eq 10 ]] || { usage; exit 2; }
 
 TOPIC="$1"
 TITLE="$2"
 DD_DIR="$3"
 FOCUS="$4"
-COMMANDER1="$5"
-MODEL1="$6"
+DESIGN_DOC="$5"
+COMMANDER1="$6"
+MODEL1="$7"
 COMMANDER2=""
 MODEL2=""
 SUBPROJECT=""
 case "$#" in
-  6) ;;
-  7) SUBPROJECT="$7" ;;
-  8) COMMANDER2="$7"; MODEL2="$8" ;;
-  9) COMMANDER2="$7"; MODEL2="$8"; SUBPROJECT="$9" ;;
+  7) ;;
+  8) SUBPROJECT="$8" ;;
+  9) COMMANDER2="$8"; MODEL2="$9" ;;
+  10) COMMANDER2="$8"; MODEL2="$9"; SUBPROJECT="${10}" ;;
 esac
 
 cw_consult_assert_topic "$TOPIC"
@@ -74,9 +76,7 @@ cw_consult_assert_topic "$TOPIC"
 mkdir -p "$DD_DIR/_scratch" \
   || { log_error "failed to create scratch dir: $DD_DIR/_scratch"; exit 1; }
 
-TOPIC_DIR="$(cw_consult_topic_dir "$TOPIC")"
-SYNTHESIS="$TOPIC_DIR/_consult/synthesis.md"
-[[ -f "$SYNTHESIS" ]] || { log_error "synthesis.md not found: $SYNTHESIS"; exit 2; }
+[[ -f "$DESIGN_DOC" ]] || { log_error "design-doc not found: $DESIGN_DOC"; exit 2; }
 
 # Read drill timeout from contracts.yaml (findings_timeout_s); default 90s.
 TIMEOUT=$(awk -F: '/findings_timeout_s/{gsub(/[^0-9]/,"",$2); print $2; exit}' \
@@ -94,7 +94,7 @@ dispatch_drill() {
   trooper_dir=$(cw_trooper_dir "$commander" "$model" "$TOPIC")
   offset=$(wc -c < "$trooper_dir/outbox.jsonl" 2>/dev/null || echo 0)
   prompt=$(cw_consult_design_doc_drilldown_prompt \
-    "$TITLE" "$SYNTHESIS" "$commander" "$DD_DIR" "$FOCUS" "$SUBPROJECT" "$out_path")
+    "$TITLE" "$DESIGN_DOC" "$commander" "$DD_DIR" "$FOCUS" "$SUBPROJECT" "$out_path")
   "$PLUGIN_ROOT/bin/send.sh" "$commander" "$TOPIC" "$prompt" >/dev/null
   printf '%s\n' "$offset"
 }

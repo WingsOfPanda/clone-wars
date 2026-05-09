@@ -1,7 +1,7 @@
 You are drilling deeper into the **{{SECTION}}** section of a design doc derived
 from the consultation you just completed.
 
-Read the synthesis you produced: {{SYN}}
+Read the design doc you produced: {{SYN}}
 
 Focus: {{FOCUS}}
 
