@@ -686,60 +686,72 @@ and proceed to Step 4.
 
 Set task `3d` → `in_progress`.
 
-For each bug found in Step 3c, identify the offending sub-repo. The
-trooper that owns that sub-repo is still alive in its pre-allocated
-pane (commander + cwd both available from `_deploy/troopers.txt`).
-
-Initialize per-sub-repo fix-round counter:
+**Bugs source.** Step 3c wrote `_deploy/multi-verify-bugs.txt` (TSV:
+`<repo>\t<bug-description>`). Step 3d reads it to drive the fix-loop.
+An empty / absent file means "no bugs — skip Step 3d entirely":
 
 ```
+[[ -f "$ART_DIR/multi-verify-bugs.txt" && -s "$ART_DIR/multi-verify-bugs.txt" ]] || {
+  log_info "[step 3d] no bugs in multi-verify-bugs.txt; skipping fix-loop"
+  # Set task 3d → completed and proceed to Step 4 (teardown)
+}
+
 declare -A FIX_ROUNDS
 MAX_FIX_ROUNDS=3
 ```
 
-For each (sub-repo, bug-description) pair:
+For each `(REPO, BUG)` row in `multi-verify-bugs.txt`:
 
-1. Look up the trooper:
-   ```
-   CMDR=$(awk -F$'\t' -v r="$REPO" '$2 ~ ("/" r "$") { print $1 }' "$ART_DIR/troopers.txt")
-   ```
+```
+while IFS=$'\t' read -r REPO BUG; do
+  [[ -n "$REPO" && -n "$BUG" ]] || continue
 
-2. Send a fix-prompt via the trooper's inbox:
+  # Look up the trooper that owns this sub-repo
+  CMDR=$(awk -F$'\t' -v r="$REPO" '$2 ~ ("/" r "$") { print $1 }' "$ART_DIR/troopers.txt")
+  PROVIDER=$(awk -F$'\t' -v r="$REPO" '$2 ~ ("/" r "$") { print $3 }' "$ART_DIR/troopers.txt")
+  [[ -n "$CMDR" ]] || { log_warn "[step 3d] no trooper found for repo '$REPO'; skipping"; continue; }
 
-   ```
-   /clone-wars:send --from master-yoda "$CMDR" "$TOPIC" "FIX REQUEST (round ${FIX_ROUNDS[$REPO]:-1} of $MAX_FIX_ROUNDS):
-   
-   I detected the following issue in your sub-repo:
-   
-   <bug-description>
-   
-   Please fix it using the same superpowers ceremony (writing-plans for
-   the fix → subagent-driven-development → verification-before-completion).
-   Report done via outbox when verified.
-   END_OF_INSTRUCTION"
-   ```
+  FIX_ROUNDS["$REPO"]="${FIX_ROUNDS[$REPO]:-1}"
+  log_info "[step 3d] fix-loop round ${FIX_ROUNDS[$REPO]}/$MAX_FIX_ROUNDS for $REPO (trooper $CMDR)"
 
-3. Background-await for the trooper's done event (mirrors Step 3b's
-   await pattern).
+  # 1. Send fix-prompt via the trooper's inbox
+  FIX_PROMPT=$(cat <<EOFP
+FIX REQUEST (round ${FIX_ROUNDS[$REPO]} of $MAX_FIX_ROUNDS):
 
-4. Re-run Step 3c's verification for THIS sub-repo. If green, mark fix
-   resolved.
+I detected the following issue in your sub-repo:
 
-5. If still buggy AND `${FIX_ROUNDS[$REPO]} -lt $MAX_FIX_ROUNDS`:
-   `FIX_ROUNDS[$REPO]=$(( ${FIX_ROUNDS[$REPO]:-0} + 1 ))` and loop back
-   to step 2.
+$BUG
 
-6. If still buggy AND `${FIX_ROUNDS[$REPO]} -ge $MAX_FIX_ROUNDS`:
-   AskUserQuestion:
-   - Question: "Sub-repo '$REPO' hit MAX_FIX_ROUNDS=3 fix attempts.
-     Bug remains: <bug>. What now?"
-   - Options:
-     - `Give up on this sub-repo` — mark FAILED in `_deploy/results.txt`;
-       continue verification for other sub-repos
-     - `Continue more rounds` — bump `FIX_ROUNDS[$REPO]` and re-loop
-     - `Escalate to different commander` — pick next available
-       commander from the pool, spawn fresh trooper with same `--cwd`,
-       reset `FIX_ROUNDS[$REPO]=0`
+Please fix it using the same superpowers ceremony (writing-plans for
+the fix → subagent-driven-development → verification-before-completion).
+Report done via outbox when verified.
+END_OF_INSTRUCTION
+EOFP
+)
+  cw_inbox_write "$CMDR" "$PROVIDER" "$TOPIC" "$FIX_PROMPT"
+
+  # 2. Background-await via deploy-wave-wait (mirror Step 3b)
+  Bash(
+    command='"$CLAUDE_PLUGIN_ROOT/bin/deploy-wave-wait.sh" "$TOPIC" "$CMDR" "$PROVIDER"',
+    run_in_background: true,
+    description="master yoda await $CMDR fix-round ${FIX_ROUNDS[$REPO]} (background)"
+  )
+
+  # 3. On notification: read wave-<cmdr>.txt; if TS=ok, re-run Step 3c
+  #    verification for THIS sub-repo. If still buggy AND
+  #    FIX_ROUNDS[$REPO] < MAX_FIX_ROUNDS: bump FIX_ROUNDS[$REPO] and
+  #    re-loop to step 1.
+  #
+  # 4. If still buggy AND FIX_ROUNDS[$REPO] >= MAX_FIX_ROUNDS:
+  #    AskUserQuestion (give up / continue / escalate to different commander).
+  #    "Give up on this sub-repo": log $REPO as FAILED in _deploy/results.txt;
+  #    continue verification for other sub-repos.
+  #    "Continue more rounds": bump FIX_ROUNDS[$REPO] and re-loop.
+  #    "Escalate to different commander": pick next available commander
+  #    from the pool, spawn fresh trooper with same --cwd, reset
+  #    FIX_ROUNDS[$REPO]=0.
+done < "$ART_DIR/multi-verify-bugs.txt"
+```
 
 After all bugs resolved (or given up on), set task `3d` → `completed`.
 
