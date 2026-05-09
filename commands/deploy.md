@@ -1,7 +1,7 @@
 ---
 description: Audit a design doc, dispatch to codex troopers (claude on plugin repos) for plan/implement/self-verify, then cross-verify and fix-loop. Multi-repo DAG-aware (v0.20.0).
 argument-hint: [--no-branch] [--branch <n>] [--topic <slug>] [--provider codex|claude] [--max-rounds 5] [<design-doc-path>]
-allowed-tools: Bash, Write, Read, Edit, AskUserQuestion
+allowed-tools: Bash, Write, Read, Edit, AskUserQuestion, Skill
 ---
 
 # /clone-wars:deploy
@@ -28,6 +28,7 @@ If `$ARGUMENTS` does not include a `.md` path, find the most recent
 consult-produced audit-passing design doc:
 
 ```
+source "$CLAUDE_PLUGIN_ROOT/lib/log.sh"
 STATE_ROOT="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state"
 DESIGN_DOC=$(find "$STATE_ROOT" -path '*/_consult/design-doc/*-design.md' \
     -printf '%T@ %p\n' 2>/dev/null \
@@ -120,7 +121,7 @@ Set task `0` → `in_progress`.
    REPO_HASH=$(cw_repo_hash)
    TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/deploy-init.sh" \
               --args-file "$ARGS_DIR/deploy.txt")
-   TOPIC_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$TOPIC"
+   TOPIC_DIR=$(cw_deploy_topic_dir "$TOPIC")
    ART_DIR="$TOPIC_DIR/_deploy"
    # Pull TARGET_CWD up here so the branch-base rev-parse below runs in the
    # right working tree. Sub-step 9 logs/re-reads it for downstream steps;
