@@ -464,16 +464,26 @@ Set task `3a` → `completed`.
 
 Set task `3b` → `in_progress`.
 
-Walk `_deploy/<topic>/dag-waves.txt` wave-by-wave. For each wave: issue
-K parallel `bin/spawn.sh --target-pane <pane> --cwd <sub-repo-cwd>`
-calls (one per sub-repo in the wave); send the DAG-unit prompt to
-each trooper's inbox; background-await for K done events.
+A **wave** is a set of sub-repos with no remaining unsatisfied
+dependencies that can run in parallel. `bin/deploy-dag-parse.sh`
+computes wave grouping via Kahn's topological sort and writes one row
+per `(wave, step, repo, desc)` to `_deploy/dag-waves.txt`.
+
+Walk `_deploy/<topic>/dag-waves.txt` wave-by-wave. For each wave:
+issue K parallel `bin/spawn.sh --target-pane <pane> --cwd <sub-repo-cwd>`
+calls (one per sub-repo in the wave); send the DAG-unit prompt to each
+trooper's inbox via the `cw_deploy_build_dag_unit_prompt` helper;
+background-await for K done events via `bin/deploy-wave-wait.sh`.
+
+**Build the per-repo lookup tables + wave groups:**
 
 ```
 mapfile -t WAVES < "$ART_DIR/dag-waves.txt"
 declare -A REPO_TO_CMDR
 declare -A REPO_TO_CWD
 declare -A REPO_TO_PROVIDER
+declare -A REPO_TO_STEP
+declare -A REPO_TO_UPSTREAM_CSV
 while IFS=$'\t' read -r cmdr cwd provider; do
   repo=$(basename "$cwd")
   REPO_TO_CMDR["$repo"]="$cmdr"
@@ -481,6 +491,30 @@ while IFS=$'\t' read -r cmdr cwd provider; do
   REPO_TO_PROVIDER["$repo"]="$provider"
 done < "$ART_DIR/troopers.txt"
 
+# Build per-repo step + upstream lookup from dag-waves + dag-edges
+while IFS=$'\t' read -r wave step repo desc; do
+  REPO_TO_STEP["$repo"]="$step"
+done < "$ART_DIR/dag-waves.txt"
+
+declare -A STEP_TO_REPO
+while IFS=$'\t' read -r wave step repo desc; do
+  STEP_TO_REPO["$step"]="$repo"
+done < "$ART_DIR/dag-waves.txt"
+
+declare -A REPO_UPSTREAM_STEPS
+while IFS=$'\t' read -r from to; do
+  REPO_UPSTREAM_STEPS["${STEP_TO_REPO[$to]}"]="${REPO_UPSTREAM_STEPS["${STEP_TO_REPO[$to]}"]} $from"
+done < "$ART_DIR/dag-edges.txt"
+
+for repo in "${!REPO_TO_CMDR[@]}"; do
+  upstream_csv=""
+  for u_step in ${REPO_UPSTREAM_STEPS["$repo"]:-}; do
+    [[ -z "$upstream_csv" ]] && upstream_csv="${STEP_TO_REPO[$u_step]}" || upstream_csv="${upstream_csv},${STEP_TO_REPO[$u_step]}"
+  done
+  REPO_TO_UPSTREAM_CSV["$repo"]="$upstream_csv"
+done
+
+# Group rows by wave number
 declare -a WAVE_GROUPS=()
 current_wave=""
 group_buf=""
@@ -495,57 +529,66 @@ for line in "${WAVES[@]}"; do
   fi
 done
 [[ -n "$group_buf" ]] && WAVE_GROUPS+=( "$group_buf" )
+
+WAVE_COUNT=${#WAVE_GROUPS[@]}
+TOTAL_REPOS=${#REPO_TO_CMDR[@]}
+log_info "[step 3b] DAG: $WAVE_COUNT wave(s) across $TOTAL_REPOS sub-repo(s)"
 ```
 
-For each wave, **issue K parallel `Bash` tool calls in a single message**
-— one per repo in the wave. Each call spawns a codex (or claude) trooper
-into its pre-allocated pane, pinned to its sub-repo cwd.
-
-Canonical wave dispatch per repo:
+**Walk waves with explicit outer loop:**
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" "${REPO_TO_CMDR[$repo]}" "${REPO_TO_PROVIDER[$repo]}" \
-  "$TOPIC" \
-  --target-pane "${PREFLIGHT_PANES[${REPO_TO_CMDR[$repo]}]}" \
-  --cwd "${REPO_TO_CWD[$repo]}"
+for ((w=1; w<=WAVE_COUNT; w++)); do
+  IFS=, read -ra REPOS <<<"${WAVE_GROUPS[w-1]}"
+  log_info "[step 3b] wave $w of $WAVE_COUNT: dispatching ${#REPOS[@]} trooper(s) — ${REPOS[*]}"
+
+  # ISSUE ${#REPOS[@]} PARALLEL Bash tool calls in a SINGLE message —
+  # one per repo. Each call: spawn.sh + cw_inbox_write (DAG-unit prompt
+  # built via cw_deploy_build_dag_unit_prompt). Then ISSUE another
+  # ${#REPOS[@]} PARALLEL background Bash tool calls — one per trooper —
+  # for bin/deploy-wave-wait.sh.
+  #
+  # Wait until ALL K notifications arrive AND all K wave-<cmdr>.txt
+  # files show TS=ok. Then continue to the next wave.
+
+  # Per-repo dispatch shape (each runs in parallel):
+  #
+  #   "$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" "${REPO_TO_CMDR[$repo]}" \
+  #     "${REPO_TO_PROVIDER[$repo]}" "$TOPIC" \
+  #     --target-pane "${PREFLIGHT_PANES[${REPO_TO_CMDR[$repo]}]}" \
+  #     --cwd "${REPO_TO_CWD[$repo]}"
+  #
+  #   PROMPT=$(cw_deploy_build_dag_unit_prompt \
+  #     "$repo" "$ART_DIR/design.md" \
+  #     "${REPO_TO_STEP[$repo]}" "$TOTAL_REPOS" \
+  #     "${REPO_TO_UPSTREAM_CSV[$repo]}")
+  #   cw_inbox_write "${REPO_TO_CMDR[$repo]}" "${REPO_TO_PROVIDER[$repo]}" "$TOPIC" "$PROMPT"
+  #
+  # Per-repo wave-wait shape (each runs in BACKGROUND parallel):
+  #
+  #   Bash(
+  #     command='"$CLAUDE_PLUGIN_ROOT/bin/deploy-wave-wait.sh" "$TOPIC" "${REPO_TO_CMDR[$repo]}" "${REPO_TO_PROVIDER[$repo]}"',
+  #     run_in_background: true,
+  #     description="master yoda await ${REPO_TO_CMDR[$repo]} wave $w (background)"
+  #   )
+
+  # Process notifications as they arrive. For each notification:
+  #   1. Read $ART_DIR/wave-<cmdr>.txt
+  #   2. Parse TS= line:
+  #        TS=ok      → trooper succeeded
+  #        TS=failed  → enter Stage 1/2 failure handling (below)
+  #        TS=timeout → enter Stage 1/2 failure handling (below)
+  #
+  # When ALL K wave-<cmdr>.txt files show TS=ok: log "wave $w
+  # completed; ${#REPOS[@]} succeeded" and continue to the next wave.
+
+  log_info "[step 3b] wave $w completed"
+done
 ```
-
-DAG-unit inbox prompt (write via `bin/send.sh` after spawn returns ready):
-
-```
-Read /path/to/design-doc. Your sub-repo is "<slug>".
-
-Multi-repo design docs use `### <slug>` subsection headings inside the
-Architecture and Components sections — focus on the subsections matching
-your slug. The DAG context (Step <N> of <total>) is in the
-"## Execution DAG" section; you depend on: <upstream-slug-list>.
-
-Run the full superpowers ceremony for your sub-repo:
-1. superpowers:writing-plans — produce an implementation plan from the
-   design-doc's slice for "<slug>", saved to
-   docs/superpowers/plans/YYYY-MM-DD-<topic>-<slug>-plan.md
-2. superpowers:subagent-driven-development — execute the plan task-by-
-   task, two-stage review per task
-3. superpowers:verification-before-completion — confirm tests pass,
-   diff matches the plan, no half-finished work, before reporting done
-
-Report status via outbox: emit {"event":"done"} when all tasks are
-complete and verified. Emit {"event":"error", "reason":"..."} on any
-unrecoverable failure.
-END_OF_INSTRUCTION
-```
-
-After dispatching the wave's K spawn+send pairs, **issue K parallel
-background `Bash` tool calls** for `bin/deploy-turn-wait.sh` — one per
-trooper. Each runs in `run_in_background: true`; emits a notification
-on completion.
-
-Wait until ALL K notifications have arrived AND all K state files show
-`TS=ok` (or terminal failure state). Then proceed to the next wave.
 
 #### Failure handling — Stage 1 retry-once + Stage 2 partial-success (multi-repo)
 
-After a wave's K spawns return rc tuples:
+After a wave's K spawns + wave-waits return:
 
 - **All K succeed** → continue to next wave. After last wave, set task
   `3b` → `completed`.
@@ -558,8 +601,14 @@ After a wave's K spawns return rc tuples:
   partial-success offer**: AskUserQuestion ("M/K spawned in this wave
   after retry. Proceed degraded with N=M / Abort all?"). On "Proceed
   degraded": rewrite `_deploy/troopers.txt` to drop the failed entry +
-  continue. On "Abort all": full teardown + `rm -rf "$TOPIC_DIR"` +
-  exit 1.
+  continue. On "Abort all": archive state + exit 1 (preserves
+  diagnostic context):
+
+  ```
+  "$CLAUDE_PLUGIN_ROOT/bin/deploy-teardown.sh" "$TOPIC" 2>/dev/null || true
+  "$CLAUDE_PLUGIN_ROOT/bin/deploy-archive.sh"  "$TOPIC"
+  exit 1
+  ```
 
 Set task `3b` → `completed` only after ALL waves succeed.
 
