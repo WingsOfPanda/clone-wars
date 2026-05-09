@@ -51,15 +51,20 @@ sleep 0.5
 # resolves to YODA_PANE). Capture stdout+stderr to a deterministic test-side log
 # so we can dump it on failure.
 LOG_FILE="/tmp/cw-pf-rc-test-$$.log"
-tmux send-keys -t "$YODA_PANE" "CLAUDE_PLUGIN_ROOT='$PLUGIN_ROOT' CLONE_WARS_HOME='$CLONE_WARS_HOME' bash '$PLUGIN_ROOT/bin/preflight-layout.sh' '$TOPIC' 3 > '$LOG_FILE' 2>&1; echo PFRC=\$?" Enter
+# Write PFRC into the log file (NOT to the pane terminal). Polling the file
+# is robust against tmux pane resizes (select-layout main-vertical fires
+# SIGWINCH which can interfere with terminal-rendered output).
+tmux send-keys -t "$YODA_PANE" "CLAUDE_PLUGIN_ROOT='$PLUGIN_ROOT' CLONE_WARS_HOME='$CLONE_WARS_HOME' bash '$PLUGIN_ROOT/bin/preflight-layout.sh' '$TOPIC' 3 > '$LOG_FILE' 2>&1; echo PFRC=\$? >> '$LOG_FILE'" Enter
 
-# Wait for completion (poll for PFRC=)
 got_pfrc=""
 for _ in $(seq 1 30); do
-  out=$(tmux capture-pane -p -t "$YODA_PANE" 2>/dev/null)
-  if [[ "$out" == *"PFRC=0"* ]]; then got_pfrc=0; break; fi
-  if [[ "$out" == *"PFRC=1"* ]]; then got_pfrc=1; break; fi
-  if [[ "$out" == *"PFRC=2"* ]]; then got_pfrc=2; break; fi
+  if [[ -f "$LOG_FILE" ]]; then
+    # `grep || true` so the rc=1 on "no match yet" doesn't trip set -e.
+    line=$(grep '^PFRC=' "$LOG_FILE" 2>/dev/null | tail -1 || true)
+    if [[ "$line" == "PFRC=0" ]]; then got_pfrc=0; break; fi
+    if [[ "$line" == "PFRC=1" ]]; then got_pfrc=1; break; fi
+    if [[ "$line" == "PFRC=2" ]]; then got_pfrc=2; break; fi
+  fi
   sleep 0.5
 done
 if [[ -z "$got_pfrc" ]]; then

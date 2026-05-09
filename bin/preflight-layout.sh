@@ -22,7 +22,15 @@ source "$PLUGIN_ROOT/lib/colors.sh"
 source "$PLUGIN_ROOT/lib/consult.sh"
 source "$PLUGIN_ROOT/lib/tmux.sh"
 
-[[ $# -eq 2 ]] || { echo "Usage: $0 <topic> <N>" >&2; exit 2; }
+# v0.20.0: --art-dir <abs-path> overrides the consult-derived art-dir
+# (additive; preserves v0.19.0 zero-flag invocation byte-equal).
+ART_DIR_OVERRIDE=""
+if [[ "${1:-}" == "--art-dir" ]]; then
+  [[ -n "${2:-}" ]] || { echo "--art-dir requires a value" >&2; exit 2; }
+  ART_DIR_OVERRIDE="$2"
+  shift 2
+fi
+[[ $# -eq 2 ]] || { echo "Usage: $0 [--art-dir <abs-path>] <topic> <N>" >&2; exit 2; }
 TOPIC="$1"
 N="$2"
 
@@ -37,7 +45,11 @@ if ! [[ "$N" =~ ^[0-9]+$ ]] || (( N < 2 || N > 4 )); then
 fi
 
 # Resolve topic + roster
-ART_DIR="$(cw_consult_art_dir "$TOPIC")"
+if [[ -n "$ART_DIR_OVERRIDE" ]]; then
+  ART_DIR="$ART_DIR_OVERRIDE"
+else
+  ART_DIR="$(cw_consult_art_dir "$TOPIC")"
+fi
 ROSTER_FILE="$ART_DIR/troopers.txt"
 [[ -f "$ROSTER_FILE" ]] || { log_error "troopers.txt not found at $ROSTER_FILE"; exit 1; }
 

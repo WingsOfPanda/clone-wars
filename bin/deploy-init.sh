@@ -79,6 +79,19 @@ cp "$DESIGN_PATH" "$ART_DIR/design.md" \
 printf '%s' "$TOPIC" > "$ART_DIR/topic.txt" \
   || { log_error "could not write $ART_DIR/topic.txt"; exit 1; }
 
+# v0.20.0: auto-detect routing from design-doc header form.
+# - **Target Sub-Project(s):** plural + ## Execution DAG → multi-repo
+# - else → single-repo (byte-equal v0.19.0)
+if grep -qE '^\*\*Target Sub-Project\(s\):\*\*' "$DESIGN_PATH" \
+   && grep -qE '^## Execution DAG\b' "$DESIGN_PATH"; then
+  ROUTING="multi-repo"
+else
+  ROUTING="single-repo"
+fi
+printf '%s\n' "$ROUTING" > "$ART_DIR/routing.txt" \
+  || { log_error "could not write $ART_DIR/routing.txt"; exit 1; }
+log_info "routing: $ROUTING"
+
 # Atomic-write target_cwd.txt so downstream consumers (commands/deploy.md
 # Step 0 export, bin/spawn.sh --cwd, git -C calls) read the resolved target.
 printf '%s\n' "$TARGET_CWD" | cw_atomic_write "$ART_DIR/target_cwd.txt" \

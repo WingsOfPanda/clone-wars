@@ -1,48 +1,68 @@
 ---
-description: Audit a design doc, dispatch it to an auto-detected trooper (codex by default; claude on plugin repos with confirmation) for plan/implement/self-verify, then cross-verify and fix-loop until PASS or 5 rounds.
-argument-hint: [<design-path>] [--no-branch] [--branch <name>] [--topic <slug>] [--max-rounds 5]
+description: Audit a design doc, dispatch to codex troopers (claude on plugin repos) for plan/implement/self-verify, then cross-verify and fix-loop. Multi-repo DAG-aware (v0.20.0).
+argument-hint: [--no-branch] [--branch <n>] [--topic <slug>] [--provider codex|claude] [--max-rounds 5] [<design-doc-path>]
+allowed-tools: Bash, Write, Read, Edit, AskUserQuestion
 ---
 
 # /clone-wars:deploy
 
-Run a trooper-implements / Yoda-verifies pipeline on `$ARGUMENTS`. Master Yoda
-audits the design doc; spawns one persistent cody trooper (`cody-<provider>-<topic>`,
-where `<provider>` is auto-detected — `claude` for plugin repos with user
-confirmation, else `codex`); delegates plan + implementation + self-verification
-to the trooper using superpowers skills; and cross-verifies after every trooper
-self-verify pass, sending fix bundles back until PASS or 5 rounds (then
-`AskUserQuestion`).
+Run a trooper-implements / Yoda-verifies pipeline on `$ARGUMENTS`.
+
+**When to use this command.** Invoke `/clone-wars:deploy` when the user
+asks to implement, ship, or execute a design doc produced by
+`/clone-wars:consult`. Trigger phrases: "deploy this design", "implement
+the spec at <path>", "ship <design-path>", "execute the design-doc",
+"spawn troopers for <design>". Single-repo design docs run today's
+single-trooper flow; multi-repo design docs (`**Target Sub-Project(s):**`
+header + `## Execution DAG` section) automatically route through the
+v0.20.0 multi-repo DAG flow.
 
 The cody pane stays attached for the entire run — `tmux select-pane` to watch.
 
-Spec: `docs/superpowers/specs/2026-05-02-clone-wars-execute-design.md`
+Spec: `docs/superpowers/specs/2026-05-09-deploy-multi-repo-dag-design.md` (v0.20.0 — current);
+`docs/superpowers/specs/2026-05-02-clone-wars-execute-design.md` (v0.6 baseline).
 
 ## Source defaulting
 
-If `$ARGUMENTS` does not include a `.md` path, look for the most recent
-consult artifact under this repo's state root (`$CLONE_WARS_HOME`).
-Candidates considered, in order of preference:
+If `$ARGUMENTS` does not include a `.md` path, find the most recent
+consult-produced audit-passing design doc:
 
-1. `state/<repo-hash>/<topic>/_consult/design-doc/<YYYY-MM-DD>-<slug>-design.md`
-   (produced by `/clone-wars:consult --design-doc` — full audit-passable spec
-   that maps directly to deploy's audit gates)
-2. `state/<repo-hash>/<topic>/_consult/synthesis.md`
-   (produced by every consult run — looser shape; may not pass the audit
-   without manual editing)
+```
+STATE_ROOT="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state"
+DESIGN_DOC=$(find "$STATE_ROOT" -path '*/_consult/design-doc/*-design.md' \
+    -printf '%T@ %p\n' 2>/dev/null \
+  | sort -n | tail -1 | cut -d' ' -f2-)
+[[ -n "$DESIGN_DOC" ]] || { log_error "no consult design-doc found; run /clone-wars:consult first or pass <path>"; exit 1; }
+```
 
-Prompt the user via `AskUserQuestion` to confirm whichever is most-recent.
-If neither is found and no explicit path was given, refuse with a usage hint.
+`AskUserQuestion` to confirm: "Use most recent consult design-doc:
+<DESIGN_DOC>?" Options: `Use this` / `Cancel`. On "Use this", append
+the path to the args file (so init.sh receives it as the positional
+argument). On "Cancel", exit 0.
 
-## Task list (TaskCreate × 6 BEFORE step 0)
+(v0.20.0: dropped pre-v0.12 `--design-doc` flag and `synthesis.md`
+fallback. The `/clone-wars:spec` command was removed in v0.17.0; consult
+v0.17+ produces audit-passing design-docs directly.)
+
+## Task list (TaskCreate × N BEFORE step 0)
+
+Create the task list using `TaskCreate`. Single-repo runs uses tasks
+0/1.1/1/2/3/4 (N=6, like v0.19.0). Multi-repo runs use tasks
+0/3a/3b/3c/3d/4 (N=6 also; the 1.1/1/2/3 single-repo tasks are skipped).
+Pick one set after Step 0's routing branch decides.
 
 | # | subject | activeForm |
 |---|---|---|
-| 0   | `0   Audit design doc [yoda]`              | `Auditing design doc` |
-| 1.1 | `1.1 Spawn cody (auto-provider) [yoda]`    | `Spawning cody-${PROVIDER}` |
-| 1   | `1   Run trooper turn (round N) [cody]`    | `Cody running turn (round N)` |
-| 2   | `2   Cross-verify (round N) [yoda]`        | `Yoda cross-verifying (round N)` |
-| 3   | `3   Author fix bundle (if needed) [yoda]` | `Authoring fix bundle` |
-| 4   | `4   Teardown + archive [yoda]`            | `Tearing down` |
+| 0   | `0   Audit + routing detect [yoda]`               | `Auditing design doc + routing` |
+| 1.1 | `1.1 Spawn cody (single-repo)  [yoda]`            | `Spawning cody-${PROVIDER}` |
+| 1   | `1   Run trooper turn (round N) [cody]`           | `Cody running turn (round N)` |
+| 2   | `2   Cross-verify (round N) [yoda]`               | `Yoda cross-verifying (round N)` |
+| 3   | `3   Author fix bundle (if needed) [yoda]`        | `Authoring fix bundle` |
+| 3a  | `3a  Preflight pane allocation (multi-repo) [yoda]` | `Multi-repo preflight` |
+| 3b  | `3b  DAG wave dispatch (multi-repo) [yoda+troopers]` | `Multi-repo DAG dispatch` |
+| 3c  | `3c  Final verification (multi-repo) [yoda]`      | `Multi-repo final verify` |
+| 3d  | `3d  Fix-loop (multi-repo) [yoda+troopers]`       | `Multi-repo fix-loop` |
+| 4   | `4   Teardown + archive [yoda]`                   | `Tearing down` |
 
 ## Steps
 
@@ -76,19 +96,18 @@ Set task `0` → `in_progress`.
    filtered argument string from step 2 (or `$ARGUMENTS` verbatim if no
    `--max-rounds` was found).
 4. Inspect the args file to detect "no positional .md arg given". If so,
-   apply source defaulting:
-   - Find the most recent consult artifact under this repo's state root.
-     Prefer a design-doc-mode spec (audit-passable) over a bare synthesis:
-     ```
-     source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
-     REPO_HASH=$(cw_repo_hash)
-     STATE_ROOT="${CLONE_WARS_HOME:-$HOME/.clone-wars}"
-     CANDIDATE=$(find "$STATE_ROOT/state/$REPO_HASH" \
-                   \( -path '*/_consult/design-doc/*-design.md' \
-                      -o -path '*/_consult/synthesis.md' \) \
-                   -type f -printf '%T@ %p\n' 2>/dev/null \
-                   | sort -n | tail -1 | cut -d' ' -f2-)
-     ```
+   apply source defaulting (v0.20.0: only the modern audit-passing
+   design-doc shape is considered; pre-v0.12 `--design-doc` flag and
+   `synthesis.md` fallback are gone):
+   ```
+   source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+   REPO_HASH=$(cw_repo_hash)
+   STATE_ROOT="${CLONE_WARS_HOME:-$HOME/.clone-wars}"
+   CANDIDATE=$(find "$STATE_ROOT/state/$REPO_HASH" \
+                 -path '*/_consult/design-doc/*-design.md' \
+                 -type f -printf '%T@ %p\n' 2>/dev/null \
+                 | sort -n | tail -1 | cut -d' ' -f2-)
+   ```
    - If `CANDIDATE` is non-empty, `AskUserQuestion` (options: "Use this",
      "Cancel"). On "Use this", append the path to the args file (so init.sh
      receives it as the positional argument). On "Cancel", exit 0.
@@ -208,7 +227,24 @@ Set task `0` → `in_progress`.
 
 Set task `0` → `completed`.
 
+**Routing branch (v0.20.0).** After audit PASS + provider resolution,
+read the routing decision written by `bin/deploy-init.sh`:
+
+```
+ROUTING=$(cat "$ART_DIR/routing.txt")
+log_info "deploy routing: $ROUTING"
+```
+
+- If `$ROUTING == "single-repo"`: continue with Steps 1.1, 1, 2, 3, 4
+  exactly as v0.19.0 (single-trooper flow, no multi-repo ceremony).
+- If `$ROUTING == "multi-repo"`: SKIP Steps 1.1, 1, 2, 3 entirely;
+  jump to NEW Step 3a (multi-repo preflight) → Step 3b (DAG wave
+  dispatch) → Step 3c (final verification) → Step 3d (fix-loop) →
+  Step 4 (teardown, common to both paths).
+
 ### Step 1.1 — Spawn cody-$PROVIDER
+
+**Active only when `$ROUTING == "single-repo"`.**
 
 Set task `1.1` → `in_progress`.
 ```
@@ -254,7 +290,7 @@ in Step 3 BEFORE incrementing ROUND and re-entering Step 1.**
 Bash(
   command='"$CLAUDE_PLUGIN_ROOT/bin/deploy-turn-wait.sh" "$TOPIC" "$ROUND"',
   run_in_background: true,
-  description='master yoda await cody round=$ROUND turn (background)'
+  description="master yoda await cody round=$ROUND turn (background)"
 )
 ```
 
@@ -377,6 +413,267 @@ RETRY_COUNT=0
 ```
 
 Set task `3` → `completed`; loop back to Step 1.
+
+### Step 3a — Preflight pane allocation (multi-repo)
+
+**Active only when `$ROUTING == "multi-repo"`.**
+
+Set task `3a` → `in_progress`.
+
+`bin/deploy-init.sh` already invoked `bin/deploy-dag-parse.sh`
+(NEW v0.20.0) to produce `_deploy/<topic>/dag-waves.txt` +
+`dag-edges.txt`, and `bin/deploy-multi-init.sh` to produce
+`_deploy/<topic>/troopers.txt`. Defensive check:
+
+```
+[[ -f "$ART_DIR/dag-waves.txt"  ]] || { log_error "dag-waves.txt missing — re-run deploy-init"; exit 1; }
+[[ -f "$ART_DIR/dag-edges.txt"  ]] || { log_error "dag-edges.txt missing — re-run deploy-init"; exit 1; }
+[[ -f "$ART_DIR/troopers.txt"   ]] || { log_error "troopers.txt missing — re-run deploy-init"; exit 1; }
+```
+
+Initialize the spawn retry counter:
+
+```
+SPAWN_RETRY_COUNT=0
+```
+
+Count troopers and run preflight:
+
+```
+N=$(wc -l < "$ART_DIR/troopers.txt")
+"$CLAUDE_PLUGIN_ROOT/bin/preflight-layout.sh" --art-dir "$ART_DIR" "$TOPIC" "$N"
+```
+
+The `--art-dir` flag points preflight at the deploy art-dir
+(preflight-layout.sh accepts this flag as of v0.20.0).
+
+Load pane assignments:
+
+```
+declare -A PREFLIGHT_PANES
+while IFS=$'\t' read -r cmdr pane; do
+  [[ -n "$cmdr" && -n "$pane" ]] && PREFLIGHT_PANES["$cmdr"]="$pane"
+done < "$ART_DIR/preflight-panes.txt"
+```
+
+Set task `3a` → `completed`.
+
+### Step 3b — DAG wave dispatch (multi-repo)
+
+**Active only when `$ROUTING == "multi-repo"`.**
+
+Set task `3b` → `in_progress`.
+
+Walk `_deploy/<topic>/dag-waves.txt` wave-by-wave. For each wave: issue
+K parallel `bin/spawn.sh --target-pane <pane> --cwd <sub-repo-cwd>`
+calls (one per sub-repo in the wave); send the DAG-unit prompt to
+each trooper's inbox; background-await for K done events.
+
+```
+mapfile -t WAVES < "$ART_DIR/dag-waves.txt"
+declare -A REPO_TO_CMDR
+declare -A REPO_TO_CWD
+declare -A REPO_TO_PROVIDER
+while IFS=$'\t' read -r cmdr cwd provider; do
+  repo=$(basename "$cwd")
+  REPO_TO_CMDR["$repo"]="$cmdr"
+  REPO_TO_CWD["$repo"]="$cwd"
+  REPO_TO_PROVIDER["$repo"]="$provider"
+done < "$ART_DIR/troopers.txt"
+
+declare -a WAVE_GROUPS=()
+current_wave=""
+group_buf=""
+for line in "${WAVES[@]}"; do
+  IFS=$'\t' read -r wave step repo desc <<<"$line"
+  if [[ "$wave" != "$current_wave" ]]; then
+    [[ -n "$group_buf" ]] && WAVE_GROUPS+=( "$group_buf" )
+    group_buf="$repo"
+    current_wave="$wave"
+  else
+    group_buf="$group_buf,$repo"
+  fi
+done
+[[ -n "$group_buf" ]] && WAVE_GROUPS+=( "$group_buf" )
+```
+
+For each wave, **issue K parallel `Bash` tool calls in a single message**
+— one per repo in the wave. Each call spawns a codex (or claude) trooper
+into its pre-allocated pane, pinned to its sub-repo cwd.
+
+Canonical wave dispatch per repo:
+
+```
+"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" "${REPO_TO_CMDR[$repo]}" "${REPO_TO_PROVIDER[$repo]}" \
+  "$TOPIC" \
+  --target-pane "${PREFLIGHT_PANES[${REPO_TO_CMDR[$repo]}]}" \
+  --cwd "${REPO_TO_CWD[$repo]}"
+```
+
+DAG-unit inbox prompt (write via `bin/send.sh` after spawn returns ready):
+
+```
+Read /path/to/design-doc. Your sub-repo is "<slug>".
+
+Multi-repo design docs use `### <slug>` subsection headings inside the
+Architecture and Components sections — focus on the subsections matching
+your slug. The DAG context (Step <N> of <total>) is in the
+"## Execution DAG" section; you depend on: <upstream-slug-list>.
+
+Run the full superpowers ceremony for your sub-repo:
+1. superpowers:writing-plans — produce an implementation plan from the
+   design-doc's slice for "<slug>", saved to
+   docs/superpowers/plans/YYYY-MM-DD-<topic>-<slug>-plan.md
+2. superpowers:subagent-driven-development — execute the plan task-by-
+   task, two-stage review per task
+3. superpowers:verification-before-completion — confirm tests pass,
+   diff matches the plan, no half-finished work, before reporting done
+
+Report status via outbox: emit {"event":"done"} when all tasks are
+complete and verified. Emit {"event":"error", "reason":"..."} on any
+unrecoverable failure.
+END_OF_INSTRUCTION
+```
+
+After dispatching the wave's K spawn+send pairs, **issue K parallel
+background `Bash` tool calls** for `bin/deploy-turn-wait.sh` — one per
+trooper. Each runs in `run_in_background: true`; emits a notification
+on completion.
+
+Wait until ALL K notifications have arrived AND all K state files show
+`TS=ok` (or terminal failure state). Then proceed to the next wave.
+
+#### Failure handling — Stage 1 retry-once + Stage 2 partial-success (multi-repo)
+
+After a wave's K spawns return rc tuples:
+
+- **All K succeed** → continue to next wave. After last wave, set task
+  `3b` → `completed`.
+
+- **At least one fails AND `SPAWN_RETRY_COUNT == 0`** → **Stage 1
+  retry-once**: full teardown + re-preflight + re-dispatch the entire
+  wave (mirrors v0.19.0 consult Step 3b).
+
+- **At least one fails AND `SPAWN_RETRY_COUNT == 1`** → **Stage 2
+  partial-success offer**: AskUserQuestion ("M/K spawned in this wave
+  after retry. Proceed degraded with N=M / Abort all?"). On "Proceed
+  degraded": rewrite `_deploy/troopers.txt` to drop the failed entry +
+  continue. On "Abort all": full teardown + `rm -rf "$TOPIC_DIR"` +
+  exit 1.
+
+Set task `3b` → `completed` only after ALL waves succeed.
+
+### Step 3c — Final verification (multi-repo)
+
+**Active only when `$ROUTING == "multi-repo"`.**
+
+Set task `3c` → `in_progress`.
+
+After all waves complete, the conductor (Yoda) does its own verification.
+Default = cross-repo invariants only. Escalate to full check (all tests
++ Success Criteria diff review) on any of three "feels unsafe" triggers.
+
+**Compute the unsafe signal:**
+
+```
+source "$CLAUDE_PLUGIN_ROOT/lib/deploy-dag.sh"
+WAVE_COUNT=$(awk -F$'\t' '{print $1}' "$ART_DIR/dag-waves.txt" | sort -u | wc -l)
+FAN_IN_REPOS=$(cw_deploy_dag_fan_in_repos "$ART_DIR/dag-edges.txt" "$ART_DIR/dag-waves.txt")
+SHARED_PATHS=""
+declare -A PATH_COUNT
+while IFS=$'\t' read -r cmdr cwd provider; do
+  branch_base=$(cat "$ART_DIR/$cmdr-branch-base.sha" 2>/dev/null) || continue
+  while IFS= read -r p; do
+    PATH_COUNT["$p"]=$(( ${PATH_COUNT["$p"]:-0} + 1 ))
+  done < <(git -C "$cwd" diff --name-only "${branch_base}..HEAD" 2>/dev/null)
+done < "$ART_DIR/troopers.txt"
+for p in "${!PATH_COUNT[@]}"; do
+  (( ${PATH_COUNT[$p]} >= 2 )) && SHARED_PATHS="$SHARED_PATHS $p"
+done
+
+UNSAFE=0
+[[ "$WAVE_COUNT" -ge 3 ]] && { UNSAFE=1; log_warn "feels unsafe: wave count $WAVE_COUNT >= 3"; }
+[[ -n "$FAN_IN_REPOS" ]]   && { UNSAFE=1; log_warn "feels unsafe: fan-in repos: $FAN_IN_REPOS"; }
+[[ -n "$SHARED_PATHS" ]]   && { UNSAFE=1; log_warn "feels unsafe: shared filesystem paths: $SHARED_PATHS"; }
+```
+
+**Default verification (UNSAFE=0):** cross-repo invariants only.
+Yoda reads the design-doc's `## Architecture` section and verifies
+that any cross-repo interface declared there is implemented
+consistently across sub-repos. If no cross-repo interfaces are
+declared, default verification is a no-op.
+
+**Escalated verification (UNSAFE=1):** run full check.
+- Per sub-repo: `git -C "<cwd>" status --short` (no uncommitted leftovers)
+- Per sub-repo: `bash <cwd>/tests/run.sh` if present, else `<cwd>/Makefile test` if present, else skip
+- Yoda reads the design-doc's `## Success Criteria` checklist and
+  evaluates each `- [ ]` bullet against the diffs
+
+If any verification check finds a bug, proceed to Step 3d fix-loop.
+If all green, set task `3c` → `completed` and proceed to Step 4.
+
+### Step 3d — Fix-loop (multi-repo)
+
+**Active only when `$ROUTING == "multi-repo"` AND Step 3c found bugs.**
+
+Set task `3d` → `in_progress`.
+
+For each bug found in Step 3c, identify the offending sub-repo. The
+trooper that owns that sub-repo is still alive in its pre-allocated
+pane (commander + cwd both available from `_deploy/troopers.txt`).
+
+Initialize per-sub-repo fix-round counter:
+
+```
+declare -A FIX_ROUNDS
+MAX_FIX_ROUNDS=3
+```
+
+For each (sub-repo, bug-description) pair:
+
+1. Look up the trooper:
+   ```
+   CMDR=$(awk -F$'\t' -v r="$REPO" '$2 ~ ("/" r "$") { print $1 }' "$ART_DIR/troopers.txt")
+   ```
+
+2. Send a fix-prompt via the trooper's inbox:
+
+   ```
+   /clone-wars:send --from master-yoda "$CMDR" "$TOPIC" "FIX REQUEST (round ${FIX_ROUNDS[$REPO]:-1} of $MAX_FIX_ROUNDS):
+   
+   I detected the following issue in your sub-repo:
+   
+   <bug-description>
+   
+   Please fix it using the same superpowers ceremony (writing-plans for
+   the fix → subagent-driven-development → verification-before-completion).
+   Report done via outbox when verified.
+   END_OF_INSTRUCTION"
+   ```
+
+3. Background-await for the trooper's done event (mirrors Step 3b's
+   await pattern).
+
+4. Re-run Step 3c's verification for THIS sub-repo. If green, mark fix
+   resolved.
+
+5. If still buggy AND `${FIX_ROUNDS[$REPO]} -lt $MAX_FIX_ROUNDS`:
+   `FIX_ROUNDS[$REPO]=$(( ${FIX_ROUNDS[$REPO]:-0} + 1 ))` and loop back
+   to step 2.
+
+6. If still buggy AND `${FIX_ROUNDS[$REPO]} -ge $MAX_FIX_ROUNDS`:
+   AskUserQuestion:
+   - Question: "Sub-repo '$REPO' hit MAX_FIX_ROUNDS=3 fix attempts.
+     Bug remains: <bug>. What now?"
+   - Options:
+     - `Give up on this sub-repo` — mark FAILED in `_deploy/results.txt`;
+       continue verification for other sub-repos
+     - `Continue more rounds` — bump `FIX_ROUNDS[$REPO]` and re-loop
+     - `Escalate to different commander` — pick next available
+       commander from the pool, spawn fresh trooper with same `--cwd`,
+       reset `FIX_ROUNDS[$REPO]=0`
+
+After all bugs resolved (or given up on), set task `3d` → `completed`.
 
 ### Step 4 — Teardown + archive
 

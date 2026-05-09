@@ -235,9 +235,23 @@ cw_deploy_detect_provider() {
   local repo_root="${1:-}"
   local override="${2:-}"
   [[ -n "$repo_root" ]] || { log_error "cw_deploy_detect_provider: missing repo-root arg"; return 2; }
+  # v0.20.0: whitelist override values to {codex, claude}. opencode is no
+  # longer a deploy provider (consult/medic still support it; deploy doesn't).
   if [[ -n "$override" ]]; then
-    printf '%s\n' "$override"
-    return 0
+    case "$override" in
+      codex|claude)
+        printf '%s\n' "$override"
+        return 0
+        ;;
+      opencode)
+        log_error "deploy: opencode is not a supported provider in v0.20.0+; use codex (default) or claude (plugin-dev)"
+        return 1
+        ;;
+      *)
+        log_error "deploy: unknown provider override '$override' (allowed: codex, claude)"
+        return 1
+        ;;
+    esac
   fi
   if [[ -f "$repo_root/.claude-plugin/plugin.json" ]]; then
     printf 'claude\n'

@@ -38,14 +38,18 @@ YODA_PANE=$(tmux list-panes -t "$TEST_WIN" -F '#{pane_id}' | head -1)
 sleep 0.5
 
 LOG_FILE="/tmp/cw-pfrb-rc-test-$$.log"
-tmux send-keys -t "$YODA_PANE" "CLAUDE_PLUGIN_ROOT='$PLUGIN_ROOT' CLONE_WARS_HOME='$CLONE_WARS_HOME' bash '$PLUGIN_ROOT/bin/preflight-layout.sh' '$TOPIC' 3 > '$LOG_FILE' 2>&1; echo PFRC=\$?" Enter
+# Write PFRC into the log file (NOT the pane terminal); polling the file is
+# robust against tmux pane resizes from select-layout main-vertical.
+tmux send-keys -t "$YODA_PANE" "CLAUDE_PLUGIN_ROOT='$PLUGIN_ROOT' CLONE_WARS_HOME='$CLONE_WARS_HOME' bash '$PLUGIN_ROOT/bin/preflight-layout.sh' '$TOPIC' 3 > '$LOG_FILE' 2>&1; echo PFRC=\$? >> '$LOG_FILE'" Enter
 
 got_pfrc=""
 for _ in $(seq 1 20); do
-  out=$(tmux capture-pane -p -t "$YODA_PANE" 2>/dev/null)
-  if [[ "$out" == *"PFRC=0"* ]]; then got_pfrc=0; break; fi
-  if [[ "$out" == *"PFRC=1"* ]]; then got_pfrc=1; break; fi
-  if [[ "$out" == *"PFRC=2"* ]]; then got_pfrc=2; break; fi
+  if [[ -f "$LOG_FILE" ]]; then
+    line=$(grep '^PFRC=' "$LOG_FILE" 2>/dev/null | tail -1 || true)
+    if [[ "$line" == "PFRC=0" ]]; then got_pfrc=0; break; fi
+    if [[ "$line" == "PFRC=1" ]]; then got_pfrc=1; break; fi
+    if [[ "$line" == "PFRC=2" ]]; then got_pfrc=2; break; fi
+  fi
   sleep 0.5
 done
 [[ "$got_pfrc" == "1" ]] || { echo "FAIL: count-mismatch should rc=1 (got '$got_pfrc')" >&2; cat "$LOG_FILE" >&2 || true; exit 1; }
