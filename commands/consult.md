@@ -968,6 +968,14 @@ also reference them when re-walking sections during Step 11).
 ```
 DRILL_DIR="$TOPIC_DIR/_consult/drilldowns"
 mkdir -p "$DRILL_DIR"
+
+# v0.20.2: derive the design-doc path so each drilldown invocation can
+# point its trooper at the right source. Same UTC-day session is the
+# normal drill cadence; midnight-edge case errors with "no design-doc at"
+# and is intentionally not glob-fallback'd (see spec risk assessment).
+SLUG="${CONSULT_TOPIC#consult-}"
+DESIGN_DOC=$(cw_consult_design_doc_canonical_path "$TOPIC_DIR/_consult" "$SLUG")
+[[ -f "$DESIGN_DOC" ]] || { log_error "no design-doc at $DESIGN_DOC; cannot drill"; exit 1; }
 ```
 
 `AskUserQuestion`: "Any aspect to drill deeper before tearing down? (panes still live)"
@@ -994,26 +1002,28 @@ Loop while user picks "Yes":
    → `$DRILL_TROOPER=<choice>`
 
 4. Invoke the drill bin script. `bin/consult-drilldown.sh` accepts at
-   most 2 trooper pairs per invocation (arg counts: 6 = single trooper,
-   7 = single + sub-project, 8 = two troopers, 9 = two + sub-project).
+   most 2 trooper pairs per invocation (arg counts: 7 = single trooper,
+   8 = single + sub-project, 9 = two troopers, 10 = two + sub-project).
    To fan out to 3 troopers, issue **multiple parallel** drill calls.
 
-   Argument shape: 4 fixed args (`<topic> <drill-topic> <dd-dir>
-   <focus>`) followed by `K ∈ {1, 2}` pairs of `<commander> <provider>`,
-   optionally followed by a sub-project token.
+   Argument shape: 5 fixed args (`<topic> <drill-topic> <dd-dir>
+   <focus> <design-doc-path>`) followed by `K ∈ {1, 2}` pairs of
+   `<commander> <provider>`, optionally followed by a sub-project token.
 
-   Single trooper (`K=1`, 6 args):
+   Single trooper (`K=1`, 7 args):
    ```
    "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
      "$CONSULT_TOPIC" "$DRILL_TOPIC" "$DRILL_DIR" "$DRILL_FOCUS" \
+     "$DESIGN_DOC" \
      <commander> <provider>
    ```
 
-   Two troopers in parallel (`K=2`, 8 args) — covers N=2 "both" or any
+   Two troopers in parallel (`K=2`, 9 args) — covers N=2 "both" or any
    N=3 pair (`rex + cody`, `rex + bly`, `cody + bly`):
    ```
    "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
      "$CONSULT_TOPIC" "$DRILL_TOPIC" "$DRILL_DIR" "$DRILL_FOCUS" \
+     "$DESIGN_DOC" \
      rex codex cody claude
    ```
 
@@ -1025,11 +1035,13 @@ Loop while user picks "Yes":
    # Bash tool call 1 (parallel) — first 2 troopers
    "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
      "$CONSULT_TOPIC" "$DRILL_TOPIC" "$DRILL_DIR" "$DRILL_FOCUS" \
+     "$DESIGN_DOC" \
      rex codex cody claude
 
    # Bash tool call 2 (parallel) — third trooper
    "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
      "$CONSULT_TOPIC" "$DRILL_TOPIC" "$DRILL_DIR" "$DRILL_FOCUS" \
+     "$DESIGN_DOC" \
      bly opencode
    ```
    Treat the run as success if at least one of the two invocations
