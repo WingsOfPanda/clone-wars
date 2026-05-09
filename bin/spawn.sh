@@ -53,6 +53,9 @@ Usage: $0 <commander|random> <model> <topic> [--mode full|read-only] [--cwd <abs
                      (default: inherit conductor's repo root). Used by
                      /clone-wars:deploy when the design doc declares
                      **Target Sub-Project**.
+  --target-pane <id> — respawn into pre-allocated pane <id> (must appear
+                     in _consult/<topic>/preflight-panes.txt). Used by
+                     /clone-wars:consult v0.19.0 two-phase spawn.
   initial-prompt  — optional first task to send via inbox after spawn
 EOF
 }
@@ -63,15 +66,19 @@ COMMANDER="$1"; MODEL="$2"; TOPIC="$3"; shift 3
 MODE=""
 INITIAL_PROMPT=""
 SPAWN_CWD=""
+TARGET_PANE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --mode)        MODE="$2"; shift 2 ;;
-    --mode=*)      MODE="${1#*=}"; shift ;;
-    --cwd)         [[ -n "${2:-}" ]] || { echo "--cwd requires a value" >&2; exit 2; }
-                   SPAWN_CWD="$2"; shift 2 ;;
-    --cwd=*)       SPAWN_CWD="${1#*=}"; shift ;;
-    -h|--help)     usage; exit 0 ;;
-    *)             INITIAL_PROMPT="$*"; break ;;
+    --mode)          MODE="$2"; shift 2 ;;
+    --mode=*)        MODE="${1#*=}"; shift ;;
+    --cwd)           [[ -n "${2:-}" ]] || { echo "--cwd requires a value" >&2; exit 2; }
+                     SPAWN_CWD="$2"; shift 2 ;;
+    --cwd=*)         SPAWN_CWD="${1#*=}"; shift ;;
+    --target-pane)   [[ -n "${2:-}" ]] || { echo "--target-pane requires a value" >&2; exit 2; }
+                     TARGET_PANE="$2"; shift 2 ;;
+    --target-pane=*) TARGET_PANE="${1#*=}"; shift ;;
+    -h|--help)       usage; exit 0 ;;
+    *)               INITIAL_PROMPT="$*"; break ;;
   esac
 done
 
@@ -79,6 +86,21 @@ done
 if [[ -n "$SPAWN_CWD" ]]; then
   [[ "$SPAWN_CWD" == /* ]] || { log_error "spawn --cwd must be an absolute path: $SPAWN_CWD"; exit 1; }
   [[ -d "$SPAWN_CWD" ]] || { log_error "spawn --cwd target does not exist: $SPAWN_CWD"; exit 1; }
+fi
+
+# --target-pane validation (v0.19.0): strict — must appear in
+# _consult/<topic>/preflight-panes.txt. Fails fast before tmux/state work.
+if [[ -n "$TARGET_PANE" ]]; then
+  source "$PLUGIN_ROOT/lib/consult.sh"
+  PFP="$(cw_consult_art_dir "$TOPIC")/preflight-panes.txt"
+  if [[ ! -f "$PFP" ]]; then
+    log_error "--target-pane requires preflight-panes.txt at: $PFP"
+    exit 1
+  fi
+  if ! grep -qE "^[a-z0-9-]+	${TARGET_PANE}$" "$PFP"; then
+    log_error "--target-pane $TARGET_PANE not in preflight-panes.txt for topic $TOPIC"
+    exit 1
+  fi
 fi
 
 # ------------------------------------------------------------ Input validation
@@ -153,16 +175,24 @@ log_info "spawning $COMMANDER-$MODEL with: $LAUNCH"
 # When --cwd <abs-path> is set, the new pane is launched there via
 # `tmux split-window ... -c "$SPAWN_CWD"`; otherwise the helpers default to
 # cw_repo_root (the conductor's repo root).
-PRIOR_FILE="$(cw_topic_state_dir "$TOPIC")/.last_pane"
-PRIOR_PANE=""
-[[ -f "$PRIOR_FILE" ]] && PRIOR_PANE=$(cat "$PRIOR_FILE")
-if [[ -n "$PRIOR_PANE" ]] && cw_pane_alive "$PRIOR_PANE"; then
-  PANE=$(cw_pane_spawn_down "$COMMANDER" "$MODEL" "$TOPIC" "$LAUNCH" "$PRIOR_PANE" "$SPAWN_CWD")
+if [[ -n "$TARGET_PANE" ]]; then
+  # v0.19.0 preflight path: respawn into pre-allocated pane.
+  cw_pane_alive "$TARGET_PANE" || { log_error "--target-pane $TARGET_PANE is not alive"; exit 1; }
+  PANE=$(cw_pane_respawn "$TARGET_PANE" "$COMMANDER" "$MODEL" "$TOPIC" "$LAUNCH" "$SPAWN_CWD")
+  # NOTE: no .last_pane writes — preflight-panes.txt is the source of truth.
 else
-  PANE=$(cw_pane_spawn_right "$COMMANDER" "$MODEL" "$TOPIC" "$LAUNCH" "" "$SPAWN_CWD")
+  # Legacy path: byte-equal to v0.18.3.
+  PRIOR_FILE="$(cw_topic_state_dir "$TOPIC")/.last_pane"
+  PRIOR_PANE=""
+  [[ -f "$PRIOR_FILE" ]] && PRIOR_PANE=$(cat "$PRIOR_FILE")
+  if [[ -n "$PRIOR_PANE" ]] && cw_pane_alive "$PRIOR_PANE"; then
+    PANE=$(cw_pane_spawn_down "$COMMANDER" "$MODEL" "$TOPIC" "$LAUNCH" "$PRIOR_PANE" "$SPAWN_CWD")
+  else
+    PANE=$(cw_pane_spawn_right "$COMMANDER" "$MODEL" "$TOPIC" "$LAUNCH" "" "$SPAWN_CWD")
+  fi
+  mkdir -p "$(dirname "$PRIOR_FILE")"
+  printf '%s\n' "$PANE" > "$PRIOR_FILE"
 fi
-mkdir -p "$(dirname "$PRIOR_FILE")"
-printf '%s\n' "$PANE" > "$PRIOR_FILE"
 cw_pane_meta_write "$COMMANDER" "$MODEL" "$TOPIC" "$PANE"
 
 LABEL=$(cw_label_for "$COMMANDER" "$MODEL" "$TOPIC")

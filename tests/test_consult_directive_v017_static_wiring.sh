@@ -11,8 +11,13 @@ source lib/assert.sh
 
 DIR=../commands/consult.md
 
-# 17 step headings: Step 0, Step 1, ..., Step 16.
-for i in $(seq 0 16); do
+# v0.19.0: Step 3 split into 3a + 3b. All other step headings unchanged.
+for i in 0 1 2; do
+  grep -qE "^### Step ${i} —" "$DIR" || { echo "FAIL: missing '### Step $i —' heading" >&2; exit 1; }
+done
+grep -qE '^### Step 3a ' "$DIR" || { echo "FAIL: missing '### Step 3a' heading (v0.19.0)" >&2; exit 1; }
+grep -qE '^### Step 3b ' "$DIR" || { echo "FAIL: missing '### Step 3b' heading (v0.19.0)" >&2; exit 1; }
+for i in $(seq 4 16); do
   grep -qE "^### Step ${i} —" "$DIR" || { echo "FAIL: missing '### Step $i —' heading" >&2; exit 1; }
 done
 
@@ -60,9 +65,10 @@ grep -qE '^argument-hint:.*--use-force' "$DIR" \
 grep -qE '^argument-hint:.*--targets' "$DIR" \
   || { echo "FAIL: argument-hint missing --targets" >&2; exit 1; }
 
-# "TaskCreate × 17 BEFORE Step 0" (P0-3 — was incorrectly "BEFORE step 1").
-grep -qE 'TaskCreate × 17 BEFORE Step 0' "$DIR" \
-  || { echo "FAIL: task-list heading not 'BEFORE Step 0'" >&2; exit 1; }
+# "TaskCreate × N BEFORE Step 0" (P0-3 — was incorrectly "BEFORE step 1").
+# v0.18.3 had N=17. v0.19.0 split Step 3 into 3a+3b → N=18. Accept either.
+grep -qE 'TaskCreate × 1[78] BEFORE Step 0' "$DIR" \
+  || { echo "FAIL: task-list heading not 'TaskCreate × 17|18 BEFORE Step 0'" >&2; exit 1; }
 
 # v0.17.0 spec must be cited (P1-1).
 assert_contains "$BODY" "2026-05-08-consult-spec-merge-design.md" "v0.17.0 spec cited"
