@@ -763,10 +763,30 @@ Set task `4` → `in_progress`.
 "$CLAUDE_PLUGIN_ROOT/bin/deploy-archive.sh" "$TOPIC"
 ```
 
-Print final summary to the user:
-- Branch name (with commit count from `git -C "$TARGET_CWD" log --oneline "$BRANCH_BASE"..HEAD`).
-- Final cross-verify verdict (PASS or hand-off note).
-- Archive path.
+**Final summary.** Output depends on `$ROUTING`:
+
+```
+if [[ "$ROUTING" == "multi-repo" ]]; then
+  echo "=== multi-repo final summary ==="
+  while IFS=$'\t' read -r CMDR CWD PROVIDER; do
+    BB="$ART_DIR/${CMDR}-branch-base.sha"
+    if [[ -f "$BB" ]]; then
+      base=$(cat "$BB")
+      n=$(git -C "$CWD" log --oneline "${base}..HEAD" 2>/dev/null | wc -l)
+      echo "  $CMDR ($PROVIDER) → $CWD: $n commit(s) on top of branch base"
+    else
+      echo "  $CMDR ($PROVIDER) → $CWD: branch base unknown"
+    fi
+  done < "$ART_DIR/troopers.txt"
+  echo "Final cross-verify verdict: see _deploy/multi-verify-bugs.txt (empty = PASS)."
+  echo "Archive path: $(cat $ART_DIR/archive_path.txt 2>/dev/null || echo unknown)"
+else
+  # Single-repo (v0.19.0 byte-equal) summary:
+  echo "Branch: $(git -C "$TARGET_CWD" branch --show-current) ($(git -C "$TARGET_CWD" log --oneline "$BRANCH_BASE..HEAD" | wc -l) commit(s))"
+  echo "Final cross-verify verdict: PASS or hand-off note"
+  echo "Archive path: $(cat $ART_DIR/archive_path.txt 2>/dev/null || echo unknown)"
+fi
+```
 
 Set task `4` → `completed`.
 
