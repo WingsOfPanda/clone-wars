@@ -44,11 +44,11 @@ cw_pane_spawn_down() {
 # Used by bin/spawn.sh --target-pane and bin/preflight-layout.sh's banner stage.
 cw_pane_respawn() {
   local pane="$1" commander="$2" model="$3" topic="$4" launch="$5" cwd="${6:-}"
-  local cmd="$launch"
   if [[ -n "$cwd" ]]; then
-    cmd="cd '$cwd' && exec $launch"
+    tmux respawn-pane -k -c "$cwd" -t "$pane" "$launch"
+  else
+    tmux respawn-pane -k -t "$pane" "$launch"
   fi
-  tmux respawn-pane -k -t "$pane" "$cmd"
   cw_pane_label_set "$pane" "$commander" "$model" "$topic"
   printf '%s\n' "$pane"
 }
