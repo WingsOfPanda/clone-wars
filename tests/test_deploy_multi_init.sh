@@ -28,6 +28,12 @@ mkdir -p "$SANDBOX/auth" "$SANDBOX/api" "$SANDBOX/ui"
 echo "# auth" > "$SANDBOX/auth/CLAUDE.md"
 echo "# api"  > "$SANDBOX/api/CLAUDE.md"
 echo "# ui"   > "$SANDBOX/ui/CLAUDE.md"
+# v0.20.1: multi-init now captures per-cmdr branch-base.sha via git
+# rev-parse HEAD on each sub-repo. Initialize git repos so the capture
+# step has something to read.
+for r in auth api ui; do
+  ( cd "$SANDBOX/$r" && git init -q && git config user.email t@t && git config user.name t && git commit -q --allow-empty -m "init" )
+done
 
 cat > "$ART_DIR/dag-waves.txt" <<EOF
 1	1	auth	set up auth
@@ -57,6 +63,10 @@ mkdir -p "$SANDBOX/lib-a" "$SANDBOX/lib-b/.claude-plugin"
 echo "# a" > "$SANDBOX/lib-a/CLAUDE.md"
 echo "# b" > "$SANDBOX/lib-b/CLAUDE.md"
 echo '{}' > "$SANDBOX/lib-b/.claude-plugin/plugin.json"
+# v0.20.1: branch-base capture requires git repos in each sub-repo.
+for r in lib-a lib-b; do
+  ( cd "$SANDBOX/$r" && git init -q && git config user.email t@t && git config user.name t && git commit -q --allow-empty -m "init" )
+done
 cat > "$ART2/dag-waves.txt" <<EOF
 1	1	lib-a	x
 1	2	lib-b	y

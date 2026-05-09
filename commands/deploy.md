@@ -1,7 +1,7 @@
 ---
 description: Audit a design doc, dispatch to codex troopers (claude on plugin repos) for plan/implement/self-verify, then cross-verify and fix-loop. Multi-repo DAG-aware (v0.20.0).
 argument-hint: [--no-branch] [--branch <n>] [--topic <slug>] [--provider codex|claude] [--max-rounds 5] [<design-doc-path>]
-allowed-tools: Bash, Write, Read, Edit, AskUserQuestion
+allowed-tools: Bash, Write, Read, Edit, AskUserQuestion, Skill
 ---
 
 # /clone-wars:deploy
@@ -28,6 +28,7 @@ If `$ARGUMENTS` does not include a `.md` path, find the most recent
 consult-produced audit-passing design doc:
 
 ```
+source "$CLAUDE_PLUGIN_ROOT/lib/log.sh"
 STATE_ROOT="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state"
 DESIGN_DOC=$(find "$STATE_ROOT" -path '*/_consult/design-doc/*-design.md' \
     -printf '%T@ %p\n' 2>/dev/null \
@@ -120,7 +121,7 @@ Set task `0` → `in_progress`.
    REPO_HASH=$(cw_repo_hash)
    TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/deploy-init.sh" \
               --args-file "$ARGS_DIR/deploy.txt")
-   TOPIC_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$TOPIC"
+   TOPIC_DIR=$(cw_deploy_topic_dir "$TOPIC")
    ART_DIR="$TOPIC_DIR/_deploy"
    # Pull TARGET_CWD up here so the branch-base rev-parse below runs in the
    # right working tree. Sub-step 9 logs/re-reads it for downstream steps;
@@ -464,16 +465,26 @@ Set task `3a` → `completed`.
 
 Set task `3b` → `in_progress`.
 
-Walk `_deploy/<topic>/dag-waves.txt` wave-by-wave. For each wave: issue
-K parallel `bin/spawn.sh --target-pane <pane> --cwd <sub-repo-cwd>`
-calls (one per sub-repo in the wave); send the DAG-unit prompt to
-each trooper's inbox; background-await for K done events.
+A **wave** is a set of sub-repos with no remaining unsatisfied
+dependencies that can run in parallel. `bin/deploy-dag-parse.sh`
+computes wave grouping via Kahn's topological sort and writes one row
+per `(wave, step, repo, desc)` to `_deploy/dag-waves.txt`.
+
+Walk `_deploy/<topic>/dag-waves.txt` wave-by-wave. For each wave:
+issue K parallel `bin/spawn.sh --target-pane <pane> --cwd <sub-repo-cwd>`
+calls (one per sub-repo in the wave); send the DAG-unit prompt to each
+trooper's inbox via the `cw_deploy_build_dag_unit_prompt` helper;
+background-await for K done events via `bin/deploy-wave-wait.sh`.
+
+**Build the per-repo lookup tables + wave groups:**
 
 ```
 mapfile -t WAVES < "$ART_DIR/dag-waves.txt"
 declare -A REPO_TO_CMDR
 declare -A REPO_TO_CWD
 declare -A REPO_TO_PROVIDER
+declare -A REPO_TO_STEP
+declare -A REPO_TO_UPSTREAM_CSV
 while IFS=$'\t' read -r cmdr cwd provider; do
   repo=$(basename "$cwd")
   REPO_TO_CMDR["$repo"]="$cmdr"
@@ -481,6 +492,30 @@ while IFS=$'\t' read -r cmdr cwd provider; do
   REPO_TO_PROVIDER["$repo"]="$provider"
 done < "$ART_DIR/troopers.txt"
 
+# Build per-repo step + upstream lookup from dag-waves + dag-edges
+while IFS=$'\t' read -r wave step repo desc; do
+  REPO_TO_STEP["$repo"]="$step"
+done < "$ART_DIR/dag-waves.txt"
+
+declare -A STEP_TO_REPO
+while IFS=$'\t' read -r wave step repo desc; do
+  STEP_TO_REPO["$step"]="$repo"
+done < "$ART_DIR/dag-waves.txt"
+
+declare -A REPO_UPSTREAM_STEPS
+while IFS=$'\t' read -r from to; do
+  REPO_UPSTREAM_STEPS["${STEP_TO_REPO[$to]}"]="${REPO_UPSTREAM_STEPS["${STEP_TO_REPO[$to]}"]} $from"
+done < "$ART_DIR/dag-edges.txt"
+
+for repo in "${!REPO_TO_CMDR[@]}"; do
+  upstream_csv=""
+  for u_step in ${REPO_UPSTREAM_STEPS["$repo"]:-}; do
+    [[ -z "$upstream_csv" ]] && upstream_csv="${STEP_TO_REPO[$u_step]}" || upstream_csv="${upstream_csv},${STEP_TO_REPO[$u_step]}"
+  done
+  REPO_TO_UPSTREAM_CSV["$repo"]="$upstream_csv"
+done
+
+# Group rows by wave number
 declare -a WAVE_GROUPS=()
 current_wave=""
 group_buf=""
@@ -495,57 +530,66 @@ for line in "${WAVES[@]}"; do
   fi
 done
 [[ -n "$group_buf" ]] && WAVE_GROUPS+=( "$group_buf" )
+
+WAVE_COUNT=${#WAVE_GROUPS[@]}
+TOTAL_REPOS=${#REPO_TO_CMDR[@]}
+log_info "[step 3b] DAG: $WAVE_COUNT wave(s) across $TOTAL_REPOS sub-repo(s)"
 ```
 
-For each wave, **issue K parallel `Bash` tool calls in a single message**
-— one per repo in the wave. Each call spawns a codex (or claude) trooper
-into its pre-allocated pane, pinned to its sub-repo cwd.
-
-Canonical wave dispatch per repo:
+**Walk waves with explicit outer loop:**
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" "${REPO_TO_CMDR[$repo]}" "${REPO_TO_PROVIDER[$repo]}" \
-  "$TOPIC" \
-  --target-pane "${PREFLIGHT_PANES[${REPO_TO_CMDR[$repo]}]}" \
-  --cwd "${REPO_TO_CWD[$repo]}"
+for ((w=1; w<=WAVE_COUNT; w++)); do
+  IFS=, read -ra REPOS <<<"${WAVE_GROUPS[w-1]}"
+  log_info "[step 3b] wave $w of $WAVE_COUNT: dispatching ${#REPOS[@]} trooper(s) — ${REPOS[*]}"
+
+  # ISSUE ${#REPOS[@]} PARALLEL Bash tool calls in a SINGLE message —
+  # one per repo. Each call: spawn.sh + cw_inbox_write (DAG-unit prompt
+  # built via cw_deploy_build_dag_unit_prompt). Then ISSUE another
+  # ${#REPOS[@]} PARALLEL background Bash tool calls — one per trooper —
+  # for bin/deploy-wave-wait.sh.
+  #
+  # Wait until ALL K notifications arrive AND all K wave-<cmdr>.txt
+  # files show TS=ok. Then continue to the next wave.
+
+  # Per-repo dispatch shape (each runs in parallel):
+  #
+  #   "$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" "${REPO_TO_CMDR[$repo]}" \
+  #     "${REPO_TO_PROVIDER[$repo]}" "$TOPIC" \
+  #     --target-pane "${PREFLIGHT_PANES[${REPO_TO_CMDR[$repo]}]}" \
+  #     --cwd "${REPO_TO_CWD[$repo]}"
+  #
+  #   PROMPT=$(cw_deploy_build_dag_unit_prompt \
+  #     "$repo" "$ART_DIR/design.md" \
+  #     "${REPO_TO_STEP[$repo]}" "$TOTAL_REPOS" \
+  #     "${REPO_TO_UPSTREAM_CSV[$repo]}")
+  #   cw_inbox_write "${REPO_TO_CMDR[$repo]}" "${REPO_TO_PROVIDER[$repo]}" "$TOPIC" "$PROMPT"
+  #
+  # Per-repo wave-wait shape (each runs in BACKGROUND parallel):
+  #
+  #   Bash(
+  #     command='"$CLAUDE_PLUGIN_ROOT/bin/deploy-wave-wait.sh" "$TOPIC" "${REPO_TO_CMDR[$repo]}" "${REPO_TO_PROVIDER[$repo]}"',
+  #     run_in_background: true,
+  #     description="master yoda await ${REPO_TO_CMDR[$repo]} wave $w (background)"
+  #   )
+
+  # Process notifications as they arrive. For each notification:
+  #   1. Read $ART_DIR/wave-<cmdr>.txt
+  #   2. Parse TS= line:
+  #        TS=ok      → trooper succeeded
+  #        TS=failed  → enter Stage 1/2 failure handling (below)
+  #        TS=timeout → enter Stage 1/2 failure handling (below)
+  #
+  # When ALL K wave-<cmdr>.txt files show TS=ok: log "wave $w
+  # completed; ${#REPOS[@]} succeeded" and continue to the next wave.
+
+  log_info "[step 3b] wave $w completed"
+done
 ```
-
-DAG-unit inbox prompt (write via `bin/send.sh` after spawn returns ready):
-
-```
-Read /path/to/design-doc. Your sub-repo is "<slug>".
-
-Multi-repo design docs use `### <slug>` subsection headings inside the
-Architecture and Components sections — focus on the subsections matching
-your slug. The DAG context (Step <N> of <total>) is in the
-"## Execution DAG" section; you depend on: <upstream-slug-list>.
-
-Run the full superpowers ceremony for your sub-repo:
-1. superpowers:writing-plans — produce an implementation plan from the
-   design-doc's slice for "<slug>", saved to
-   docs/superpowers/plans/YYYY-MM-DD-<topic>-<slug>-plan.md
-2. superpowers:subagent-driven-development — execute the plan task-by-
-   task, two-stage review per task
-3. superpowers:verification-before-completion — confirm tests pass,
-   diff matches the plan, no half-finished work, before reporting done
-
-Report status via outbox: emit {"event":"done"} when all tasks are
-complete and verified. Emit {"event":"error", "reason":"..."} on any
-unrecoverable failure.
-END_OF_INSTRUCTION
-```
-
-After dispatching the wave's K spawn+send pairs, **issue K parallel
-background `Bash` tool calls** for `bin/deploy-turn-wait.sh` — one per
-trooper. Each runs in `run_in_background: true`; emits a notification
-on completion.
-
-Wait until ALL K notifications have arrived AND all K state files show
-`TS=ok` (or terminal failure state). Then proceed to the next wave.
 
 #### Failure handling — Stage 1 retry-once + Stage 2 partial-success (multi-repo)
 
-After a wave's K spawns return rc tuples:
+After a wave's K spawns + wave-waits return:
 
 - **All K succeed** → continue to next wave. After last wave, set task
   `3b` → `completed`.
@@ -558,8 +602,14 @@ After a wave's K spawns return rc tuples:
   partial-success offer**: AskUserQuestion ("M/K spawned in this wave
   after retry. Proceed degraded with N=M / Abort all?"). On "Proceed
   degraded": rewrite `_deploy/troopers.txt` to drop the failed entry +
-  continue. On "Abort all": full teardown + `rm -rf "$TOPIC_DIR"` +
-  exit 1.
+  continue. On "Abort all": archive state + exit 1 (preserves
+  diagnostic context):
+
+  ```
+  "$CLAUDE_PLUGIN_ROOT/bin/deploy-teardown.sh" "$TOPIC" 2>/dev/null || true
+  "$CLAUDE_PLUGIN_ROOT/bin/deploy-archive.sh"  "$TOPIC"
+  exit 1
+  ```
 
 Set task `3b` → `completed` only after ALL waves succeed.
 
@@ -609,8 +659,27 @@ declared, default verification is a no-op.
 - Yoda reads the design-doc's `## Success Criteria` checklist and
   evaluates each `- [ ]` bullet against the diffs
 
-If any verification check finds a bug, proceed to Step 3d fix-loop.
-If all green, set task `3c` → `completed` and proceed to Step 4.
+**Bugs collection contract.** When verification finds bugs, write them
+to `_deploy/multi-verify-bugs.txt` (TSV: `<repo>\t<bug-description>`,
+one line per bug). Step 3d consumes this file to drive its fix-loop.
+The file is truncated each verify pass.
+
+```
+# Truncate any prior verify pass output
+> "$ART_DIR/multi-verify-bugs.txt"
+
+# For each bug found by cross-repo invariants check OR escalated full
+# check, append a TSV row:
+#   printf '%s\t%s\n' "<offending-repo>" "<bug-description-one-line>" \
+#     >> "$ART_DIR/multi-verify-bugs.txt"
+#
+# When the verify pass is done, multi-verify-bugs.txt is the
+# authoritative bugs list for Step 3d.
+```
+
+If `multi-verify-bugs.txt` is non-empty after the verify pass, proceed
+to Step 3d fix-loop. If empty (all green), set task `3c` → `completed`
+and proceed to Step 4.
 
 ### Step 3d — Fix-loop (multi-repo)
 
@@ -618,60 +687,72 @@ If all green, set task `3c` → `completed` and proceed to Step 4.
 
 Set task `3d` → `in_progress`.
 
-For each bug found in Step 3c, identify the offending sub-repo. The
-trooper that owns that sub-repo is still alive in its pre-allocated
-pane (commander + cwd both available from `_deploy/troopers.txt`).
-
-Initialize per-sub-repo fix-round counter:
+**Bugs source.** Step 3c wrote `_deploy/multi-verify-bugs.txt` (TSV:
+`<repo>\t<bug-description>`). Step 3d reads it to drive the fix-loop.
+An empty / absent file means "no bugs — skip Step 3d entirely":
 
 ```
+[[ -f "$ART_DIR/multi-verify-bugs.txt" && -s "$ART_DIR/multi-verify-bugs.txt" ]] || {
+  log_info "[step 3d] no bugs in multi-verify-bugs.txt; skipping fix-loop"
+  # Set task 3d → completed and proceed to Step 4 (teardown)
+}
+
 declare -A FIX_ROUNDS
 MAX_FIX_ROUNDS=3
 ```
 
-For each (sub-repo, bug-description) pair:
+For each `(REPO, BUG)` row in `multi-verify-bugs.txt`:
 
-1. Look up the trooper:
-   ```
-   CMDR=$(awk -F$'\t' -v r="$REPO" '$2 ~ ("/" r "$") { print $1 }' "$ART_DIR/troopers.txt")
-   ```
+```
+while IFS=$'\t' read -r REPO BUG; do
+  [[ -n "$REPO" && -n "$BUG" ]] || continue
 
-2. Send a fix-prompt via the trooper's inbox:
+  # Look up the trooper that owns this sub-repo
+  CMDR=$(awk -F$'\t' -v r="$REPO" '$2 ~ ("/" r "$") { print $1 }' "$ART_DIR/troopers.txt")
+  PROVIDER=$(awk -F$'\t' -v r="$REPO" '$2 ~ ("/" r "$") { print $3 }' "$ART_DIR/troopers.txt")
+  [[ -n "$CMDR" ]] || { log_warn "[step 3d] no trooper found for repo '$REPO'; skipping"; continue; }
 
-   ```
-   /clone-wars:send --from master-yoda "$CMDR" "$TOPIC" "FIX REQUEST (round ${FIX_ROUNDS[$REPO]:-1} of $MAX_FIX_ROUNDS):
-   
-   I detected the following issue in your sub-repo:
-   
-   <bug-description>
-   
-   Please fix it using the same superpowers ceremony (writing-plans for
-   the fix → subagent-driven-development → verification-before-completion).
-   Report done via outbox when verified.
-   END_OF_INSTRUCTION"
-   ```
+  FIX_ROUNDS["$REPO"]="${FIX_ROUNDS[$REPO]:-1}"
+  log_info "[step 3d] fix-loop round ${FIX_ROUNDS[$REPO]}/$MAX_FIX_ROUNDS for $REPO (trooper $CMDR)"
 
-3. Background-await for the trooper's done event (mirrors Step 3b's
-   await pattern).
+  # 1. Send fix-prompt via the trooper's inbox
+  FIX_PROMPT=$(cat <<EOFP
+FIX REQUEST (round ${FIX_ROUNDS[$REPO]} of $MAX_FIX_ROUNDS):
 
-4. Re-run Step 3c's verification for THIS sub-repo. If green, mark fix
-   resolved.
+I detected the following issue in your sub-repo:
 
-5. If still buggy AND `${FIX_ROUNDS[$REPO]} -lt $MAX_FIX_ROUNDS`:
-   `FIX_ROUNDS[$REPO]=$(( ${FIX_ROUNDS[$REPO]:-0} + 1 ))` and loop back
-   to step 2.
+$BUG
 
-6. If still buggy AND `${FIX_ROUNDS[$REPO]} -ge $MAX_FIX_ROUNDS`:
-   AskUserQuestion:
-   - Question: "Sub-repo '$REPO' hit MAX_FIX_ROUNDS=3 fix attempts.
-     Bug remains: <bug>. What now?"
-   - Options:
-     - `Give up on this sub-repo` — mark FAILED in `_deploy/results.txt`;
-       continue verification for other sub-repos
-     - `Continue more rounds` — bump `FIX_ROUNDS[$REPO]` and re-loop
-     - `Escalate to different commander` — pick next available
-       commander from the pool, spawn fresh trooper with same `--cwd`,
-       reset `FIX_ROUNDS[$REPO]=0`
+Please fix it using the same superpowers ceremony (writing-plans for
+the fix → subagent-driven-development → verification-before-completion).
+Report done via outbox when verified.
+END_OF_INSTRUCTION
+EOFP
+)
+  cw_inbox_write "$CMDR" "$PROVIDER" "$TOPIC" "$FIX_PROMPT"
+
+  # 2. Background-await via deploy-wave-wait (mirror Step 3b)
+  Bash(
+    command='"$CLAUDE_PLUGIN_ROOT/bin/deploy-wave-wait.sh" "$TOPIC" "$CMDR" "$PROVIDER"',
+    run_in_background: true,
+    description="master yoda await $CMDR fix-round ${FIX_ROUNDS[$REPO]} (background)"
+  )
+
+  # 3. On notification: read wave-<cmdr>.txt; if TS=ok, re-run Step 3c
+  #    verification for THIS sub-repo. If still buggy AND
+  #    FIX_ROUNDS[$REPO] < MAX_FIX_ROUNDS: bump FIX_ROUNDS[$REPO] and
+  #    re-loop to step 1.
+  #
+  # 4. If still buggy AND FIX_ROUNDS[$REPO] >= MAX_FIX_ROUNDS:
+  #    AskUserQuestion (give up / continue / escalate to different commander).
+  #    "Give up on this sub-repo": log $REPO as FAILED in _deploy/results.txt;
+  #    continue verification for other sub-repos.
+  #    "Continue more rounds": bump FIX_ROUNDS[$REPO] and re-loop.
+  #    "Escalate to different commander": pick next available commander
+  #    from the pool, spawn fresh trooper with same --cwd, reset
+  #    FIX_ROUNDS[$REPO]=0.
+done < "$ART_DIR/multi-verify-bugs.txt"
+```
 
 After all bugs resolved (or given up on), set task `3d` → `completed`.
 
@@ -683,10 +764,30 @@ Set task `4` → `in_progress`.
 "$CLAUDE_PLUGIN_ROOT/bin/deploy-archive.sh" "$TOPIC"
 ```
 
-Print final summary to the user:
-- Branch name (with commit count from `git -C "$TARGET_CWD" log --oneline "$BRANCH_BASE"..HEAD`).
-- Final cross-verify verdict (PASS or hand-off note).
-- Archive path.
+**Final summary.** Output depends on `$ROUTING`:
+
+```
+if [[ "$ROUTING" == "multi-repo" ]]; then
+  echo "=== multi-repo final summary ==="
+  while IFS=$'\t' read -r CMDR CWD PROVIDER; do
+    BB="$ART_DIR/${CMDR}-branch-base.sha"
+    if [[ -f "$BB" ]]; then
+      base=$(cat "$BB")
+      n=$(git -C "$CWD" log --oneline "${base}..HEAD" 2>/dev/null | wc -l)
+      echo "  $CMDR ($PROVIDER) → $CWD: $n commit(s) on top of branch base"
+    else
+      echo "  $CMDR ($PROVIDER) → $CWD: branch base unknown"
+    fi
+  done < "$ART_DIR/troopers.txt"
+  echo "Final cross-verify verdict: see _deploy/multi-verify-bugs.txt (empty = PASS)."
+  echo "Archive path: $(cat $ART_DIR/archive_path.txt 2>/dev/null || echo unknown)"
+else
+  # Single-repo (v0.19.0 byte-equal) summary:
+  echo "Branch: $(git -C "$TARGET_CWD" branch --show-current) ($(git -C "$TARGET_CWD" log --oneline "$BRANCH_BASE..HEAD" | wc -l) commit(s))"
+  echo "Final cross-verify verdict: PASS or hand-off note"
+  echo "Archive path: $(cat $ART_DIR/archive_path.txt 2>/dev/null || echo unknown)"
+fi
+```
 
 Set task `4` → `completed`.
 
