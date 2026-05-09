@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a hub-mode track to `/clone-wars:consult` that emits multi-repo design docs (header + DAG + Cross-Repo Deps + Step-tagged tests) consumable by `/executeorder66` and future v0.11+ deploy multi-target dispatch, while keeping single-repo behavior byte-identical to v0.10.
+**Goal:** Add a hub-mode track to `/clone-wars:consult` that emits multi-repo design docs (header + DAG + Cross-Repo Deps + Step-tagged tests) consumable by external ARS multi-agent dispatch and future v0.11+ deploy multi-target dispatch, while keeping single-repo behavior byte-identical to v0.10.
 
 **Architecture:** Extend `lib/consult.sh` with hub-detection, targets-persistence, and three new format validators (DAG, Cross-Repo Deps, Acceptance Tests). Thread a `TARGETS=<csv>` placeholder through `consult/{research,verify,drilldown}.md` prompt templates. Modify `bin/consult-init.sh` to persist hub mode at init time, and `bin/consult-design-doc.sh` to run the three validators before commit when `targets.txt` exists. Update `commands/consult.md` directive Step 0 (hub-detect persist), Step 2 prelude (target selection AskUserQuestion + `TARGETS=` threading), and Step 8.5 (3 new sections + per-sub-project drill axis).
 

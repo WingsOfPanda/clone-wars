@@ -84,9 +84,11 @@ assert_contains "$BODY" "When to use this command" "directive has When-to-use bl
 ! grep -qE '^5b\.' "$DIR" \
   || { echo "FAIL: Step 13 still has duplicate 5b. numbering" >&2; exit 1; }
 
-# Step 16 must point user to /clone-wars:deploy and /executeorder66 (P2-7).
+# Step 16 must point user to /clone-wars:deploy for both single- and multi-repo
+# (v0.20+ multi-repo deploy is in-plugin via routing.txt auto-detect).
 assert_contains "$BODY" "/clone-wars:deploy <path-to-design-doc>" "Step 16 points to /clone-wars:deploy"
-assert_contains "$BODY" "/executeorder66 <path-to-design-doc>"     "Step 16 points to /executeorder66 for multi-repo"
+! grep -qE '/executeorder66' "$DIR" \
+  || { echo "FAIL: Step 16 should not reference /executeorder66 (v0.20.4+: in-plugin multi-repo deploy)" >&2; exit 1; }
 
 # Step 11 critical-section list must include all four (P1-7 — was just goal+architecture).
 grep -Pzo '(?s)Critical-section skip block.*?testing.*?success-criteria' "$DIR" >/dev/null \

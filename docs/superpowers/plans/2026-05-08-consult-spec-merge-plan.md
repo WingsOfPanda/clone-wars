@@ -4,7 +4,7 @@
 
 **Goal:** Merge `/clone-wars:spec` into `/clone-wars:consult` so a single command produces a deploy-audit-passing design doc; add auto-detection of multi-repo topics + a per-section design walk + an audit gate.
 
-**Architecture:** Three new lib helpers in a new `lib/consult-walk.sh` module + one new tail script `bin/consult-walk-assemble.sh` + a major directive rewrite that renumbers `commands/consult.md` to clean integers (0–16) and adds three new steps (10 multi-repo detect, 11 walk, 12 audit gate). `/spec` and its supporting files are deleted entirely. Multi-repo docs route to /executeorder66 (out of plugin); /deploy stays single-repo-only.
+**Architecture:** Three new lib helpers in a new `lib/consult-walk.sh` module + one new tail script `bin/consult-walk-assemble.sh` + a major directive rewrite that renumbers `commands/consult.md` to clean integers (0–16) and adds three new steps (10 multi-repo detect, 11 walk, 12 audit gate). `/spec` and its supporting files are deleted entirely. Multi-repo docs route to external multi-agent dispatch (out of plugin at v0.17 — later restored in-plugin via /deploy v0.20.0+); /deploy stays single-repo-only at v0.17.
 
 **Tech Stack:** Bash 4.2+, tmux, file IPC under `~/.clone-wars/`. No Node/Python. Tests use `tests/lib/assert.sh` (`assert_file_exists`, `assert_contains`, `pass`) and run via `bash tests/run.sh`.
 
@@ -349,7 +349,7 @@ feat(consult-walk): add cw_consult_emit_soft_dag formatter
 
 Reads a TSV (step\trepo\tdescription\tdeps) and emits a numbered prose
 DAG with "(depends on N, M)" annotations. Soft format; humans hand-
-translate to strict Step <N>: grammar for /executeorder66 dispatch.
+translate to strict Step <N>: grammar for external multi-agent dispatch.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -2510,7 +2510,7 @@ gh pr create --title "v0.17.0: consult-spec merge — single command to deploy-r
 - /clone-wars:spec is deleted entirely
 - Multi-repo auto-detection (cwd siblings + topic-prose grep) + soft DAG section + per-repo Architecture subsections
 - v0.16.0 smart-control fast-path / escalated routing preserved
-- /clone-wars:deploy stays single-repo (multi-repo docs route to /executeorder66 manually)
+- /clone-wars:deploy stays single-repo at v0.17 (multi-repo docs route to external multi-agent dispatch manually; later restored in-plugin via /deploy v0.20.0+)
 
 ## Test plan
 
