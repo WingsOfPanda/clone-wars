@@ -658,8 +658,27 @@ declared, default verification is a no-op.
 - Yoda reads the design-doc's `## Success Criteria` checklist and
   evaluates each `- [ ]` bullet against the diffs
 
-If any verification check finds a bug, proceed to Step 3d fix-loop.
-If all green, set task `3c` → `completed` and proceed to Step 4.
+**Bugs collection contract.** When verification finds bugs, write them
+to `_deploy/multi-verify-bugs.txt` (TSV: `<repo>\t<bug-description>`,
+one line per bug). Step 3d consumes this file to drive its fix-loop.
+The file is truncated each verify pass.
+
+```
+# Truncate any prior verify pass output
+> "$ART_DIR/multi-verify-bugs.txt"
+
+# For each bug found by cross-repo invariants check OR escalated full
+# check, append a TSV row:
+#   printf '%s\t%s\n' "<offending-repo>" "<bug-description-one-line>" \
+#     >> "$ART_DIR/multi-verify-bugs.txt"
+#
+# When the verify pass is done, multi-verify-bugs.txt is the
+# authoritative bugs list for Step 3d.
+```
+
+If `multi-verify-bugs.txt` is non-empty after the verify pass, proceed
+to Step 3d fix-loop. If empty (all green), set task `3c` → `completed`
+and proceed to Step 4.
 
 ### Step 3d — Fix-loop (multi-repo)
 
