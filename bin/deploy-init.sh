@@ -92,6 +92,17 @@ printf '%s\n' "$ROUTING" > "$ART_DIR/routing.txt" \
   || { log_error "could not write $ART_DIR/routing.txt"; exit 1; }
 log_info "routing: $ROUTING"
 
+# v0.20.1: when routing=multi-repo, parse the DAG + assign commanders +
+# capture per-cmdr branch bases. commands/deploy.md Step 3a's defensive
+# checks (dag-waves.txt, dag-edges.txt, troopers.txt) require these
+# files to exist before the directive begins.
+if [[ "$ROUTING" == "multi-repo" ]]; then
+  "$PLUGIN_ROOT/bin/deploy-dag-parse.sh" "$ART_DIR/design.md" "$ART_DIR" \
+    || { log_error "deploy-dag-parse.sh failed"; exit 1; }
+  "$PLUGIN_ROOT/bin/deploy-multi-init.sh" "$TOPIC" "$TARGET_CWD" \
+    || { log_error "deploy-multi-init.sh failed"; exit 1; }
+fi
+
 # Atomic-write target_cwd.txt so downstream consumers (commands/deploy.md
 # Step 0 export, bin/spawn.sh --cwd, git -C calls) read the resolved target.
 printf '%s\n' "$TARGET_CWD" | cw_atomic_write "$ART_DIR/target_cwd.txt" \

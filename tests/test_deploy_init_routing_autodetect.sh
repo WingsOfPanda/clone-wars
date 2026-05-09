@@ -46,6 +46,13 @@ routing=$(cat "$ART_S/routing.txt")
 assert_eq "$routing" "single-repo" "single-repo: routing = single-repo"
 
 # Test B: multi-repo design doc → routing.txt = multi-repo
+# v0.20.1: deploy-init now invokes deploy-multi-init for multi-repo,
+# which requires sub-repos to exist with CLAUDE.md + git history.
+for r in auth api; do
+  mkdir -p "$GIT_DIR/$r"
+  echo "# $r" > "$GIT_DIR/$r/CLAUDE.md"
+  ( cd "$GIT_DIR/$r" && git init -q && git config user.email t@t && git config user.name t && git commit -q --allow-empty -m "init" )
+done
 DOC_M="$GIT_DIR/2026-05-09-multirepo-design.md"
 cat > "$DOC_M" <<'EOF'
 # Multi
