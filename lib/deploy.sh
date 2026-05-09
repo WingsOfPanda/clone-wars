@@ -224,6 +224,49 @@ END_OF_INSTRUCTION
 EOF
 }
 
+# cw_deploy_build_dag_unit_prompt <slug> <design-path> <step> <total> <upstream-csv>
+# Emits the inbox prompt for a v0.20.0+ multi-repo DAG-unit trooper turn.
+# Bound to writing-plans + subagent-driven-development +
+# verification-before-completion skills. <upstream-csv> may be empty (root
+# wave-1 unit) or comma-separated upstream slugs (mid/join units).
+# Echoes the fully-resolved heredoc to stdout. rc=2 on missing arg.
+cw_deploy_build_dag_unit_prompt() {
+  local slug="${1:-}" design="${2:-}" step="${3:-}" total="${4:-}" upstream_csv="${5-}"
+  if [[ -z "$slug" || -z "$design" || -z "$step" || -z "$total" ]]; then
+    log_error "cw_deploy_build_dag_unit_prompt: required args: <slug> <design-path> <step> <total> [<upstream-csv>]"
+    return 2
+  fi
+  local upstream_pretty
+  if [[ -z "$upstream_csv" || "$upstream_csv" == "none" ]]; then
+    upstream_pretty="none (this is a wave-1 / root sub-repo)"
+  else
+    upstream_pretty=$(printf '%s' "$upstream_csv" | sed 's/,/, /g')
+  fi
+  cat <<EOF
+Read $design. Your sub-repo is "$slug".
+
+Multi-repo design docs use \`### $slug\` subsection headings inside the
+Architecture and Components sections — focus on the subsections matching
+your slug. The DAG context (Step $step of $total) is in the
+"## Execution DAG" section; you depend on: $upstream_pretty.
+
+Run the full superpowers ceremony for your sub-repo:
+1. superpowers:writing-plans — produce an implementation plan from the
+   design-doc's slice for "$slug", saved to
+   docs/superpowers/plans/YYYY-MM-DD-${slug}-plan.md
+2. superpowers:subagent-driven-development — execute the plan task-by-
+   task, two-stage review per task
+3. superpowers:verification-before-completion — confirm tests pass,
+   diff matches the plan, no half-finished work, before reporting done
+
+Report status via outbox: emit {"event":"done"} when all tasks are
+complete and verified. Emit {"event":"error", "reason":"..."} on any
+unrecoverable failure.
+
+END_OF_INSTRUCTION
+EOF
+}
+
 # cw_deploy_detect_provider <repo-root> [<override>]
 # Auto-detect rule for /clone-wars:deploy: presence of
 # <repo-root>/.claude-plugin/plugin.json signals "this repo is a Claude Code
