@@ -85,6 +85,15 @@ for repo in "${REPOS_ORDERED[@]}"; do
 done
 
 mv "$TMP" "$ART_DIR/troopers.txt" || { log_error "mv troopers.txt failed"; exit 1; }
+
+# v0.20.3: write a per-commander cwd map for preflight-layout.sh's --cwd-from
+# flag. Separate file (not extending troopers.txt) so the existing Step 3b
+# `read cmdr cwd provider` parser stays byte-equal.
+: > "$ART_DIR/cmdr-cwd-map.txt"
+while IFS=$'\t' read -r cmdr cwd _provider; do
+  [[ -n "$cmdr" && -n "$cwd" ]] && printf '%s\t%s\n' "$cmdr" "$cwd" >> "$ART_DIR/cmdr-cwd-map.txt"
+done < "$ART_DIR/troopers.txt"
+
 log_ok "deploy-multi-init: ${#REPOS_ORDERED[@]} troopers assigned for topic $TOPIC"
 while IFS= read -r line; do printf '  %s\n' "$line"; done < "$ART_DIR/troopers.txt"
 exit 0
