@@ -534,7 +534,7 @@ notification.
 
 If trooper questions storm the pane (e.g. mis-classified critical questions
 that should have been auto-answered from findings), there is a kill switch:
-see Pattern 4 below for `CW_CONSULT_SKILL_OVERRIDE=none`.
+see Pattern 3 below for `CW_CONSULT_SKILL_OVERRIDE=none`.
 
 Dispatch `N` parallel **background** Bash tool calls in a single message
 — one per entry in `TROOPERS`. Use the rank-prefixed trooper name in
@@ -597,7 +597,7 @@ b. Read `$TOPIC_DIR/<commander>-<model>/findings.md` (if it exists) for
    ```
    FINDINGS_PATH="$TOPIC_DIR/<commander>-<model>/findings.md"
    ```
-c. Classify as critical / non-critical (same rules as Pattern 4 below)
+c. Classify as critical / non-critical (same rules as Pattern 3 below)
    using the contents of `$FINDINGS_PATH`.
 d. Get an answer:
    - critical → `AskUserQuestion` with TEXT + OPTIONS.
@@ -707,7 +707,7 @@ DONE_SENTINEL="${STATE_FILE%.txt}.done"
 
 Same 4-step parse as Step 5 (sentinel check + grep `^VS=`). Note that
 verify uses `VS=` (not `FS=` — that's research). The verify phase's
-question-loop semantics match Step 5's exactly — see Pattern 4 (updated
+question-loop semantics match Step 5's exactly — see Pattern 3 (updated
 below) for the re-arm recipe.
 
 For each commander whose `VS=question`, the verify phase's findings-so-far
@@ -718,9 +718,9 @@ FINDINGS_PATH="$TOPIC_DIR/<commander>-<model>/verify.md"
 ```
 
 Pass the contents of `$FINDINGS_PATH` into the answer-classification
-prompt before invoking Pattern 4's relay.
+prompt before invoking Pattern 3's relay.
 
-If **all** troopers report all-UNCERTAIN verdicts, consider Pattern 3
+If **all** troopers report all-UNCERTAIN verdicts, consider Pattern 2
 intervention. Otherwise set task `8` → `completed`.
 
 ### Step 9 — Adjudicate + Yoda resolves PENDING
@@ -1133,7 +1133,7 @@ Bash(
 "$CLAUDE_PLUGIN_ROOT/bin/consult-diff.sh" "$CONSULT_TOPIC"
 ```
 
-### Pattern 3: All-UNCERTAIN verify re-prompt
+### Pattern 2: All-UNCERTAIN verify re-prompt
 
 > The wait-script runs in background; read state file + `.done` sentinel
 > from the controller's notification handler (see Step 5).
@@ -1157,10 +1157,10 @@ Bash(
 "$CLAUDE_PLUGIN_ROOT/bin/consult-adjudicate.sh" "$CONSULT_TOPIC"
 cp "$TOPIC_DIR/_consult/adjudicated-draft.md" "$TOPIC_DIR/_consult/adjudicated.md"
 # (or manually merge the new draft into adjudicated.md if you want to
-# preserve specific prior PENDING resolutions — see spec Pattern 3.)
+# preserve specific prior PENDING resolutions — see spec Pattern 2.)
 ```
 
-### Pattern 4: Critical-question relay
+### Pattern 3: Critical-question relay
 
 When a wait-script reports `FS=question` (research) or `VS=question`
 (verify):
