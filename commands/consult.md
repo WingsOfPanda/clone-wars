@@ -659,53 +659,21 @@ trooper. `consult-verify-send.sh` computes the scope from
 
 Set task `8` → `in_progress`.
 
-Wait phase — issue `N` parallel **background** Bash tool calls (Yoda
-stays interactive):
+This step reuses the **Step 5 wait-template wholesale** (background
+dispatch, completion-notification loop, question-handling Pattern 3
+re-arm). Apply these 4 verify-specific differences:
 
-```
-Bash(
-  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" rex  codex',
-  run_in_background: true,
-  description='master yoda await captain rex verify (background)'
-)
+1. **Script prefix:** invoke `bin/consult-verify-wait.sh` (not
+   `consult-research-wait.sh`).
+2. **State variable:** parse `^VS=` (not `^FS=`).
+3. **State file:**
+   `STATE_FILE="$TOPIC_DIR/_consult/verify-<commander>.txt"`.
+4. **Question-loop findings source:** for `VS=question`, read
+   `$TOPIC_DIR/<commander>-<model>/verify.md` (not `findings.md`) into
+   `$FINDINGS_PATH` before invoking Pattern 3's relay.
 
-Bash(
-  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" cody claude',
-  run_in_background: true,
-  description='master yoda await commander cody verify (background)'
-)
-
-Bash(
-  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" bly  opencode',
-  run_in_background: true,
-  description='master yoda await commander bly verify (background)'
-)
-```
-
-For N=2, issue 2 background calls. Iterate `TROOPERS` to derive each
-call. You will receive `N` completion notifications.
-
-On EACH completion notification, read the per-commander verify state file:
-
-```
-STATE_FILE="$TOPIC_DIR/_consult/verify-<commander>.txt"
-DONE_SENTINEL="${STATE_FILE%.txt}.done"
-```
-
-Same 4-step parse as Step 5 (sentinel check + grep `^VS=`). Note that
-verify uses `VS=` (not `FS=` — that's research). The verify phase's
-question-loop semantics match Step 5's exactly — see Pattern 3 (updated
-below) for the re-arm recipe.
-
-For each commander whose `VS=question`, the verify phase's findings-so-far
-context source is the trooper's `verify.md` (not `findings.md`):
-
-```
-FINDINGS_PATH="$TOPIC_DIR/<commander>-<model>/verify.md"
-```
-
-Pass the contents of `$FINDINGS_PATH` into the answer-classification
-prompt before invoking Pattern 3's relay.
+Description strings should embed `verify` instead of `research`
+(e.g. `master yoda await captain rex verify (background)`).
 
 If **all** troopers report all-UNCERTAIN verdicts, consider Pattern 2
 intervention. Otherwise set task `8` → `completed`.
