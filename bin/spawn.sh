@@ -147,7 +147,8 @@ cw_have_cmd "$BINARY" || {
   exit 1
 }
 
-[[ -n "$MODE" ]] || MODE=$(cw_contract_default_mode "$MODEL") || MODE=full
+[[ -n "$MODE" ]] || MODE=$(cw_contract_default_mode "$MODEL")
+[[ -n "$MODE" ]] || MODE=full
 mapfile -t MODE_ARGS < <(cw_contract_mode_args "$MODEL" "$MODE") || {
   log_error "mode '$MODE' not defined for $MODEL in contracts.yaml"
   exit 1
