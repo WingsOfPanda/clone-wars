@@ -107,15 +107,20 @@ Set task `0` → `in_progress`.
    ART_DIR / TARGET_CWD lines). When `INIT_RC != 0`, run sub-step 5b
    (DAG rescue intercept) before continuing.
 
-5b. **DAG rescue intercept (multi-repo, hand-authored docs).** v0.21.0
-    feature. If `bin/deploy-init.sh` exited non-zero, the failure may be a
-    DAG-parse failure on a doc whose `## Execution DAG` section is human
-    prose (Unicode box diagrams `┌──┐`, narrative wave descriptions, etc.)
-    instead of the parser-conforming `N. <slug> [(<abs-path>)] — <desc>`
-    shape. Yoda extracts the implicit DAG and writes parser-conforming
-    lines into the local copy of the design doc, then re-runs the parse +
-    multi-init steps. /consult is unchanged — this rescue is for
-    human-authored docs only.
+5b. **DAG auto-extract (multi-repo, hand-authored docs).** v0.21.0
+    introduced this feature; v0.23.0 made it auto-proceed silently when
+    the extraction is verifiable. If `bin/deploy-init.sh` exited non-zero
+    because the `## Execution DAG` section uses a non-parser-conforming
+    prose format (Unicode box diagrams `┌──┐`, narrative wave
+    descriptions, etc.) instead of the parser-conforming
+    `N. <slug> [(<abs-path>)] — <desc>` lines, Yoda extracts the implicit
+    DAG, verifies each line against the on-disk repo layout, writes
+    parser-conforming lines into the local copy of the design doc, then
+    re-runs the parse + multi-init steps. The auto-proceed path runs
+    without confirmation when verification passes; the AskUserQuestion
+    safety net fires only when verification fails OR the user opted in
+    via `CW_DEPLOY_FORCE_RESCUE_PROMPT=1`. /consult is unchanged — this
+    auto-extract path is for human-authored docs only.
 
     **Sub-step 5b.1 — re-derive TOPIC + ART_DIR.** Init failed before
     printing the topic slug to stdout, so re-derive it from the design
@@ -149,7 +154,7 @@ Set task `0` → `in_progress`.
       "$CLAUDE_PLUGIN_ROOT/bin/deploy-archive.sh" "$TOPIC" 2>/dev/null || true
       exit 1
     fi
-    log_info "DAG rescue intercept: human-authored ## Execution DAG section detected"
+    log_info "DAG section is prose; auto-extracting parser-conforming lines"
     ```
 
     **Sub-step 5b.3 — Yoda extracts implicit DAG.** Read
@@ -174,21 +179,110 @@ Set task `0` → `in_progress`.
     CapWords/underscore (which differ from the slug). Omit the parens
     for flat-monorepo siblings of the conductor's cwd.
 
-    **Sub-step 5b.4 — confirm via AskUserQuestion.** Present the
-    extracted DAG-lines block as a single AskUserQuestion preview:
+    **Sub-step 5b.3.5 — verify each extracted line against on-disk repo
+    layout (v0.23.0).** Yoda runs three checks per line, accumulating
+    failures into an array. If any check fails, the AskUserQuestion in
+    5b.4 fires with the specific failure messages cited inline (no
+    guessing). If all pass, 5b.4 auto-proceeds without prompting.
 
     ```
-    question: "Extracted DAG from human-prose section. Use these lines?"
+    # EXTRACTED_LINES is the array Yoda built in 5b.3 (one parser-conforming
+    # line per element, e.g. "1. ARS-TaskServe (/abs/path) — desc").
+    declare -a EXTRACTED_LINES=( … )
+    NUM_EXTRACTED_LINES=${#EXTRACTED_LINES[@]}
+    declare -a VERIFY_FAILED=()
+
+    for i in "${!EXTRACTED_LINES[@]}"; do
+      line_no=$(( i + 1 ))
+      line="${EXTRACTED_LINES[$i]}"
+      # Parse: "N. <slug> [(<abs-path>)] — <desc>" using the same regex shape
+      # as cw_deploy_dag_parse_line (lib/deploy-dag.sh).
+      if [[ "$line" =~ ^[0-9]+\.[[:space:]]+([A-Za-z0-9_-]+)([[:space:]]+\((/[^\)]+)\))?[[:space:]]+—[[:space:]]+ ]]; then
+        slug="${BASH_REMATCH[1]}"
+        abs_path="${BASH_REMATCH[3]:-}"
+      else
+        VERIFY_FAILED+=( "line $line_no: regex parse failed: '$line'" )
+        continue
+      fi
+      # 1. slug regex (already passed by the outer parse but assert explicitly).
+      if ! [[ "$slug" =~ ^[A-Za-z0-9_-]+$ ]]; then
+        VERIFY_FAILED+=( "line $line_no: slug '$slug' invalid (must match [A-Za-z0-9_-]+)" )
+        continue
+      fi
+      # 2. directory exists (use abs_path if given, else flat-sibling fallback).
+      if [[ -n "$abs_path" ]]; then
+        repo_cwd="$abs_path"
+      else
+        repo_cwd="$TARGET_CWD/$slug"
+      fi
+      if [[ ! -d "$repo_cwd" ]]; then
+        VERIFY_FAILED+=( "line $line_no: directory not found: $repo_cwd" )
+        continue
+      fi
+      # 3. CLAUDE.md or AGENTS.md present (sub-repo marker file).
+      if [[ ! -f "$repo_cwd/CLAUDE.md" && ! -f "$repo_cwd/AGENTS.md" ]]; then
+        VERIFY_FAILED+=( "line $line_no: $repo_cwd missing CLAUDE.md/AGENTS.md" )
+        continue
+      fi
+    done
+
+    # Determine status for the audit log + confirm gate.
+    if (( ${#VERIFY_FAILED[@]} == 0 )); then
+      VERIFY_STATUS="auto-passed"
+    else
+      VERIFY_STATUS="verification-failed-${#VERIFY_FAILED[@]}"
+    fi
+    ```
+
+    **Sub-step 5b.4 — auto-proceed OR conditional confirm (v0.23.0).**
+    Default behavior is to auto-proceed silently when verification
+    (5b.3.5) passed AND the user did not opt into the explicit confirm
+    gate via `CW_DEPLOY_FORCE_RESCUE_PROMPT=1`. The AskUserQuestion
+    safety net fires only when verification failed OR the FORCE env
+    var is set.
+
+    ```
+    USER_CHOICE=""
+    if (( ${#VERIFY_FAILED[@]} == 0 )) && [[ "${CW_DEPLOY_FORCE_RESCUE_PROMPT:-}" != "1" ]]; then
+      # Auto-proceed path — no AskUserQuestion. One log line summarizing
+      # which slugs were extracted, so the user has visible confirmation
+      # of what's about to run without an interactive stop.
+      slug_summary=$(printf '%s\n' "${EXTRACTED_LINES[@]}" | grep -oE '^[0-9]+\. [A-Za-z0-9_-]+' | tr '\n' ' ')
+      log_ok "DAG auto-extract: $NUM_EXTRACTED_LINES lines verified ($slug_summary)"
+      USER_CHOICE="auto-verified"
+    fi
+    ```
+
+    If `USER_CHOICE` is still empty after the auto-proceed gate
+    (verification failed OR force-prompt env var set), fire
+    `AskUserQuestion`. Build the question body so the user sees exactly
+    WHAT failed verification (no guessing what to review):
+
+    - When `CW_DEPLOY_FORCE_RESCUE_PROMPT=1` AND verification PASSED:
+      prefix the body with `"Force-prompt env var set; verification PASSED.\n\n"`
+      and set `VERIFY_STATUS="forced-prompt"`.
+    - When verification FAILED: prefix the body with
+      `"Auto-extracted DAG from prose section. Verification failed:\n"`
+      followed by each `VERIFY_FAILED[i]` entry on its own line, then
+      `"\n\n"`.
+    - Append `"Lines:\n"` + each `EXTRACTED_LINES[i]` entry on its own line.
+
+    ```
+    question: <built per the rules above>
     options:
       - "Looks right — write & retry" (recommended)
       - "Let me edit"
       - "Abort deploy"
+    USER_CHOICE = answer  # one of: "Looks right — write & retry" | "Let me edit" | "Abort deploy"
     ```
 
-    On "Let me edit", wait for the user to provide corrected DAG-lines
-    via the next message; then re-confirm in a follow-up
-    AskUserQuestion. On "Abort deploy", run
-    `bin/deploy-archive.sh "$TOPIC"` and exit 0.
+    On `"Let me edit"`: wait for the user to provide corrected DAG-lines
+    via the next chat message; rebuild `EXTRACTED_LINES` from the new
+    lines; re-run sub-step 5b.3.5 verification on the corrected lines;
+    if those pass, auto-proceed (`USER_CHOICE="edited-passed"`); else
+    re-fire `AskUserQuestion` with the new `VERIFY_FAILED` list.
+
+    On `"Abort deploy"`: run `bin/deploy-archive.sh "$TOPIC"` and exit 0.
 
     **Sub-step 5b.5 — write into design-doc copy.** Use the `Edit` tool
     to insert the confirmed DAG-lines as a new `### DAG Lines`
@@ -197,12 +291,19 @@ Set task `0` → `in_progress`.
     `_deploy/<topic>/`, NOT the user's original source file). Place the
     subsection at the very top of the section (before the prose) so
     `bin/deploy-dag-parse.sh`'s "first lines that match the DAG-line
-    regex" loop picks it up. Then write a one-line audit log:
+    regex" loop picks it up. Then write a one-line audit log (extended
+    in v0.23.0 with the verification status field):
 
     ```
-    printf 'rescued at %s; user choice: %s; lines extracted: %d\n' \
-      "$(date -u +%FT%TZ)" "$USER_CHOICE" "$NUM_LINES" > "$ART_DIR/dag-rescue.log"
+    printf 'rescued at %s; choice: %s; lines extracted: %d; verification: %s\n' \
+      "$(date -u +%FT%TZ)" "$USER_CHOICE" "$NUM_EXTRACTED_LINES" "$VERIFY_STATUS" \
+      > "$ART_DIR/dag-rescue.log"
     ```
+
+    `$VERIFY_STATUS` is one of: `auto-passed` (auto-proceed path,
+    verification clean), `forced-prompt` (verification clean but
+    `CW_DEPLOY_FORCE_RESCUE_PROMPT=1`), `verification-failed-N`
+    (N failures cited in the prompt body).
 
     **Sub-step 5b.6 — re-invoke parse + multi-init + replay tail.**
     init.sh's tail (target_cwd.txt write, branch-create, auto_provider
@@ -221,7 +322,7 @@ Set task `0` → `in_progress`.
     AUTO_PROVIDER=$(cw_deploy_detect_provider "$TARGET_CWD" "")
     printf '%s\n' "$AUTO_PROVIDER" > "$ART_DIR/auto_provider.txt.tmp" \
       && mv "$ART_DIR/auto_provider.txt.tmp" "$ART_DIR/auto_provider.txt"
-    log_ok "DAG rescue intercept complete; resuming Step 0 sub-step 6"
+    log_ok "DAG auto-extract complete; resuming Step 0 sub-step 6"
     ```
 
     The rescue is **one-shot per deploy**. If sub-step 5b.6's re-parse
