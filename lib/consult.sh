@@ -379,7 +379,7 @@ cw_consult_parse_verdicts() {
 #
 # v0.16.0: emits the canonical design-doc (rigid 6 sections + trust-label
 # header) at <out>. <out> should be the path returned by
-# cw_consult_design_doc_canonical_path. The legacy synthesis.md write was
+# cw_consult_design_doc_canonical_path. The legacy design-doc write was
 # dropped — no fallback, no symlink.
 #
 # Section mapping (adjudicated.md → design-doc):
@@ -451,8 +451,8 @@ cw_consult_synthesize() {
     printf '> **Path:** %s\n\n' "$path_label"
 
     # Banners (preserved from v0.15: surface non-ok/skipped statuses).
-    case "$rex_fs"  in malformed|missing|empty) printf '> NOTE: REX findings.md %s — diff/synthesis ran on best-effort parse.\n\n' "$rex_fs" ;; esac
-    case "$cody_fs" in malformed|missing|empty) printf '> NOTE: CODY findings.md %s — diff/synthesis ran on best-effort parse.\n\n' "$cody_fs" ;; esac
+    case "$rex_fs"  in malformed|missing|empty) printf '> NOTE: REX findings.md %s — diff/design-doc ran on best-effort parse.\n\n' "$rex_fs" ;; esac
+    case "$cody_fs" in malformed|missing|empty) printf '> NOTE: CODY findings.md %s — diff/design-doc ran on best-effort parse.\n\n' "$cody_fs" ;; esac
     case "$rex_vs"  in timeout|error|send-failed|missing|empty) printf '> NOTE: REX verify dispatch %s — partial cross-verification; some Cody-only items not graded.\n\n' "$rex_vs" ;; esac
     case "$cody_vs" in timeout|error|send-failed|missing|empty) printf '> NOTE: CODY verify dispatch %s — partial cross-verification; some Rex-only items not graded.\n\n' "$cody_vs" ;; esac
 
@@ -642,7 +642,7 @@ _cw_consult_write_adjudicated_n2() {
       | awk -F'\t' -v UC="$C0_UC" '$1 != "AGREE" { printf "- PENDING: [%s] %s — %s %s: %s\n", $2, $3, UC, $1, ($4 != "" ? $4 : $3) }'
 
     printf '\n## Contested\n'
-    printf '<!-- Master Yoda: move CONTESTED items here from Adjudicated. Items in this section ship in synthesis as unresolved. -->\n'
+    printf '<!-- Master Yoda: move CONTESTED items here from Adjudicated. Items in this section ship in the design-doc as unresolved. -->\n'
 
     printf '\n## Not-verified\n'
     if [[ "$rex_vs" != "ok" && "$rex_vs" != "skipped" && -s "$cody_only" ]]; then

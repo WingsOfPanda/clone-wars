@@ -29,7 +29,7 @@
 #   - rc=1 if all troopers timed out / errored / produced empty files
 #   - rc=2 on bad args
 #
-# Extracted from commands/consult.md Step 8.5 to bypass the slash-command
+# Extracted from commands/consult.md Step 13 to bypass the slash-command
 # renderer's $1/$2/$3 positional substitution (which clobbered bash
 # function args with topic words on multi-word topics).
 
