@@ -42,20 +42,20 @@ stage_n3() {
   local topic="$1"
   local td="$CLONE_WARS_HOME/state/$RH/$topic"
   local art="$td/_consult"
-  mkdir -p "$art" "$td/rex-codex" "$td/cody-claude" "$td/bly-opencode"
-  printf 'codex\trex\nclaude\tcody\nopencode\tbly\n' > "$art/troopers.txt"
+  mkdir -p "$art" "$td/rex-codex" "$td/cody-claude" "$td/wolffe-opencode"
+  printf 'codex\trex\nclaude\tcody\nopencode\twolffe\n' > "$art/troopers.txt"
 
   # Empty bucket files (caller appends what it needs).
   : > "$art/consensus.txt"
   : > "$art/rex+cody_only.txt"
-  : > "$art/rex+bly_only.txt"
-  : > "$art/cody+bly_only.txt"
+  : > "$art/rex+wolffe_only.txt"
+  : > "$art/cody+wolffe_only.txt"
   : > "$art/rex_only_items.txt"
   : > "$art/cody_only_items.txt"
-  : > "$art/bly_only_items.txt"
+  : > "$art/wolffe_only_items.txt"
 
   # Empty verify.md skeletons.
-  for trooper_dir in "$td/rex-codex" "$td/cody-claude" "$td/bly-opencode"; do
+  for trooper_dir in "$td/rex-codex" "$td/cody-claude" "$td/wolffe-opencode"; do
     cat > "$trooper_dir/verify.md" <<'MD'
 # Verify
 ## Verdicts
@@ -72,7 +72,7 @@ EOF
 OFFSET=0
 VS=ok
 EOF
-  cat > "$art/verify-bly.txt"  <<'EOF'
+  cat > "$art/verify-wolffe.txt"  <<'EOF'
 OFFSET=0
 VS=ok
 EOF
@@ -118,11 +118,11 @@ ART=$(stage_n3 "$TOPIC")
 echo '[src/a.py:1] rex_only A' > "$ART/rex_only_items.txt"
 TD=$(dirname "$ART")
 add_verdict "$TD/cody-claude/verify.md" 1 AGREE 'src/a.py:1' 'rex_only A'
-add_verdict "$TD/bly-opencode/verify.md" 1 AGREE 'src/a.py:1' 'rex_only A'
+add_verdict "$TD/wolffe-opencode/verify.md" 1 AGREE 'src/a.py:1' 'rex_only A'
 
 cw_consult_write_adjudicated "$ART" "$ART/adjudicated-draft.md"
 section_lines "$ART/adjudicated-draft.md" "Cross-verified" | grep -q 'rex_only A' \
-  || { echo "FAIL: rex_only with cody+bly AGREE not in Cross-verified" >&2; cat "$ART/adjudicated-draft.md" >&2; exit 1; }
+  || { echo "FAIL: rex_only with cody+wolffe AGREE not in Cross-verified" >&2; cat "$ART/adjudicated-draft.md" >&2; exit 1; }
 pass "1-of-3 rex_only + both AGREE → CROSS-VERIFIED"
 
 # ---------- Test 3: 1-of-3 (rex_only) with split (AGREE/DISPUTE) → CONTESTED ----------
@@ -131,7 +131,7 @@ ART=$(stage_n3 "$TOPIC")
 echo '[src/a.py:1] rex_only split' > "$ART/rex_only_items.txt"
 TD=$(dirname "$ART")
 add_verdict "$TD/cody-claude/verify.md" 1 AGREE 'src/a.py:1' 'rex_only split'
-add_verdict "$TD/bly-opencode/verify.md" 1 DISPUTE 'src/a.py:1' 'rex_only split'
+add_verdict "$TD/wolffe-opencode/verify.md" 1 DISPUTE 'src/a.py:1' 'rex_only split'
 
 cw_consult_write_adjudicated "$ART" "$ART/adjudicated-draft.md"
 section_lines "$ART/adjudicated-draft.md" "Contested" | grep -q 'rex_only split' \
@@ -144,20 +144,20 @@ ART=$(stage_n3 "$TOPIC")
 echo '[src/a.py:1] rex_only refuted' > "$ART/rex_only_items.txt"
 TD=$(dirname "$ART")
 add_verdict "$TD/cody-claude/verify.md" 1 DISPUTE 'src/a.py:1' 'rex_only refuted'
-add_verdict "$TD/bly-opencode/verify.md" 1 DISPUTE 'src/a.py:1' 'rex_only refuted'
+add_verdict "$TD/wolffe-opencode/verify.md" 1 DISPUTE 'src/a.py:1' 'rex_only refuted'
 
 cw_consult_write_adjudicated "$ART" "$ART/adjudicated-draft.md"
 section_lines "$ART/adjudicated-draft.md" "Refuted" | grep -q 'rex_only refuted' \
   || { echo "FAIL: rex_only with both DISPUTE not in Refuted" >&2; cat "$ART/adjudicated-draft.md" >&2; exit 1; }
 pass "1-of-3 rex_only + both DISPUTE → REFUTED"
 
-# ---------- Test 5: 1-of-3 (rex_only) with cody=AGREE bly=UNCERTAIN → PENDING ----------
+# ---------- Test 5: 1-of-3 (rex_only) with cody=AGREE wolffe=UNCERTAIN → PENDING ----------
 TOPIC=consult-fixture-3adj-x-pending
 ART=$(stage_n3 "$TOPIC")
 echo '[src/a.py:1] rex_only pending' > "$ART/rex_only_items.txt"
 TD=$(dirname "$ART")
 add_verdict "$TD/cody-claude/verify.md" 1 AGREE 'src/a.py:1' 'rex_only pending'
-add_verdict "$TD/bly-opencode/verify.md" 1 UNCERTAIN 'src/a.py:1' 'rex_only pending'
+add_verdict "$TD/wolffe-opencode/verify.md" 1 UNCERTAIN 'src/a.py:1' 'rex_only pending'
 
 cw_consult_write_adjudicated "$ART" "$ART/adjudicated-draft.md"
 section_lines "$ART/adjudicated-draft.md" "- PENDING:" | grep -q 'rex_only pending' \
@@ -165,42 +165,42 @@ section_lines "$ART/adjudicated-draft.md" "- PENDING:" | grep -q 'rex_only pendi
   || { echo "FAIL: rex_only with AGREE+UNCERTAIN not in PENDING" >&2; cat "$ART/adjudicated-draft.md" >&2; exit 1; }
 pass "1-of-3 rex_only + AGREE+UNCERTAIN → PENDING"
 
-# ---------- Test 6: 2-of-3 (rex+cody) with bly=AGREE → CROSS-VERIFIED ----------
+# ---------- Test 6: 2-of-3 (rex+cody) with wolffe=AGREE → CROSS-VERIFIED ----------
 TOPIC=consult-fixture-3adj-pair-agree
 ART=$(stage_n3 "$TOPIC")
 echo '[src/b.py:2] rex+cody agree' > "$ART/rex+cody_only.txt"
 TD=$(dirname "$ART")
-add_verdict "$TD/bly-opencode/verify.md" 1 AGREE 'src/b.py:2' 'rex+cody agree'
+add_verdict "$TD/wolffe-opencode/verify.md" 1 AGREE 'src/b.py:2' 'rex+cody agree'
 
 cw_consult_write_adjudicated "$ART" "$ART/adjudicated-draft.md"
 section_lines "$ART/adjudicated-draft.md" "Cross-verified" | grep -q 'rex+cody agree' \
-  || { echo "FAIL: pair rex+cody with bly AGREE not in Cross-verified" >&2; cat "$ART/adjudicated-draft.md" >&2; exit 1; }
-pass "2-of-3 rex+cody + bly AGREE → CROSS-VERIFIED"
+  || { echo "FAIL: pair rex+cody with wolffe AGREE not in Cross-verified" >&2; cat "$ART/adjudicated-draft.md" >&2; exit 1; }
+pass "2-of-3 rex+cody + wolffe AGREE → CROSS-VERIFIED"
 
-# ---------- Test 7: 2-of-3 (rex+cody) with bly=DISPUTE → CONTESTED ----------
+# ---------- Test 7: 2-of-3 (rex+cody) with wolffe=DISPUTE → CONTESTED ----------
 TOPIC=consult-fixture-3adj-pair-contest
 ART=$(stage_n3 "$TOPIC")
 echo '[src/b.py:2] rex+cody contest' > "$ART/rex+cody_only.txt"
 TD=$(dirname "$ART")
-add_verdict "$TD/bly-opencode/verify.md" 1 DISPUTE 'src/b.py:2' 'rex+cody contest'
+add_verdict "$TD/wolffe-opencode/verify.md" 1 DISPUTE 'src/b.py:2' 'rex+cody contest'
 
 cw_consult_write_adjudicated "$ART" "$ART/adjudicated-draft.md"
 # Single verifier DISPUTE on a pair: that's "all K=1 verifiers DISPUTE" → REFUTED by rule.
-# But spec says "2-of-3 (rex+cody) with bly=DISPUTE → CONTESTED" — this is the
+# But spec says "2-of-3 (rex+cody) with wolffe=DISPUTE → CONTESTED" — this is the
 # documented decision rule (a 2-trooper consensus disputed by the 3rd is
 # contested, not refuted, because 2 troopers' research backs the claim).
 # To honor this we override: when the claim is held by >=2 troopers and the
 # remaining verifier disputes, classify as CONTESTED.
 section_lines "$ART/adjudicated-draft.md" "Contested" | grep -q 'rex+cody contest' \
-  || { echo "FAIL: pair rex+cody with bly DISPUTE not in Contested" >&2; cat "$ART/adjudicated-draft.md" >&2; exit 1; }
-pass "2-of-3 rex+cody + bly DISPUTE → CONTESTED"
+  || { echo "FAIL: pair rex+cody with wolffe DISPUTE not in Contested" >&2; cat "$ART/adjudicated-draft.md" >&2; exit 1; }
+pass "2-of-3 rex+cody + wolffe DISPUTE → CONTESTED"
 
-# ---------- Test 8: 2-of-3 (rex+cody) with bly=UNCERTAIN → PENDING ----------
+# ---------- Test 8: 2-of-3 (rex+cody) with wolffe=UNCERTAIN → PENDING ----------
 TOPIC=consult-fixture-3adj-pair-pending
 ART=$(stage_n3 "$TOPIC")
 echo '[src/b.py:2] rex+cody pending' > "$ART/rex+cody_only.txt"
 TD=$(dirname "$ART")
-add_verdict "$TD/bly-opencode/verify.md" 1 UNCERTAIN 'src/b.py:2' 'rex+cody pending'
+add_verdict "$TD/wolffe-opencode/verify.md" 1 UNCERTAIN 'src/b.py:2' 'rex+cody pending'
 
 cw_consult_write_adjudicated "$ART" "$ART/adjudicated-draft.md"
 # A 2-trooper claim disputed only by an UNCERTAIN signal is PENDING — Yoda
@@ -209,8 +209,8 @@ cw_consult_write_adjudicated "$ART" "$ART/adjudicated-draft.md"
 # UNCERTAIN verifier, the 2 owners' implicit AGREE means the situation is
 # AGREE+UNCERTAIN → PENDING, which is what the spec table requires.)
 awk '/^## - PENDING:/{f=1; next} /^## /{f=0} f' "$ART/adjudicated-draft.md" | grep -q 'rex+cody pending' \
-  || { echo "FAIL: pair rex+cody with bly UNCERTAIN not in PENDING" >&2; cat "$ART/adjudicated-draft.md" >&2; exit 1; }
-pass "2-of-3 rex+cody + bly UNCERTAIN → PENDING"
+  || { echo "FAIL: pair rex+cody with wolffe UNCERTAIN not in PENDING" >&2; cat "$ART/adjudicated-draft.md" >&2; exit 1; }
+pass "2-of-3 rex+cody + wolffe UNCERTAIN → PENDING"
 
 # ---------- Test 9: section ORDER (Consensus → Cross-verified → Contested → Refuted → PENDING) ----------
 TOPIC=consult-fixture-3adj-order
@@ -219,7 +219,7 @@ echo '[src/c.py:3] order consensus' > "$ART/consensus.txt"
 echo '[src/x.py:1] order cv'        > "$ART/rex_only_items.txt"
 TD=$(dirname "$ART")
 add_verdict "$TD/cody-claude/verify.md" 1 AGREE 'src/x.py:1' 'order cv'
-add_verdict "$TD/bly-opencode/verify.md" 1 AGREE 'src/x.py:1' 'order cv'
+add_verdict "$TD/wolffe-opencode/verify.md" 1 AGREE 'src/x.py:1' 'order cv'
 
 cw_consult_write_adjudicated "$ART" "$ART/adjudicated-draft.md"
 ORDER=$(grep -n '^## ' "$ART/adjudicated-draft.md" | awk -F: '{print $2}' | tr '\n' '|')
@@ -240,7 +240,7 @@ ART=$(stage_n3 "$TOPIC")
 echo '[src/x.py:1] srcset claim' > "$ART/rex_only_items.txt"
 TD=$(dirname "$ART")
 add_verdict "$TD/cody-claude/verify.md" 1 AGREE 'src/x.py:1' 'srcset claim'
-add_verdict "$TD/bly-opencode/verify.md" 1 AGREE 'src/x.py:1' 'srcset claim'
+add_verdict "$TD/wolffe-opencode/verify.md" 1 AGREE 'src/x.py:1' 'srcset claim'
 
 cw_consult_write_adjudicated "$ART" "$ART/adjudicated-draft.md"
 # Annotation must mention the source set: rex_only with both AGREEs.

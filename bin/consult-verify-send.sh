@@ -14,7 +14,7 @@
 #
 # For N=2 (rex+cody only) this reduces to a single file: the OTHER commander's
 # _only_items.txt — byte-equal to v0.14.0 behavior.
-# For N=3 (rex+cody+bly) this is 3 files (1 single + 1 single + 1 pair).
+# For N=3 (rex+cody+wolffe) this is 3 files (1 single + 1 single + 1 pair).
 #
 # If the union is empty → writes VS=skipped (no actual send). Else writes
 # OFFSET= and sends.

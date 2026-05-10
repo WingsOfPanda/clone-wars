@@ -141,6 +141,37 @@ case "${1:-}" in
     done
     ;;
 
+  --pairs)
+    # v0.20.5: bin/teardown.sh --pairs <topic> <cmdr1> [cmdr2] ...
+    # Batch teardown for an explicit commander list (typically from
+    # consult-teardown.sh's troopers.txt iteration). Single 9s graceful
+    # banner shared across all panes via _teardown_batch. Skips any
+    # commander whose state dir is missing — intentional, mirrors the
+    # 2-arg path's "no such trooper" tolerance.
+    shift
+    [[ $# -ge 2 ]] || { log_error "--pairs requires <topic> <cmdr1> [cmdr2] ..."; exit 2; }
+    topic="$1"; shift
+    topic_dir="$(cw_topic_state_dir "$topic")"
+    shopt -s nullglob
+    pairs=()
+    for commander in "$@"; do
+      for d in "$topic_dir"/${commander}-*/; do
+        [[ -d "$d" ]] || continue
+        name="${d%/}"; name="${name##*/}"
+        model_hint="${name#${commander}-}"
+        model=$(cw_pane_meta_model "$commander" "$model_hint" "$topic")
+        pairs+=("$commander:$model")
+      done
+    done
+    if (( ${#pairs[@]} > 0 )); then
+      _teardown_batch "$topic" "${pairs[@]}"
+    else
+      log_warn "no matching trooper dirs found for any of: $*"
+    fi
+    rm -f "$topic_dir/.last_pane" 2>/dev/null
+    rmdir "$topic_dir" 2>/dev/null || true
+    ;;
+
   *)
     if [[ $# -eq 1 ]]; then
       # Single arg — treat as topic

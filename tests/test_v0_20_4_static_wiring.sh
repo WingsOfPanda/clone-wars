@@ -74,12 +74,11 @@ awk '/^## Steps/{f=1; next} /^### Step 0 /{f=0} f' "$CONSULT_MD" | grep -qE 'Can
   || { echo "FAIL: '## Steps' preamble missing 'Canonical N-aware examples' subsection" >&2; exit 1; }
 pass "canonical N-aware examples factored into ## Steps preamble"
 
-# 9. plugin version bumped (semver-shape regex per v0.20.2 lesson).
+# 9. plugin version present + semver-shape (v0.20.5: loosened from exact
+# 0.20.4 lock per the v0.20.2 lesson — survives subsequent bumps).
 PJ="$PLUGIN_ROOT/.claude-plugin/plugin.json"
 grep -qE '"version": "0\.[0-9]+\.[0-9]+"' "$PJ" \
   || { echo "FAIL: plugin.json missing semver-shape version field" >&2; exit 1; }
-grep -qE '"version": "0\.20\.4"' "$PJ" \
-  || { echo "FAIL: plugin.json version is not exactly 0.20.4" >&2; exit 1; }
-pass "plugin.json version bumped to 0.20.4"
+pass "plugin.json version field present + semver-shaped"
 
 pass "v0.20.4 static wiring complete (9 invariants locked)"

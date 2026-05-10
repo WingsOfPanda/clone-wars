@@ -12,7 +12,7 @@ source "$PLUGIN_ROOT/lib/consult.sh"
 # Provider → commander mapping (locked in v0.15.0 spec)
 out=$(cw_consult_provider_to_commander codex);    assert_eq "$out" "rex"  "codex → rex"
 out=$(cw_consult_provider_to_commander claude);   assert_eq "$out" "cody" "claude → cody"
-out=$(cw_consult_provider_to_commander opencode); assert_eq "$out" "bly"  "opencode → bly"
+out=$(cw_consult_provider_to_commander opencode); assert_eq "$out" "wolffe"  "opencode → wolffe"
 
 # Unknown provider → rc=1
 cw_consult_provider_to_commander gemini 2>/dev/null && { echo FAIL: gemini should error; exit 1; }
@@ -28,7 +28,7 @@ cat > "$TMP/troopers.txt" <<TSV
 # header
 codex	rex
 claude	cody
-opencode	bly
+opencode	wolffe
 TSV
 mapfile -t lines < <(cw_consult_load_troopers "$TMP/troopers.txt")
 assert_eq "${#lines[@]}" "3" "3 trooper lines parsed"

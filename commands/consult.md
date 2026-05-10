@@ -69,12 +69,12 @@ Write tool, then invoke sub-scripts with the resolved topic.
 
 **Canonical N-aware examples** (referenced by Steps 4 / 7 / 8):
 
-For N=3 (codex/rex, claude/cody, opencode/bly):
+For N=3 (codex/rex, claude/cody, opencode/wolffe):
 
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/<verb>.sh" rex  codex    "$CONSULT_TOPIC"
 "$CLAUDE_PLUGIN_ROOT/bin/<verb>.sh" cody claude   "$CONSULT_TOPIC"
-"$CLAUDE_PLUGIN_ROOT/bin/<verb>.sh" bly  opencode "$CONSULT_TOPIC"
+"$CLAUDE_PLUGIN_ROOT/bin/<verb>.sh" wolffe  opencode "$CONSULT_TOPIC"
 ```
 
 For N=2, issue 2 calls instead. Iterate `TROOPERS` to derive each call:
@@ -158,7 +158,7 @@ and `--use-force` still escalates.
    N=${#TROOPERS[@]}
    log_info "trooper count: N=$N"
    # Each TROOPERS[i] is "<provider>\t<commander>" (TSV — provider first).
-   # Example N=3: TROOPERS=("codex\trex" "claude\tcody" "opencode\tbly").
+   # Example N=3: TROOPERS=("codex\trex" "claude\tcody" "opencode\twolffe").
    # Parse with: IFS=$'\t' read -r prov cmdr <<<"${TROOPERS[i]}"
    ```
 
@@ -391,13 +391,13 @@ entry in `TROOPERS`. Each call invokes
 `bin/spawn.sh <commander> <provider> "$CONSULT_TOPIC" --target-pane "${PREFLIGHT_PANES[$cmdr]}"`.
 Capture each rc separately.
 
-Canonical N=3 example (codex/rex, claude/cody, opencode/bly — order
+Canonical N=3 example (codex/rex, claude/cody, opencode/wolffe — order
 matches `TROOPERS`):
 
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" rex  codex    "$CONSULT_TOPIC" --target-pane "${PREFLIGHT_PANES[rex]}"   # parallel 1
 "$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" cody claude   "$CONSULT_TOPIC" --target-pane "${PREFLIGHT_PANES[cody]}"  # parallel 2
-"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" bly  opencode "$CONSULT_TOPIC" --target-pane "${PREFLIGHT_PANES[bly]}"   # parallel 3
+"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" wolffe  opencode "$CONSULT_TOPIC" --target-pane "${PREFLIGHT_PANES[wolffe]}"   # parallel 3
 ```
 
 For N=2 (any 2-provider subset selected via `/clone-wars:medic`), issue
@@ -550,9 +550,9 @@ Bash(
 )
 
 Bash(
-  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" bly  opencode',
+  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" wolffe  opencode',
   run_in_background: true,
-  description='master yoda await commander bly research (background)'
+  description='master yoda await commander wolffe research (background)'
 )
 ```
 
@@ -708,11 +708,24 @@ single-repo / 8 multi-repo: Problem / Goal / Architecture / Components /
 grep for `## Contested` in the design-doc — it only exists in the
 adjudicated intermediate.
 
-Open `_consult/adjudicated.md` with the Read tool. For every line
-beginning `- PENDING:`:
+**MANDATORY first step — Read adjudicated.md via the Read tool.**
+The Edit tool calls below in step (d) will be REJECTED with
+"File has not been read yet" unless this Read happens FIRST. Do NOT
+substitute `cat` via Bash — only the Read tool establishes the Edit
+tool's per-path read tracker.
+
+```
+Read("$TOPIC_DIR/_consult/adjudicated.md")
+```
+
+(Substitute the absolute path resolved from `$TOPIC_DIR`.)
+
+Then for every line beginning `- PENDING:`:
 
 a. Note `[citation]` + claim.
-b. Read the cited source (file or WebFetch URL).
+b. Read the cited source (file or WebFetch URL). Reading other files
+   does NOT invalidate adjudicated.md's edit tracker — that single
+   Read above covers all step (d) Edit calls in this loop.
 c. Decide CONFIRMED / REFUTED / CONTESTED.
 d. Edit tool to rewrite (still inside `_consult/adjudicated.md`):
    - CONFIRMED / REFUTED: replace `- PENDING:` with the verdict + evidence.
@@ -775,7 +788,7 @@ inherits the labels via Step 12.
 ```
 case "$N" in
   2) export CW_SOURCE_LABEL="rex+cody cross-verified (N=2)" ;;
-  3) export CW_SOURCE_LABEL="rex+cody+bly cross-verified (N=3)" ;;
+  3) export CW_SOURCE_LABEL="rex+cody+wolffe cross-verified (N=3)" ;;
   *) export CW_SOURCE_LABEL="cross-verified (N=$N)" ;;
 esac
 
@@ -825,7 +838,12 @@ mapfile -t APPROVED < <(cw_consult_walk_section_state "$DRAFT_DIR")
    - REVISE_COUNT=0
    - Yoda reads `$TOPIC_DIR/_consult/adjudicated.md`,
      `$DRAFT_DIR/$key.md` (the seed from synthesize), and the matching
-     trooper's `findings.md`/`verify.md`.
+     trooper's `findings.md`/`verify.md`. **Use the Read tool** for
+     `$DRAFT_DIR/$key.md` specifically (NOT `cat` via Bash) — the
+     Approve step below uses the Write tool, which requires its target
+     path to have been Read at least once in this session before
+     overwriting an existing file. Synthesize already wrote the 6
+     single-repo sections, so this Read is mandatory for those.
    - For multi-repo + `key=architecture`: also reads `targets.txt`; drafts
      `### <slug>` subsections (one per target).
    - For multi-repo + `key=execution-dag`: drafts a soft DAG using
@@ -834,8 +852,13 @@ mapfile -t APPROVED < <(cw_consult_walk_section_state "$DRAFT_DIR")
      during Revise.)
    - Yoda presents the draft in chat (markdown formatting preserved).
    - `AskUserQuestion` (3 options for non-critical sections, 2 for critical):
-     - **Approve** → write the approved draft to `$DRAFT_DIR/$key.md` (atomic
-       tmp+mv), break draft loop, advance to next `i`.
+     - **Approve** → use the **Write tool** to overwrite
+       `$DRAFT_DIR/$key.md` with the approved draft body. (Step 4's
+       Read tool call above satisfies the Write-tool's
+       Read-before-overwrite prereq for the 6 single-repo sections that
+       synthesize seeded; the 2 multi-repo extras
+       `execution-dag` + `cross-repo-notes` don't have prior seeds, so
+       Write creates them fresh.) Break draft loop, advance to next `i`.
      - **Revise** → AskUserQuestion: "What should change?" (free-form).
        Fold response into draft. REVISE_COUNT++. Re-loop to present.
        - If REVISE_COUNT == 4 (i.e., user picked Revise four times):
@@ -945,13 +968,13 @@ Loop while user picks "Yes":
    - **N=2** (3 options): the 2 singles + parallel-all.
      - For roster `(rex/codex, cody/claude)`:
        `rex (codex)` / `cody (claude)` / `both (parallel)`
-     - For other 2-trooper rosters (e.g. claude+opencode → cody+bly), use
+     - For other 2-trooper rosters (e.g. claude+opencode → cody+wolffe), use
        the actual commanders from `TROOPERS` rather than the literal
        names above.
 
    - **N=3** (7 options): 3 singles + 3 pairs + 1 fan-out.
-     - `rex (codex)` / `cody (claude)` / `bly (opencode)`
-     - `rex + cody` / `rex + bly` / `cody + bly`
+     - `rex (codex)` / `cody (claude)` / `wolffe (opencode)`
+     - `rex + cody` / `rex + wolffe` / `cody + wolffe`
      - `all three (parallel)`
 
    → `$DRILL_TROOPER=<choice>`
@@ -974,7 +997,7 @@ Loop while user picks "Yes":
    ```
 
    Two troopers in parallel (`K=2`, 9 args) — covers N=2 "both" or any
-   N=3 pair (`rex + cody`, `rex + bly`, `cody + bly`):
+   N=3 pair (`rex + cody`, `rex + wolffe`, `cody + wolffe`):
    ```
    "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
      "$CONSULT_TOPIC" "$DRILL_TOPIC" "$DRILL_DIR" "$DRILL_FOCUS" \
@@ -997,7 +1020,7 @@ Loop while user picks "Yes":
    "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
      "$CONSULT_TOPIC" "$DRILL_TOPIC" "$DRILL_DIR" "$DRILL_FOCUS" \
      "$DESIGN_DOC" \
-     bly opencode
+     wolffe opencode
    ```
    Treat the run as success if at least one of the two invocations
    returned `rc=0`. The 3 produced files share the same `<slug>` so

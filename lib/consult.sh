@@ -173,7 +173,7 @@ cw_consult_diff() {
   done
   local total="${#_owner[@]}"
 
-  # Bucket map: membership-set-key (e.g. "rex,cody,bly") -> newline-joined lines.
+  # Bucket map: membership-set-key (e.g. "rex,cody,wolffe") -> newline-joined lines.
   declare -A _cw_d_bucket_items=()
 
   _cw_d_bucket_add() {
@@ -229,7 +229,7 @@ cw_consult_diff() {
     done
   done
 
-  # Helper: titlecase first letter of a name (rex -> Rex, cody -> Cody, bly -> Bly).
+  # Helper: titlecase first letter of a name (rex -> Rex, cody -> Cody, wolffe -> Wolffe).
   _cw_d_titlecase() {
     local s="$1"
     printf '%s' "${s^}"
@@ -686,8 +686,8 @@ _cw_consult_write_adjudicated_nge3() {
   # _classify <agree-count> <dispute-count> <uncertain-count> <K-required-verifiers> <owner-count>
   # Echoes one of: CROSS | CONTESTED | REFUTED | PENDING.
   # Per spec table:
-  #   2-of-3 + bly DISPUTE   → CONTESTED  (multi-owner outranks single REFUTE)
-  #   2-of-3 + bly UNCERTAIN → PENDING    (multi-owner + lone UNCERTAIN = needs human read)
+  #   2-of-3 + wolffe DISPUTE   → CONTESTED  (multi-owner outranks single REFUTE)
+  #   2-of-3 + wolffe UNCERTAIN → PENDING    (multi-owner + lone UNCERTAIN = needs human read)
   _classify() {
     local na="$1" nd="$2" nu="$3" k="$4" owners="$5"
     # Mixed UNCERTAIN with explicit AGREE/DISPUTE → always PENDING.
@@ -1027,12 +1027,12 @@ cw_consult_design_doc_self_review() {
 }
 
 # v0.15.0: provider → commander mapping (locked).
-# codex → rex (501st), claude → cody (212th), opencode → bly (327th).
+# codex → rex (501st), claude → cody (212th), opencode → wolffe (327th).
 cw_consult_provider_to_commander() {
   case "$1" in
     codex)    echo rex ;;
     claude)   echo cody ;;
-    opencode) echo bly ;;
+    opencode) echo wolffe ;;
     *)        echo "cw_consult_provider_to_commander: no mapping for '$1'" >&2; return 1 ;;
   esac
 }

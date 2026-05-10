@@ -127,7 +127,7 @@ Branch on `DETECTED` count:
 #### Step D — Preset-subset menu (N=2 or N=3)
 
 Build options from `DETECTED`, mapping each provider to its commander
-via `codex → rex`, `claude → cody`, `opencode → bly` (matches
+via `codex → rex`, `claude → cody`, `opencode → wolffe` (matches
 `cw_consult_provider_to_commander` in `lib/consult.sh`).
 
 `AskUserQuestion`'s schema caps each question at 4 options, so the
