@@ -28,9 +28,10 @@ assert_file_exists "$OUT1/dag-waves.txt" "linear: dag-waves.txt written"
 assert_file_exists "$OUT1/dag-edges.txt" "linear: dag-edges.txt written"
 mapfile -t WAVES < "$OUT1/dag-waves.txt"
 [[ ${#WAVES[@]} -eq 3 ]] || { echo "FAIL: linear should have 3 wave lines (got ${#WAVES[@]})" >&2; exit 1; }
-assert_eq "${WAVES[0]}" $'1\t1\tauth\tset up auth schema' "linear wave 1"
-assert_eq "${WAVES[1]}" $'2\t2\tapi\tdepends on auth' "linear wave 2"
-assert_eq "${WAVES[2]}" $'3\t3\tui\tfrontend wiring' "linear wave 3"
+# v0.21.0: 5-field TSV (path column inserted between repo and desc; sentinel 'none' when absent)
+assert_eq "${WAVES[0]}" $'1\t1\tauth\tnone\tset up auth schema' "linear wave 1"
+assert_eq "${WAVES[1]}" $'2\t2\tapi\tnone\tdepends on auth' "linear wave 2"
+assert_eq "${WAVES[2]}" $'3\t3\tui\tnone\tfrontend wiring' "linear wave 3"
 pass "deploy-dag-parse linear DAG"
 
 # Test B: diamond DAG

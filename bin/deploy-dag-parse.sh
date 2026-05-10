@@ -5,7 +5,7 @@
 # Usage: bin/deploy-dag-parse.sh <design-doc-path> <out-dir>
 #
 # Writes:
-#   <out-dir>/dag-waves.txt — TSV: <wave>\t<step>\t<repo>\t<desc> per line
+#   <out-dir>/dag-waves.txt — TSV: <wave>\t<step>\t<repo>\t<path|none>\t<desc> per line  (v0.21.0: 5-field; was 4-field)
 #   <out-dir>/dag-edges.txt — TSV: <from-step>\t<to-step> per line
 #
 # rc=0 on success; rc=1 on:
@@ -51,7 +51,7 @@ while IFS= read -r line; do
   [[ "$line" =~ ^[[:space:]]*[0-9]+\. ]] || continue
   ROW=$(cw_deploy_dag_parse_line "$line") || exit 1
   printf '%s\n' "$ROW" >> "$ROWS_TMP"
-  IFS=$'\t' read -r step repo desc deps <<<"$ROW"
+  IFS=$'\t' read -r step repo path desc deps <<<"$ROW"
   NODES+=( "$step" )
   if [[ "$deps" != "none" && -n "$deps" ]]; then
     IFS=',' read -ra dep_arr <<<"$deps"
@@ -67,8 +67,10 @@ TOPO_TMP=$(mktemp)
 cw_deploy_dag_topological "$EDGES_TMP" "${NODES[@]}" > "$TOPO_TMP" || { rm -f "$TOPO_TMP"; exit 1; }
 
 declare -A STEP_TO_ROW
-while IFS=$'\t' read -r step repo desc deps; do
-  STEP_TO_ROW["$step"]="$repo"$'\t'"$desc"
+while IFS=$'\t' read -r step repo path desc deps; do
+  # v0.21.0: STEP_TO_ROW carries 3 fields (repo\tpath\tdesc) so the final
+  # waves TSV is 5-field <wave>\t<step>\t<repo>\t<path>\t<desc>.
+  STEP_TO_ROW["$step"]="$repo"$'\t'"$path"$'\t'"$desc"
 done < "$ROWS_TMP"
 
 while IFS=$'\t' read -r wave step; do
