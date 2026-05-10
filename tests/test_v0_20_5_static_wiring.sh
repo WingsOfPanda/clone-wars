@@ -36,10 +36,11 @@ grep -qE '^[[:space:]]*bly\)[[:space:]]+printf' "$COLORS" \
   || { echo "FAIL: bly color row removed from lib/colors.sh (this PR was canonical-mapping-only)" >&2; exit 1; }
 pass "bly retained as legacy commander (canonical-mapping-only swap; archived state still labels)"
 
-# 5. plugin.json version bumped (semver-shape regex).
+# 5. plugin.json version present + semver-shape (loosened from exact 0.20.5
+# lock per the v0.20.2 lesson — survives subsequent bumps).
 PJ="$PLUGIN_ROOT/.claude-plugin/plugin.json"
-grep -qE '"version": "0\.20\.5"' "$PJ" \
-  || { echo "FAIL: plugin.json version is not exactly 0.20.5" >&2; exit 1; }
-pass "plugin.json version bumped to 0.20.5"
+grep -qE '"version": "0\.[0-9]+\.[0-9]+"' "$PJ" \
+  || { echo "FAIL: plugin.json missing semver-shape version field" >&2; exit 1; }
+pass "plugin.json version field present + semver-shaped"
 
 pass "v0.20.5 static wiring complete (5 invariants locked)"
