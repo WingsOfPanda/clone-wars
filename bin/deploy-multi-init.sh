@@ -6,8 +6,10 @@
 # Usage: bin/deploy-multi-init.sh <topic>
 #
 # Reads:
-#   _deploy/<topic>/dag-waves.txt — wave/step/repo/desc TSV
+#   _deploy/<topic>/dag-waves.txt — wave/step/repo/path/desc TSV (v0.21.0: 5-field; was 4-field)
 #   $PWD/<repo-slug>/CLAUDE.md or AGENTS.md — sub-repo presence check
+#     (v0.21.0: when row's path field != 'none', $path is used directly
+#     instead of $HUB_CWD/$repo — supports nested CapWords paths)
 #
 # Writes:
 #   _deploy/<topic>/troopers.txt — TSV: <commander>\t<sub-repo-cwd>\t<provider>
@@ -36,14 +38,17 @@ ART_DIR=$(cw_deploy_art_dir "$TOPIC")
 WAVES_FILE="$ART_DIR/dag-waves.txt"
 [[ -f "$WAVES_FILE" ]] || { log_error "dag-waves.txt not found at $WAVES_FILE"; exit 1; }
 
-# Get unique repos in DAG order (stable: first-occurrence order)
+# Get unique repos in DAG order (stable: first-occurrence order). v0.21.0:
+# read 5-field TSV; remember each repo's path (sentinel 'none' = no path).
 declare -a REPOS_ORDERED=()
 declare -A SEEN
-while IFS=$'\t' read -r wave step repo desc; do
+declare -A REPO_TO_PATH
+while IFS=$'\t' read -r wave step repo path desc; do
   [[ -n "$repo" ]] || continue
   if [[ -z "${SEEN[$repo]:-}" ]]; then
     REPOS_ORDERED+=( "$repo" )
     SEEN["$repo"]=1
+    REPO_TO_PATH["$repo"]="${path:-none}"
   fi
 done < "$WAVES_FILE"
 
@@ -58,7 +63,15 @@ TMP=$(mktemp)
 trap 'rm -f "$TMP"' EXIT
 CODEX_IDX=0
 for repo in "${REPOS_ORDERED[@]}"; do
-  CWD="$HUB_CWD/$repo"
+  # v0.21.0: prefer the row's path field (nested/CapWords case); fall back
+  # to the v0.20.x flat-sibling stat ($HUB_CWD/$repo) when path is 'none'
+  # or empty. Both code paths share the CLAUDE.md/AGENTS.md guard.
+  path="${REPO_TO_PATH[$repo]:-none}"
+  if [[ "$path" != "none" && -n "$path" ]]; then
+    CWD="$path"
+  else
+    CWD="$HUB_CWD/$repo"
+  fi
   [[ -d "$CWD" ]] || { log_error "sub-repo '$repo' not found at $CWD"; exit 1; }
   [[ -f "$CWD/CLAUDE.md" || -f "$CWD/AGENTS.md" ]] \
     || { log_error "sub-repo '$repo' has no CLAUDE.md or AGENTS.md at $CWD"; exit 1; }
