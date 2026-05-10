@@ -92,12 +92,148 @@ Set task `0` → `in_progress`.
    - If `CANDIDATE` is empty and no `.md` path is in the args file, refuse
      with a usage hint and exit 1.
 5. Init (init.sh consumes the args file directly — its argv parser handles
-   `--no-branch` / `--branch` / `--topic` / `<design-path>`):
+   `--no-branch` / `--branch` / `--topic` / `<design-path>`). Capture rc so
+   sub-step 5b can intercept multi-repo DAG-parse failures from
+   human-authored docs:
    ```
    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+   source "$CLAUDE_PLUGIN_ROOT/lib/deploy.sh"
    REPO_HASH=$(cw_repo_hash)
    TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/deploy-init.sh" \
-              --args-file "$ARGS_DIR/deploy.txt")
+              --args-file "$ARGS_DIR/deploy.txt" 2>/tmp/cw-init-err) \
+              && INIT_RC=0 || INIT_RC=$?
+   ```
+   When `INIT_RC=0`, jump straight to the post-init block below (TOPIC_DIR /
+   ART_DIR / TARGET_CWD lines). When `INIT_RC != 0`, run sub-step 5b
+   (DAG rescue intercept) before continuing.
+
+5b. **DAG rescue intercept (multi-repo, hand-authored docs).** v0.21.0
+    feature. If `bin/deploy-init.sh` exited non-zero, the failure may be a
+    DAG-parse failure on a doc whose `## Execution DAG` section is human
+    prose (Unicode box diagrams `┌──┐`, narrative wave descriptions, etc.)
+    instead of the parser-conforming `N. <slug> [(<abs-path>)] — <desc>`
+    shape. Yoda extracts the implicit DAG and writes parser-conforming
+    lines into the local copy of the design doc, then re-runs the parse +
+    multi-init steps. /consult is unchanged — this rescue is for
+    human-authored docs only.
+
+    **Sub-step 5b.1 — re-derive TOPIC + ART_DIR.** Init failed before
+    printing the topic slug to stdout, so re-derive it from the design
+    doc path embedded in the args file:
+
+    ```
+    DESIGN_PATH=$(awk '{
+      for (i=1; i<=NF; i++) {
+        if ($i !~ /^--/ && (i==1 || $(i-1) !~ /^--(branch|topic|provider)$/)) {
+          print $i; exit
+        }
+      }
+    }' "$ARGS_DIR/deploy.txt")
+    [[ -n "$DESIGN_PATH" ]] || { log_error "rescue: cannot find design path in args file"; cat /tmp/cw-init-err >&2; exit 1; }
+    TOPIC=$(cw_deploy_derive_topic "$DESIGN_PATH")
+    TARGET_CWD=$(cw_deploy_resolve_target "$DESIGN_PATH" "$(cw_repo_root)") || { log_error "rescue: resolve_target failed"; exit 1; }
+    export CW_TOPIC_REPO_CWD="$TARGET_CWD"
+    TOPIC_DIR=$(cw_deploy_topic_dir "$TOPIC")
+    ART_DIR=$(cw_deploy_art_dir "$TOPIC")
+    ```
+
+    **Sub-step 5b.2 — check rescue applicability.** Rescue only fires
+    when init failed at DAG parse on a multi-repo doc:
+
+    ```
+    if [[ ! -f "$ART_DIR/design.md" ]] \
+       || ! grep -qE '^## Execution DAG\b' "$ART_DIR/design.md" \
+       || [[ -f "$ART_DIR/dag-waves.txt" ]]; then
+      log_error "init failed for a non-DAG-parse reason; rescue does not apply"
+      cat /tmp/cw-init-err >&2
+      "$CLAUDE_PLUGIN_ROOT/bin/deploy-archive.sh" "$TOPIC" 2>/dev/null || true
+      exit 1
+    fi
+    log_info "DAG rescue intercept: human-authored ## Execution DAG section detected"
+    ```
+
+    **Sub-step 5b.3 — Yoda extracts implicit DAG.** Read
+    `$ART_DIR/design.md`'s `## Execution DAG` section. Use Yoda's
+    judgment to identify wave boundaries (box rows, separator markers
+    like `▼`/`then`/`after`/numbered "Wave N" headings), parallel groups
+    within a wave (multiple boxes side-by-side), and dependencies
+    (sequential waves depend on the previous wave's steps). Cross-
+    reference the `## Components` section for absolute paths when the
+    DAG section names repos by short label only.
+
+    Format the extracted DAG as parser-conforming lines:
+
+    ```
+    1. <SlugA> (/abs/path/to/SlugA) — short description
+    2. <SlugB> (/abs/path/to/SlugB) — short description (depends on 1)
+    3. <SlugC> (/abs/path/to/SlugC) — short description (depends on 1)
+    ```
+
+    Use absolute paths in parens when the sub-repo is nested deeper
+    than one level under the conductor's cwd, or when its name has
+    CapWords/underscore (which differ from the slug). Omit the parens
+    for flat-monorepo siblings of the conductor's cwd.
+
+    **Sub-step 5b.4 — confirm via AskUserQuestion.** Present the
+    extracted DAG-lines block as a single AskUserQuestion preview:
+
+    ```
+    question: "Extracted DAG from human-prose section. Use these lines?"
+    options:
+      - "Looks right — write & retry" (recommended)
+      - "Let me edit"
+      - "Abort deploy"
+    ```
+
+    On "Let me edit", wait for the user to provide corrected DAG-lines
+    via the next message; then re-confirm in a follow-up
+    AskUserQuestion. On "Abort deploy", run
+    `bin/deploy-archive.sh "$TOPIC"` and exit 0.
+
+    **Sub-step 5b.5 — write into design-doc copy.** Use the `Edit` tool
+    to insert the confirmed DAG-lines as a new `### DAG Lines`
+    subsection under the `## Execution DAG` heading in
+    `$ART_DIR/design.md` (the local copy under
+    `_deploy/<topic>/`, NOT the user's original source file). Place the
+    subsection at the very top of the section (before the prose) so
+    `bin/deploy-dag-parse.sh`'s "first lines that match the DAG-line
+    regex" loop picks it up. Then write a one-line audit log:
+
+    ```
+    printf 'rescued at %s; user choice: %s; lines extracted: %d\n' \
+      "$(date -u +%FT%TZ)" "$USER_CHOICE" "$NUM_LINES" > "$ART_DIR/dag-rescue.log"
+    ```
+
+    **Sub-step 5b.6 — re-invoke parse + multi-init + replay tail.**
+    init.sh's tail (target_cwd.txt write, branch-create, auto_provider
+    write) must be replayed inline since init.sh aborted before
+    reaching them:
+
+    ```
+    "$CLAUDE_PLUGIN_ROOT/bin/deploy-dag-parse.sh" "$ART_DIR/design.md" "$ART_DIR" \
+      || { log_error "rescue: dag-parse still failed; surfacing parser stderr"; exit 1; }
+    "$CLAUDE_PLUGIN_ROOT/bin/deploy-multi-init.sh" "$TOPIC" "$TARGET_CWD" \
+      || { log_error "rescue: multi-init failed"; exit 1; }
+    printf '%s\n' "$TARGET_CWD" > "$ART_DIR/target_cwd.txt.tmp" \
+      && mv "$ART_DIR/target_cwd.txt.tmp" "$ART_DIR/target_cwd.txt"
+    ( cd "$TARGET_CWD" && cw_deploy_branch_create "$TOPIC" "" ) \
+      || { log_error "rescue: branch-create failed"; exit 1; }
+    AUTO_PROVIDER=$(cw_deploy_detect_provider "$TARGET_CWD" "")
+    printf '%s\n' "$AUTO_PROVIDER" > "$ART_DIR/auto_provider.txt.tmp" \
+      && mv "$ART_DIR/auto_provider.txt.tmp" "$ART_DIR/auto_provider.txt"
+    log_ok "DAG rescue intercept complete; resuming Step 0 sub-step 6"
+    ```
+
+    The rescue is **one-shot per deploy**. If sub-step 5b.6's re-parse
+    or multi-init still fails, the directive surfaces the error and
+    exits without retry — Yoda's extraction was wrong and a fresh
+    `/clone-wars:deploy` invocation is needed (with the user editing
+    the design doc by hand to add a `### DAG Lines` subsection).
+
+5c. (post-init) Set TOPIC_DIR / ART_DIR / TARGET_CWD / branch-base for
+    downstream steps. Whether init succeeded directly (5) or via the
+    rescue (5b), `$ART_DIR` and `$TARGET_CWD` are now valid:
+   ```
    TOPIC_DIR=$(cw_deploy_topic_dir "$TOPIC")
    ART_DIR="$TOPIC_DIR/_deploy"
    # Pull TARGET_CWD up here so the branch-base rev-parse below runs in the

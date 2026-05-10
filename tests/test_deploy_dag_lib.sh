@@ -11,20 +11,20 @@ source "$PLUGIN_ROOT/lib/deploy-dag.sh"
 
 # --- cw_deploy_dag_parse_line ---
 
-# Simple line: no deps
+# Simple line: no path, no deps (v0.21.0: 5-field TSV)
 line="1. foo — initial setup"
 result=$(cw_deploy_dag_parse_line "$line")
-assert_eq "$result" $'1\tfoo\tinitial setup\tnone' "parse_line: simple"
+assert_eq "$result" $'1\tfoo\tnone\tinitial setup\tnone' "parse_line: simple"
 
 # With single dep
 line="2. bar — depends on foo (depends on 1)"
 result=$(cw_deploy_dag_parse_line "$line")
-assert_eq "$result" $'2\tbar\tdepends on foo\t1' "parse_line: single dep"
+assert_eq "$result" $'2\tbar\tnone\tdepends on foo\t1' "parse_line: single dep"
 
 # With multiple deps
 line="3. baz — bridge layer (depends on 1, 2)"
 result=$(cw_deploy_dag_parse_line "$line")
-assert_eq "$result" $'3\tbaz\tbridge layer\t1,2' "parse_line: multiple deps"
+assert_eq "$result" $'3\tbaz\tnone\tbridge layer\t1,2' "parse_line: multiple deps"
 
 # Malformed: missing step number
 err=$(cw_deploy_dag_parse_line "foo — bad" 2>&1) && rc=0 || rc=$?

@@ -12,21 +12,27 @@
 #   3. <repo> — <description> (depends on 1, 2)
 
 # cw_deploy_dag_parse_line <prose-line>
-# Echoes TSV: <step>\t<repo>\t<desc>\t<deps-csv|none>
+# Echoes TSV: <step>\t<repo>\t<path|none>\t<desc>\t<deps-csv|none>
 # rc=0 on valid line; rc=1 on malformed.
+#
+# v0.21.0: regex extended for CapWords/underscore slugs ([A-Za-z0-9_-]+) +
+# optional `(/abspath)` group between slug and em-dash. Path field is `none`
+# when the optional group is absent. Backward-compat: every v0.20.5 valid
+# slug still matches; only the field count grew (4 → 5).
 cw_deploy_dag_parse_line() {
   local line="$1"
-  if [[ "$line" =~ ^([0-9]+)\.[[:space:]]+([a-z0-9-]+)[[:space:]]+—[[:space:]]+(.+)$ ]]; then
+  if [[ "$line" =~ ^([0-9]+)\.[[:space:]]+([A-Za-z0-9_-]+)([[:space:]]+\((/[^\)]+)\))?[[:space:]]+—[[:space:]]+(.+)$ ]]; then
     local step="${BASH_REMATCH[1]}"
     local repo="${BASH_REMATCH[2]}"
-    local rest="${BASH_REMATCH[3]}"
+    local path="${BASH_REMATCH[4]:-none}"
+    local rest="${BASH_REMATCH[5]}"
     local deps="none"
     local desc="$rest"
     if [[ "$rest" =~ ^(.+)[[:space:]]+\(depends[[:space:]]+on[[:space:]]+([0-9, ]+)\)[[:space:]]*$ ]]; then
       desc="${BASH_REMATCH[1]}"
       deps=$(printf '%s' "${BASH_REMATCH[2]}" | tr -d ' ')
     fi
-    printf '%s\t%s\t%s\t%s\n' "$step" "$repo" "$desc" "$deps"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$step" "$repo" "$path" "$desc" "$deps"
     return 0
   fi
   log_error "cw_deploy_dag_parse_line: malformed line: $line"

@@ -30,8 +30,8 @@ echo "# api"  > "$HUB_DIR/api/CLAUDE.md"
 ( cd "$HUB_DIR/api"  && git init -q && git config user.email t@t && git config user.name t && git commit -q --allow-empty -m "init" )
 
 cat > "$ART_DIR/dag-waves.txt" <<EOF
-1	1	auth	x
-2	2	api	y
+1	1	auth	none	x
+2	2	api	none	y
 EOF
 
 # Invoke from SANDBOX (conductor's $PWD), passing HUB_DIR as 2nd arg.

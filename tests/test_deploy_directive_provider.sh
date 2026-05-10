@@ -19,12 +19,17 @@ grep -q 'provider.txt' "$D" \
   || { echo "FAIL: directive must reference provider.txt (final choice)" >&2; exit 1; }
 pass "directive writes/reads provider.txt"
 
-# AskUserQuestion appears near the provider block (within ~40 lines of auto_provider.txt).
-auto_line=$(grep -n 'auto_provider.txt' "$D" | head -1 | cut -d: -f1)
+# AskUserQuestion appears near the provider-RESOLVE block (within ~40 lines of
+# the `AUTO_PROVIDER=$(cat ...auto_provider.txt)` line). Anchor on the READ
+# pattern, not bare 'auto_provider.txt' — v0.21.0's rescue intercept also
+# WRITES auto_provider.txt earlier in Step 0, which would shift `head -1`.
+auto_line=$(grep -nE 'AUTO_PROVIDER=\$\(cat .*auto_provider\.txt' "$D" | head -1 | cut -d: -f1)
+[[ -n "$auto_line" ]] \
+  || { echo "FAIL: directive missing AUTO_PROVIDER=\$(cat auto_provider.txt) read line" >&2; exit 1; }
 ask_after=$(awk -v start="$auto_line" -v end="$((auto_line + 40))" \
   'NR>=start && NR<=end && /AskUserQuestion/ {print NR; exit}' "$D")
 [[ -n "$ask_after" ]] \
-  || { echo "FAIL: AskUserQuestion not found within 40 lines of auto_provider.txt read" >&2; exit 1; }
+  || { echo "FAIL: AskUserQuestion not found within 40 lines of AUTO_PROVIDER read" >&2; exit 1; }
 pass "directive asks user when claude is auto-detected"
 
 # Spawn uses $PROVIDER, not hardcoded codex.

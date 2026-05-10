@@ -29,9 +29,9 @@ for repo in auth api ui; do
 done
 
 cat > "$ART_DIR/dag-waves.txt" <<EOF
-1	1	auth	x
-1	2	api	y
-2	3	ui	z
+1	1	auth	none	x
+1	2	api	none	y
+2	3	ui	none	z
 EOF
 
 ( cd "$SANDBOX" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLONE_WARS_HOME="$CLONE_WARS_HOME" \

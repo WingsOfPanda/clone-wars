@@ -36,9 +36,9 @@ for r in auth api ui; do
 done
 
 cat > "$ART_DIR/dag-waves.txt" <<EOF
-1	1	auth	set up auth
-2	2	api	build api
-3	3	ui	wire frontend
+1	1	auth	none	set up auth
+2	2	api	none	build api
+3	3	ui	none	wire frontend
 EOF
 
 ( cd "$SANDBOX" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLONE_WARS_HOME="$CLONE_WARS_HOME" \
@@ -83,8 +83,8 @@ for r in lib-a lib-b; do
   ( cd "$SANDBOX/$r" && git init -q && git config user.email t@t && git config user.name t && git commit -q --allow-empty -m "init" )
 done
 cat > "$ART2/dag-waves.txt" <<EOF
-1	1	lib-a	x
-1	2	lib-b	y
+1	1	lib-a	none	x
+1	2	lib-b	none	y
 EOF
 ( cd "$SANDBOX" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLONE_WARS_HOME="$CLONE_WARS_HOME" \
   "$PLUGIN_ROOT/bin/deploy-multi-init.sh" "$TOPIC2" )
@@ -98,7 +98,7 @@ TOPIC3="cmi-c-$$"
 ART3="$CLONE_WARS_HOME/state/$REPO_HASH/$TOPIC3/_deploy"
 mkdir -p "$ART3"
 cat > "$ART3/dag-waves.txt" <<EOF
-1	1	does-not-exist	x
+1	1	does-not-exist	none	x
 EOF
 err=$( cd "$SANDBOX" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLONE_WARS_HOME="$CLONE_WARS_HOME" \
   "$PLUGIN_ROOT/bin/deploy-multi-init.sh" "$TOPIC3" 2>&1 ) && rc=0 || rc=$?
