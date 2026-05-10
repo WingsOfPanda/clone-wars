@@ -35,11 +35,15 @@ dep_src=$(cat commands/deploy.md)
   || { echo "FAIL: commands/deploy.md missing --cwd-from in preflight invocation"; exit 1; }
 pass "Layer 4: directive Step 3a threads --cwd-from"
 
-# Version bump
-grep -q '"version": "0.20.3"' .claude-plugin/plugin.json \
-  || { echo "FAIL: plugin.json not at 0.20.3"; exit 1; }
-grep -q '"version": "0.20.3"' .claude-plugin/marketplace.json \
-  || { echo "FAIL: marketplace.json not at 0.20.3"; exit 1; }
-pass "version bump locked at 0.20.3"
+# v0.20.4: loosened to semver-shape regex per the v0.20.2 lesson —
+# survives subsequent version bumps. The exact-version lock for v0.20.3
+# was load-bearing only for v0.20.3's own release commit; this test now
+# guards "version field present + semver-shaped" across both manifests,
+# and tests/test_v0_20_4_static_wiring.sh holds the exact 0.20.4 lock.
+grep -qE '"version": "0\.[0-9]+\.[0-9]+"' .claude-plugin/plugin.json \
+  || { echo "FAIL: plugin.json missing semver-shape version field"; exit 1; }
+grep -qE '"version": "0\.[0-9]+\.[0-9]+"' .claude-plugin/marketplace.json \
+  || { echo "FAIL: marketplace.json missing semver-shape version field"; exit 1; }
+pass "version field present + semver-shaped (loosened from exact-0.20.3 lock)"
 
 echo "ALL PASS — v0.20.3 spawn-cwd-fix wiring locked"
