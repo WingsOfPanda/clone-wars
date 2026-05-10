@@ -54,8 +54,13 @@ Usage: $0 <commander|random> <model> <topic> [--mode full|read-only] [--cwd <abs
                      /clone-wars:deploy when the design doc declares
                      **Target Sub-Project**.
   --target-pane <id> — respawn into pre-allocated pane <id> (must appear
-                     in _consult/<topic>/preflight-panes.txt). Used by
-                     /clone-wars:consult v0.19.0 two-phase spawn.
+                     in <preflight-art-dir>/preflight-panes.txt). Used by
+                     /clone-wars:consult v0.19.0 two-phase spawn and by
+                     /clone-wars:deploy multi-repo Step 3b.
+  --preflight-art-dir <abs-path> — explicit art-dir to look up
+                     preflight-panes.txt (v0.22.0). When omitted, defaults
+                     to cw_consult_art_dir(\$TOPIC). Deploy passes its
+                     _deploy/<topic>/ art-dir.
   initial-prompt  — optional first task to send via inbox after spawn
 EOF
 }
@@ -67,18 +72,22 @@ MODE=""
 INITIAL_PROMPT=""
 SPAWN_CWD=""
 TARGET_PANE=""
+PREFLIGHT_ART_DIR_OVERRIDE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --mode)          MODE="$2"; shift 2 ;;
-    --mode=*)        MODE="${1#*=}"; shift ;;
-    --cwd)           [[ -n "${2:-}" ]] || { echo "--cwd requires a value" >&2; exit 2; }
-                     SPAWN_CWD="$2"; shift 2 ;;
-    --cwd=*)         SPAWN_CWD="${1#*=}"; shift ;;
-    --target-pane)   [[ -n "${2:-}" ]] || { echo "--target-pane requires a value" >&2; exit 2; }
-                     TARGET_PANE="$2"; shift 2 ;;
-    --target-pane=*) TARGET_PANE="${1#*=}"; shift ;;
-    -h|--help)       usage; exit 0 ;;
-    *)               INITIAL_PROMPT="$*"; break ;;
+    --mode)                 MODE="$2"; shift 2 ;;
+    --mode=*)               MODE="${1#*=}"; shift ;;
+    --cwd)                  [[ -n "${2:-}" ]] || { echo "--cwd requires a value" >&2; exit 2; }
+                            SPAWN_CWD="$2"; shift 2 ;;
+    --cwd=*)                SPAWN_CWD="${1#*=}"; shift ;;
+    --target-pane)          [[ -n "${2:-}" ]] || { echo "--target-pane requires a value" >&2; exit 2; }
+                            TARGET_PANE="$2"; shift 2 ;;
+    --target-pane=*)        TARGET_PANE="${1#*=}"; shift ;;
+    --preflight-art-dir)    [[ -n "${2:-}" ]] || { echo "--preflight-art-dir requires a value" >&2; exit 2; }
+                            PREFLIGHT_ART_DIR_OVERRIDE="$2"; shift 2 ;;
+    --preflight-art-dir=*)  PREFLIGHT_ART_DIR_OVERRIDE="${1#*=}"; shift ;;
+    -h|--help)              usage; exit 0 ;;
+    *)                      INITIAL_PROMPT="$*"; break ;;
   esac
 done
 
@@ -88,11 +97,19 @@ if [[ -n "$SPAWN_CWD" ]]; then
   [[ -d "$SPAWN_CWD" ]] || { log_error "spawn --cwd target does not exist: $SPAWN_CWD"; exit 1; }
 fi
 
-# --target-pane validation (v0.19.0): strict — must appear in
-# _consult/<topic>/preflight-panes.txt. Fails fast before tmux/state work.
+# --target-pane validation (v0.19.0; v0.22.0 adds --preflight-art-dir):
+# strict — must appear in <preflight-art-dir>/preflight-panes.txt. When
+# --preflight-art-dir is omitted, resolves to cw_consult_art_dir($TOPIC)
+# (byte-equal v0.21.0; consult invocations need no override). Deploy passes
+# --preflight-art-dir "$ART_DIR" so this validates against the
+# _deploy/<topic>/preflight-panes.txt that bin/preflight-layout.sh wrote.
 if [[ -n "$TARGET_PANE" ]]; then
-  source "$PLUGIN_ROOT/lib/consult.sh"
-  PFP="$(cw_consult_art_dir "$TOPIC")/preflight-panes.txt"
+  if [[ -n "$PREFLIGHT_ART_DIR_OVERRIDE" ]]; then
+    PFP="$PREFLIGHT_ART_DIR_OVERRIDE/preflight-panes.txt"
+  else
+    source "$PLUGIN_ROOT/lib/consult.sh"
+    PFP="$(cw_consult_art_dir "$TOPIC")/preflight-panes.txt"
+  fi
   if [[ ! -f "$PFP" ]]; then
     log_error "--target-pane requires preflight-panes.txt at: $PFP"
     exit 1

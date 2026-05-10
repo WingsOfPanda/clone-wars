@@ -38,7 +38,17 @@ if [[ "${1:-}" == "--cwd-from" ]]; then
   CWD_FROM="$2"
   shift 2
 fi
-[[ $# -eq 2 ]] || { echo "Usage: $0 [--art-dir <abs-path>] [--cwd-from <abs-path>] <topic> <N>" >&2; exit 2; }
+# v0.22.0: --troopers-from <abs-path> — explicit path to consult-shaped 2-col
+# troopers TSV (<provider>\t<commander>). Optional; when omitted, reads
+# $ART_DIR/troopers.txt (byte-equal v0.21.0 consult behavior). Deploy passes
+# $ART_DIR/troopers-preflight.txt to bypass the consult-vs-deploy schema mismatch.
+TROOPERS_FROM=""
+if [[ "${1:-}" == "--troopers-from" ]]; then
+  [[ -n "${2:-}" ]] || { echo "--troopers-from requires a value" >&2; exit 2; }
+  TROOPERS_FROM="$2"
+  shift 2
+fi
+[[ $# -eq 2 ]] || { echo "Usage: $0 [--art-dir <abs-path>] [--cwd-from <abs-path>] [--troopers-from <abs-path>] <topic> <N>" >&2; exit 2; }
 TOPIC="$1"
 N="$2"
 
@@ -58,8 +68,15 @@ if [[ -n "$ART_DIR_OVERRIDE" ]]; then
 else
   ART_DIR="$(cw_consult_art_dir "$TOPIC")"
 fi
-ROSTER_FILE="$ART_DIR/troopers.txt"
-[[ -f "$ROSTER_FILE" ]] || { log_error "troopers.txt not found at $ROSTER_FILE"; exit 1; }
+# v0.22.0: --troopers-from override takes precedence over the default
+# $ART_DIR/troopers.txt; deploy uses this to read its consult-shaped sidecar.
+if [[ -n "$TROOPERS_FROM" ]]; then
+  ROSTER_FILE="$TROOPERS_FROM"
+  [[ -f "$ROSTER_FILE" ]] || { log_error "--troopers-from file not found: $ROSTER_FILE"; exit 1; }
+else
+  ROSTER_FILE="$ART_DIR/troopers.txt"
+  [[ -f "$ROSTER_FILE" ]] || { log_error "troopers.txt not found at $ROSTER_FILE"; exit 1; }
+fi
 
 mapfile -t ROSTER < <(cw_consult_load_troopers "$ROSTER_FILE")
 (( ${#ROSTER[@]} == N )) || {

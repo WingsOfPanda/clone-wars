@@ -107,6 +107,18 @@ while IFS=$'\t' read -r cmdr cwd _provider; do
   [[ -n "$cmdr" && -n "$cwd" ]] && printf '%s\t%s\n' "$cmdr" "$cwd" >> "$ART_DIR/cmdr-cwd-map.txt"
 done < "$ART_DIR/troopers.txt"
 
+# v0.22.0: write troopers-preflight.txt sidecar — consult-shaped 2-col
+# <provider>\t<commander>, in DAG order (matches troopers.txt order).
+# bin/preflight-layout.sh reads this when invoked with --troopers-from
+# from the deploy path. Separate file so deploy's existing 3-col reader
+# (Step 3b) stays byte-equal.
+{
+  printf '# generated %s by bin/deploy-multi-init.sh (preflight sidecar)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  while IFS=$'\t' read -r cmdr _cwd provider; do
+    [[ -n "$cmdr" && -n "$provider" ]] && printf '%s\t%s\n' "$provider" "$cmdr"
+  done < "$ART_DIR/troopers.txt"
+} > "$ART_DIR/troopers-preflight.txt"
+
 log_ok "deploy-multi-init: ${#REPOS_ORDERED[@]} troopers assigned for topic $TOPIC"
 while IFS= read -r line; do printf '  %s\n' "$line"; done < "$ART_DIR/troopers.txt"
 exit 0
