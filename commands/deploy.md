@@ -22,29 +22,6 @@ The cody pane stays attached for the entire run — `tmux select-pane` to watch.
 Spec: `docs/superpowers/specs/2026-05-09-deploy-multi-repo-dag-design.md` (v0.20.0 — current);
 `docs/superpowers/specs/2026-05-02-clone-wars-execute-design.md` (v0.6 baseline).
 
-## Source defaulting
-
-If `$ARGUMENTS` does not include a `.md` path, find the most recent
-consult-produced audit-passing design doc:
-
-```
-source "$CLAUDE_PLUGIN_ROOT/lib/log.sh"
-STATE_ROOT="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state"
-DESIGN_DOC=$(find "$STATE_ROOT" -path '*/_consult/design-doc/*-design.md' \
-    -printf '%T@ %p\n' 2>/dev/null \
-  | sort -n | tail -1 | cut -d' ' -f2-)
-[[ -n "$DESIGN_DOC" ]] || { log_error "no consult design-doc found; run /clone-wars:consult first or pass <path>"; exit 1; }
-```
-
-`AskUserQuestion` to confirm: "Use most recent consult design-doc:
-<DESIGN_DOC>?" Options: `Use this` / `Cancel`. On "Use this", append
-the path to the args file (so init.sh receives it as the positional
-argument). On "Cancel", exit 0.
-
-(v0.20.0: dropped pre-v0.12 `--design-doc` flag and `synthesis.md`
-fallback. The `/clone-wars:spec` command was removed in v0.17.0; consult
-v0.17+ produces audit-passing design-docs directly.)
-
 ## Task list (TaskCreate × N BEFORE step 0)
 
 Create the task list using `TaskCreate`. Single-repo runs uses tasks
