@@ -29,7 +29,7 @@
 #   - rc=1 if all troopers timed out / errored / produced empty files
 #   - rc=2 on bad args
 #
-# Extracted from commands/consult.md Step 8.5 to bypass the slash-command
+# Extracted from commands/consult.md Step 13 to bypass the slash-command
 # renderer's $1/$2/$3 positional substitution (which clobbered bash
 # function args with topic words on multi-word topics).
 
@@ -110,7 +110,7 @@ resolve_out_path() {
   local n=2 base
   while [[ -e "$OUT_PATH" ]]; do
     base="${OUT_PATH%.md}"
-    base="${base%-[0-9]*}"
+    if [[ "$base" =~ ^(.+)-[0-9]+$ ]]; then base="${BASH_REMATCH[1]}"; fi
     OUT_PATH="${base}-${n}.md"
     n=$((n + 1))
     (( n > 99 )) && { log_error "too many same-section drilldown collisions; aborting"; exit 1; }

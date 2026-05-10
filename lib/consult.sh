@@ -379,7 +379,7 @@ cw_consult_parse_verdicts() {
 #
 # v0.16.0: emits the canonical design-doc (rigid 6 sections + trust-label
 # header) at <out>. <out> should be the path returned by
-# cw_consult_design_doc_canonical_path. The legacy synthesis.md write was
+# cw_consult_design_doc_canonical_path. The legacy design-doc write was
 # dropped — no fallback, no symlink.
 #
 # Section mapping (adjudicated.md → design-doc):
@@ -451,8 +451,8 @@ cw_consult_synthesize() {
     printf '> **Path:** %s\n\n' "$path_label"
 
     # Banners (preserved from v0.15: surface non-ok/skipped statuses).
-    case "$rex_fs"  in malformed|missing|empty) printf '> NOTE: REX findings.md %s — diff/synthesis ran on best-effort parse.\n\n' "$rex_fs" ;; esac
-    case "$cody_fs" in malformed|missing|empty) printf '> NOTE: CODY findings.md %s — diff/synthesis ran on best-effort parse.\n\n' "$cody_fs" ;; esac
+    case "$rex_fs"  in malformed|missing|empty) printf '> NOTE: REX findings.md %s — diff/design-doc ran on best-effort parse.\n\n' "$rex_fs" ;; esac
+    case "$cody_fs" in malformed|missing|empty) printf '> NOTE: CODY findings.md %s — diff/design-doc ran on best-effort parse.\n\n' "$cody_fs" ;; esac
     case "$rex_vs"  in timeout|error|send-failed|missing|empty) printf '> NOTE: REX verify dispatch %s — partial cross-verification; some Cody-only items not graded.\n\n' "$rex_vs" ;; esac
     case "$cody_vs" in timeout|error|send-failed|missing|empty) printf '> NOTE: CODY verify dispatch %s — partial cross-verification; some Rex-only items not graded.\n\n' "$cody_vs" ;; esac
 
@@ -642,7 +642,7 @@ _cw_consult_write_adjudicated_n2() {
       | awk -F'\t' -v UC="$C0_UC" '$1 != "AGREE" { printf "- PENDING: [%s] %s — %s %s: %s\n", $2, $3, UC, $1, ($4 != "" ? $4 : $3) }'
 
     printf '\n## Contested\n'
-    printf '<!-- Master Yoda: move CONTESTED items here from Adjudicated. Items in this section ship in synthesis as unresolved. -->\n'
+    printf '<!-- Master Yoda: move CONTESTED items here from Adjudicated. Items in this section ship in the design-doc as unresolved. -->\n'
 
     printf '\n## Not-verified\n'
     if [[ "$rex_vs" != "ok" && "$rex_vs" != "skipped" && -s "$cody_only" ]]; then
@@ -1007,132 +1007,6 @@ cw_consult_outbox_match_endbyte() {
 # ============================================================================
 # Design-doc mode helpers
 # ============================================================================
-
-# cw_consult_design_doc_filename <topic-slug> [<hash6>]
-# Emits docs/clone-wars/specs/YYYY-MM-DD-<slug>[-<hash6>]-design.md.
-# Uses ${CW_TEST_DATE:-$(date +%Y-%m-%d)} for testability.
-# Rejects empty slug or slug outside [a-z0-9-] with rc=2.
-# Optional <hash6> (6 lowercase hex chars) disambiguates topics whose first
-# 20 slug chars collide; reject malformed hash with rc=2.
-cw_consult_design_doc_filename() {
-  local slug="${1:-}" hash="${2:-}"
-  [[ -n "$slug" ]] || { echo "cw_consult_design_doc_filename: empty slug" >&2; return 2; }
-  [[ "$slug" =~ ^[a-z0-9-]+$ ]] || {
-    echo "cw_consult_design_doc_filename: slug '$slug' has invalid chars (need [a-z0-9-])" >&2
-    return 2
-  }
-  if [[ -n "$hash" ]]; then
-    [[ "$hash" =~ ^[0-9a-f]{6}$ ]] || {
-      echo "cw_consult_design_doc_filename: hash '$hash' must be exactly 6 lowercase hex chars" >&2
-      return 2
-    }
-  fi
-  local date_str="${CW_TEST_DATE:-$(date +%Y-%m-%d)}"
-  if [[ -n "$hash" ]]; then
-    printf 'docs/clone-wars/specs/%s-%s-%s-design.md\n' "$date_str" "$slug" "$hash"
-  else
-    printf 'docs/clone-wars/specs/%s-%s-design.md\n' "$date_str" "$slug"
-  fi
-}
-
-# cw_consult_design_doc_assemble <section-dir> <output-path> <title> [<topic-text>] [<synthesis-path>] [<targets-dir>]
-# Concatenates 5 section files into a single flat design doc with a
-# standard header. Missing sections get a _(skipped)_ placeholder body.
-#
-# Optional 4th and 5th args override title and goal sources:
-#   <topic-text>      — full user topic from _consult/topic.txt; if non-empty,
-#                       Title-Cased and used as H1 in preference to <title>
-#                       (which is derived from the 20-char-truncated slug).
-#   <synthesis-path>  — path to _consult/synthesis.md; first non-empty line
-#                       under "## Agreed findings" (then "## Cross-verified")
-#                       becomes **Goal:** (200-char trunc); falls back to
-#                       architecture.md head -n1.
-#   <targets-dir>     — accepted for back-compat (callers like spec-assemble.sh
-#                       still pass an empty 6th arg); ignored in v0.14.0.
-cw_consult_design_doc_assemble() {
-  local section_dir="$1" out="$2" title="$3"
-  local topic_text="${4:-}" synthesis_path="${5:-}"
-  : "${6:-}"  # explicit no-op on legacy targets-dir arg
-  [[ -d "$section_dir" ]] || { echo "cw_consult_design_doc_assemble: missing $section_dir" >&2; return 1; }
-  [[ -n "$title" ]] || { echo "cw_consult_design_doc_assemble: empty title" >&2; return 2; }
-
-  # Prefer topic-text-derived title when provided.
-  if [[ -n "$topic_text" ]]; then
-    title=$(printf '%s' "$topic_text" | tr -s ' ' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) tolower(substr($i,2))} 1')
-  fi
-
-  # Header — pull goal/arch/tech-stack from architecture.md if present.
-  local goal="(see Architecture section)" arch_line="(see Architecture section)" tech_block=""
-
-  # Prefer first non-empty line under "## Agreed findings" then
-  # "## Cross-verified" in synthesis.md when caller supplied a path.
-  if [[ -n "$synthesis_path" && -f "$synthesis_path" ]]; then
-    local syn_goal
-    syn_goal=$(awk '
-      /^## Agreed findings/ {flag=1; next}
-      flag && /^## / {exit}
-      flag && NF>0 {sub(/^[[:space:]]*-[[:space:]]*/, ""); print; exit}
-    ' "$synthesis_path")
-    if [[ -z "$syn_goal" ]]; then
-      syn_goal=$(awk '
-        /^## Cross-verified/ {flag=1; next}
-        flag && /^## / {exit}
-        flag && NF>0 {sub(/^[[:space:]]*-[[:space:]]*/, ""); print; exit}
-      ' "$synthesis_path")
-    fi
-    [[ -n "$syn_goal" ]] && goal="${syn_goal:0:200}"
-  fi
-
-  if [[ -f "$section_dir/architecture.md" ]]; then
-    # Only fall back to architecture.md head if synthesis didn't set goal.
-    [[ "$goal" == "(see Architecture section)" ]] && goal=$(head -n1 "$section_dir/architecture.md")
-    # Architecture paragraph: lines >=3, until any H2 heading or blank line.
-    # Match any H2 (not specifically "## Tech Stack") so an architecture.md
-    # whose third line is the next H2 (no body paragraph) falls back cleanly.
-    arch_line=$(awk '
-      NR<3 {next}
-      /^## / {exit}
-      NF==0 {exit}
-      {print}
-    ' "$section_dir/architecture.md" | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//')
-    [[ -n "$arch_line" ]] || arch_line="(see Architecture section)"
-    # Tech Stack block: lines under "## Tech Stack" until next ## heading or EOF.
-    tech_block=$(awk '/^## Tech Stack$/{flag=1; next} /^## /{flag=0} flag' "$section_dir/architecture.md")
-  fi
-
-  {
-    printf '# %s Design\n\n' "$title"
-    printf '**Goal:** %s\n\n' "$goal"
-    printf '**Architecture:** %s\n\n' "$arch_line"
-    printf '**Tech Stack:**\n'
-    if [[ -n "$tech_block" ]]; then
-      printf '%s\n' "$tech_block"
-    else
-      printf '%s\n' '- (see Components section)'
-    fi
-    printf '\n---\n\n'
-
-    local -a sections=(
-      'architecture|Architecture'
-      'components|Components'
-      'data-flow|Data Flow'
-      'error-handling|Error Handling'
-      'testing|Testing'
-    )
-    local pair key heading
-    for pair in "${sections[@]}"; do
-      key="${pair%%|*}"
-      heading="${pair##*|}"
-      printf '## %s\n\n' "$heading"
-      if [[ -f "$section_dir/$key.md" ]]; then
-        cat "$section_dir/$key.md"
-        printf '\n'
-      else
-        printf '_(skipped)_\n\n'
-      fi
-    done
-  } > "$out"
-}
 
 # cw_consult_design_doc_self_review <doc-path>
 # Scans for placeholder strings (TBD/TODO/FIXME word-boundaried, bare three-dot

@@ -68,11 +68,20 @@ mapfile -t ROSTER < <(cw_consult_load_troopers "$ROSTER_FILE")
 }
 
 # v0.20.3: load per-commander cwd map if --cwd-from was passed.
+# v0.20.4: log_warn on malformed lines so silent-skips don't hide bugs
+# (mirrors the latent issue v0.20.3 fixed where pane cwd inheritance
+# was silently wrong).
 declare -A CMDR_TO_CWD=()
 if [[ -n "$CWD_FROM" ]]; then
   [[ -f "$CWD_FROM" ]] || { log_error "--cwd-from file not found: $CWD_FROM"; exit 1; }
+  cwd_lineno=0
   while IFS=$'\t' read -r cmdr cwd; do
-    [[ -n "$cmdr" && -n "$cwd" ]] && CMDR_TO_CWD["$cmdr"]="$cwd"
+    cwd_lineno=$((cwd_lineno + 1))
+    if [[ -n "$cmdr" && -n "$cwd" ]]; then
+      CMDR_TO_CWD["$cmdr"]="$cwd"
+    else
+      log_warn "preflight cwd-map: skipping malformed line at $CWD_FROM:$cwd_lineno"
+    fi
   done < "$CWD_FROM"
 fi
 

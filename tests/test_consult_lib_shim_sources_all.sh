@@ -36,7 +36,6 @@ EXPECTED=(
   cw_consult_question_payload_write cw_consult_question_payload_read
   cw_consult_question_validate_line cw_consult_question_extract_to_payload
   cw_consult_outbox_match_endbyte
-  cw_consult_design_doc_filename cw_consult_design_doc_assemble
   cw_consult_design_doc_self_review
   # v0.15.0 additions
   cw_consult_provider_to_commander
