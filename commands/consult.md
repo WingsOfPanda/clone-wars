@@ -71,34 +71,13 @@ Write tool, then invoke sub-scripts with the resolved topic.
 
 Set task `0` → `in_progress`.
 
-**Token-aware `--design-doc` flag parsing (BEFORE init):**
-
-Use `cw_consult_parse_design_doc_flag` to remove ONLY exact `--design-doc`
-tokens (not substrings like `--design-documentation` or
-`--design-doc-please`).
-
-```
-source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
-PARSE=$(cw_consult_parse_design_doc_flag "$ARGUMENTS")
-DESIGN_DOC="${PARSE%%	*}"
-ARG_RAW="${PARSE#*	}"
-if [[ "$DESIGN_DOC" == "1" ]]; then
-  log_warn "--design-doc is obsolete as of v0.17.0 (silently ignored). /clone-wars:consult now produces a deploy-audit-passing design doc directly; /clone-wars:spec was removed."
-fi
-```
-
-When `$DESIGN_DOC == 1`, also surface a one-line note to the user via
-chat (not just stderr): the user typed the flag intentionally and
-deserves to know it's a no-op now. Example chat line:
-
-> Note: `--design-doc` is obsolete in v0.17.0 — `/clone-wars:consult` now
-> produces the design doc directly. Continuing without the flag.
-
-Use `$ARG_RAW` (not `$ARGUMENTS`) for the topic text from this point.
-The flag is parsed for back-compat ONLY — a deprecation warning fires
-above and `$DESIGN_DOC` is otherwise unused. v0.17.0 always produces a
-deploy-audit-passing design doc; the v0.12 split (consult → spec) is
-gone.
+**`--design-doc` flag parsing (BEFORE init):** Strip exact
+`--design-doc` tokens via `cw_consult_parse_design_doc_flag` (token-aware
+— ignores `--design-documentation` etc). If the flag was present, fire
+`log_warn "--design-doc is obsolete as of v0.17.0 (silently ignored); /clone-wars:spec was removed"`
+AND surface a chat note: "Note: `--design-doc` is obsolete in v0.17.0 —
+`/clone-wars:consult` now produces the design doc directly." Use
+`$ARG_RAW` (the post-strip topic) for the rest of this directive.
 
 **v0.16.0 — `--use-force` flag parsing (after `--design-doc` parse, BEFORE init):**
 
