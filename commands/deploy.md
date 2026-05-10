@@ -562,7 +562,11 @@ Count troopers and run preflight:
 
 ```
 N=$(wc -l < "$ART_DIR/troopers.txt")
-"$CLAUDE_PLUGIN_ROOT/bin/preflight-layout.sh" --art-dir "$ART_DIR" --cwd-from "$ART_DIR/cmdr-cwd-map.txt" "$TOPIC" "$N"
+"$CLAUDE_PLUGIN_ROOT/bin/preflight-layout.sh" \
+  --art-dir "$ART_DIR" \
+  --cwd-from "$ART_DIR/cmdr-cwd-map.txt" \
+  --troopers-from "$ART_DIR/troopers-preflight.txt" \
+  "$TOPIC" "$N"
 ```
 
 The `--art-dir` flag points preflight at the deploy art-dir
@@ -570,7 +574,12 @@ The `--art-dir` flag points preflight at the deploy art-dir
 flag (v0.20.3) points preflight at deploy-multi-init's per-commander
 cwd map, so each preflight pane is allocated already-rooted in its
 sub-repo cwd via `tmux split-window -c` — no transient hub-cwd, no
-`cd` later.
+`cd` later. The `--troopers-from` flag (v0.22.0) points preflight at
+deploy's consult-shaped 2-col sidecar (`troopers-preflight.txt`,
+written by `bin/deploy-multi-init.sh`); without it, preflight would
+mis-parse deploy's 3-col `troopers.txt` as consult's 2-col and end up
+with absolute paths in the commander column (BUG #2/3/4 in the v0.22.0
+spec).
 
 Load pane assignments:
 
@@ -681,13 +690,25 @@ for ((w=1; w<=WAVE_COUNT; w++)); do
   #   "$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" "${REPO_TO_CMDR[$repo]}" \
   #     "${REPO_TO_PROVIDER[$repo]}" "$TOPIC" \
   #     --target-pane "${PREFLIGHT_PANES[${REPO_TO_CMDR[$repo]}]}" \
+  #     --preflight-art-dir "$ART_DIR" \
   #     --cwd "${REPO_TO_CWD[$repo]}"
   #
   #   PROMPT=$(cw_deploy_build_dag_unit_prompt \
   #     "$repo" "$ART_DIR/design.md" \
   #     "${REPO_TO_STEP[$repo]}" "$TOTAL_REPOS" \
   #     "${REPO_TO_UPSTREAM_CSV[$repo]}")
-  #   cw_inbox_write "${REPO_TO_CMDR[$repo]}" "${REPO_TO_PROVIDER[$repo]}" "$TOPIC" "$PROMPT"
+  #   PROMPT_FILE="$ART_DIR/${REPO_TO_CMDR[$repo]}_dag_unit_prompt.md"
+  #   printf '%s' "$PROMPT" > "$PROMPT_FILE"
+  #   "$CLAUDE_PLUGIN_ROOT/bin/send.sh" "${REPO_TO_CMDR[$repo]}" "$TOPIC" "@$PROMPT_FILE"
+  #
+  # NOTE: dispatch uses `bin/send.sh @file` (NOT bare `cw_inbox_write`)
+  # because `bin/send.sh` writes inbox.md AND nudges the trooper's pane
+  # via `cw_pane_send` — the canonical write+nudge convention that every
+  # working dispatch in the codebase pairs (consult-research-send.sh,
+  # deploy-turn-send.sh, spawn.sh's initial-prompt path). Bare
+  # `cw_inbox_write` writes the file but the trooper TUI never receives a
+  # tmux signal — it sits idle at "Ready event emitted" forever (BUG #5
+  # in the v0.22.0 spec).
   #
   # Per-repo wave-wait shape (each runs in BACKGROUND parallel):
   #
@@ -853,7 +874,13 @@ Report done via outbox when verified.
 END_OF_INSTRUCTION
 EOFP
 )
-  cw_inbox_write "$CMDR" "$PROVIDER" "$TOPIC" "$FIX_PROMPT"
+  # v0.22.0: dispatch via bin/send.sh @file (canonical write+nudge), NOT bare
+  # cw_inbox_write — same Bug 5 fix as Step 3b's dispatch shape. The trooper
+  # TUI does not poll inbox.md; without cw_pane_send, the fix-prompt sits on
+  # disk while the trooper waits forever for a signal.
+  FIX_PROMPT_FILE="$ART_DIR/${CMDR}_fix_prompt_round_${FIX_ROUNDS[$REPO]}.md"
+  printf '%s' "$FIX_PROMPT" > "$FIX_PROMPT_FILE"
+  "$CLAUDE_PLUGIN_ROOT/bin/send.sh" "$CMDR" "$TOPIC" "@$FIX_PROMPT_FILE"
 
   # 2. Background-await via deploy-wave-wait (mirror Step 3b)
   Bash(
