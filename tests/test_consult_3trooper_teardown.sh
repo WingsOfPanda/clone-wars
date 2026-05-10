@@ -3,7 +3,7 @@
 #
 # v0.15.0: bin/consult-teardown.sh iterates _consult/troopers.txt so it scales
 # to N=2/3 troopers. This covers the N=3 case (rex/codex + cody/claude +
-# bly/opencode) — asserts all three trooper subdirs are archived and the
+# wolffe/opencode) — asserts all three trooper subdirs are archived and the
 # topic dir is cleaned up. The N=2 case is covered in
 # tests/test_consult_teardown_bin.sh.
 set -euo pipefail
@@ -18,14 +18,14 @@ RH=$(bash -c 'source ../lib/state.sh; cw_repo_hash')
 # === Test 1: N=3 — all three troopers archived ===
 TOPIC=consult-3trooper-td
 TD="$CLONE_WARS_HOME/state/$RH/$TOPIC"
-mkdir -p "$TD/_consult" "$TD/rex-codex" "$TD/cody-claude" "$TD/bly-opencode"
+mkdir -p "$TD/_consult" "$TD/rex-codex" "$TD/cody-claude" "$TD/wolffe-opencode"
 
 # troopers.txt drives iteration order.
-printf 'codex\trex\nclaude\tcody\nopencode\tbly\n' > "$TD/_consult/troopers.txt"
+printf 'codex\trex\nclaude\tcody\nopencode\twolffe\n' > "$TD/_consult/troopers.txt"
 
 # Stage minimal trooper state (no pane.json — teardown.sh's 2-arg branch will
 # fall back to dir-name parsing and archive the dirs since no panes are alive).
-for d in rex-codex cody-claude bly-opencode; do
+for d in rex-codex cody-claude wolffe-opencode; do
   touch "$TD/$d/outbox.jsonl"
 done
 
@@ -34,13 +34,13 @@ done
 # All three trooper dirs should be archived (i.e. no longer under topic).
 [[ ! -d "$TD/rex-codex"    ]] || { echo "FAIL: rex-codex still in topic dir"    >&2; exit 1; }
 [[ ! -d "$TD/cody-claude"  ]] || { echo "FAIL: cody-claude still in topic dir"  >&2; exit 1; }
-[[ ! -d "$TD/bly-opencode" ]] || { echo "FAIL: bly-opencode still in topic dir" >&2; exit 1; }
+[[ ! -d "$TD/wolffe-opencode" ]] || { echo "FAIL: wolffe-opencode still in topic dir" >&2; exit 1; }
 
 # Verify they landed in archive/ for forensics.
 ARCH="$CLONE_WARS_HOME/archive/$RH/$TOPIC"
 ls -1 "$ARCH" 2>/dev/null | grep -q '^rex-codex-'    || { echo "FAIL: rex-codex not archived"    >&2; ls -la "$ARCH" >&2 || true; exit 1; }
 ls -1 "$ARCH" 2>/dev/null | grep -q '^cody-claude-'  || { echo "FAIL: cody-claude not archived"  >&2; ls -la "$ARCH" >&2 || true; exit 1; }
-ls -1 "$ARCH" 2>/dev/null | grep -q '^bly-opencode-' || { echo "FAIL: bly-opencode not archived" >&2; ls -la "$ARCH" >&2 || true; exit 1; }
+ls -1 "$ARCH" 2>/dev/null | grep -q '^wolffe-opencode-' || { echo "FAIL: wolffe-opencode not archived" >&2; ls -la "$ARCH" >&2 || true; exit 1; }
 pass "N=3 teardown archives all three troopers"
 
 # === Test 2: troopers.txt drives iteration; rogue dir not in troopers.txt is left alone ===

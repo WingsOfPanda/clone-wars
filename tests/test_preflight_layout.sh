@@ -31,7 +31,7 @@ mkdir -p "$ART_DIR"
 cat > "$ART_DIR/troopers.txt" <<EOF
 codex	rex
 claude	cody
-opencode	bly
+opencode	wolffe
 EOF
 
 # Open isolated test window — default shell so send-keys reaches a real PTY.
@@ -91,7 +91,7 @@ mapfile -t LINES < "$PFP"
 
 [[ "${LINES[0]}" == rex$'\t'* ]]  || { echo "FAIL: line 1 not rex: ${LINES[0]}" >&2; exit 1; }
 [[ "${LINES[1]}" == cody$'\t'* ]] || { echo "FAIL: line 2 not cody: ${LINES[1]}" >&2; exit 1; }
-[[ "${LINES[2]}" == bly$'\t'* ]]  || { echo "FAIL: line 3 not bly: ${LINES[2]}" >&2; exit 1; }
+[[ "${LINES[2]}" == wolffe$'\t'* ]]  || { echo "FAIL: line 3 not wolffe: ${LINES[2]}" >&2; exit 1; }
 
 # Each pane id must be alive
 for line in "${LINES[@]}"; do

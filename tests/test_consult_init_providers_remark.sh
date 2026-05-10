@@ -54,7 +54,7 @@ assert_contains "${lines[1]}" $'codex\trex'   "second line codex->rex"
 pass "case (c) N=2 (claude+codex) -> 2 troopers (cody, rex)"
 
 # ---------------------------------------------------------------------------
-# Case (d): N=2 (claude + opencode) → cody + bly.
+# Case (d): N=2 (claude + opencode) → cody + wolffe.
 # ---------------------------------------------------------------------------
 stage_remark "$TMP/case-d/cw" claude opencode
 CLONE_WARS_HOME="$TMP/case-d/cw" bash "$PLUGIN_ROOT/bin/consult-init.sh" "test topic" >/dev/null 2>&1
@@ -63,8 +63,8 @@ TROOPERS=$(find "$TMP/case-d/cw/state/$REPO_HASH" -type f -name 'troopers.txt' |
 mapfile -t lines < <(grep -vE '^[[:space:]]*(#|$)' "$TROOPERS")
 assert_eq "${#lines[@]}" "2" "N=2 (claude+opencode) -> 2 lines"
 assert_contains "${lines[0]}" $'claude\tcody'   "first line claude->cody"
-assert_contains "${lines[1]}" $'opencode\tbly'  "second line opencode->bly"
-pass "case (d) N=2 (claude+opencode) -> cody + bly"
+assert_contains "${lines[1]}" $'opencode\twolffe'  "second line opencode->wolffe"
+pass "case (d) N=2 (claude+opencode) -> cody + wolffe"
 
 # ---------------------------------------------------------------------------
 # Case (e): N=3 (all three) → 3 troopers in input order.
@@ -77,8 +77,8 @@ mapfile -t lines < <(grep -vE '^[[:space:]]*(#|$)' "$TROOPERS")
 assert_eq "${#lines[@]}" "3" "N=3 -> 3 lines"
 assert_contains "${lines[0]}" $'claude\tcody'
 assert_contains "${lines[1]}" $'codex\trex'
-assert_contains "${lines[2]}" $'opencode\tbly'
-pass "case (e) N=3 -> 3 troopers (cody, rex, bly)"
+assert_contains "${lines[2]}" $'opencode\twolffe'
+pass "case (e) N=3 -> 3 troopers (cody, rex, wolffe)"
 
 # ---------------------------------------------------------------------------
 # Case (f): gemini in remark → filter drops it; behaves as N=3.

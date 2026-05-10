@@ -313,11 +313,18 @@ Branch on TS:
   - *Wait 60s and retry* — sleep 60, re-attempt `deploy-turn-send.sh`
     (do NOT clear state files first; the previous attempt already cleared
     them).
-  - *Force-retry* — write `{"state":"idle","updated":"<iso>","last_event":"force-reset"}`
-    to `cody-$PROVIDER/status.json` (atomic tmp+rename), then re-attempt
-    `deploy-turn-send.sh`. The trooper's next inbox.md write will overlap
-    its previous read but the END_OF_INSTRUCTION sentinel keeps the new
-    payload safe.
+  - *Force-retry* — atomically reset `status.json` to idle via Bash
+    (NOT the Write/Edit tool — that file already exists with non-idle
+    state and the tool's Read-before-overwrite rule will reject it):
+    ```
+    STATUS_FILE="$TOPIC_DIR/cody-$PROVIDER/status.json"
+    printf '{"state":"idle","updated":"%s","last_event":"force-reset"}\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$STATUS_FILE.tmp" \
+      && mv "$STATUS_FILE.tmp" "$STATUS_FILE"
+    ```
+    Then re-attempt `deploy-turn-send.sh`. The trooper's next inbox.md
+    write will overlap its previous read but the END_OF_INSTRUCTION
+    sentinel keeps the new payload safe.
   - *Abort* — `bin/deploy-teardown.sh` + `bin/deploy-archive.sh`; exit.
 
 ### Step 2 — Cross-verify (per round)

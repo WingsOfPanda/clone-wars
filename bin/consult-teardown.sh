@@ -24,14 +24,25 @@ ART_DIR=$(cw_consult_art_dir "$TOPIC")
 TROOPERS_FILE="$ART_DIR/troopers.txt"
 
 if [[ -f "$TROOPERS_FILE" ]]; then
+  # v0.20.5: collect commanders from troopers.txt and invoke teardown.sh
+  # ONCE in --pairs mode so all panes share a single 9s graceful-banner
+  # sleep (parallel via _teardown_batch). The previous per-commander
+  # loop hit the 9s sleep N times sequentially. troopers.txt selectivity
+  # is preserved — rogue dirs not in troopers.txt are left alone.
+  CMDRS=()
   while IFS=$'\t' read -r prov cmdr; do
     [[ -n "$cmdr" ]] || continue
-    "$PLUGIN_ROOT/bin/teardown.sh" "$cmdr" "$TOPIC" \
-      || log_warn "teardown failed for $cmdr-$prov on $TOPIC (continuing)"
+    log_info "queued for teardown: $cmdr-$prov"
+    CMDRS+=("$cmdr")
   done < <(cw_consult_load_troopers "$TROOPERS_FILE")
+  if (( ${#CMDRS[@]} > 0 )); then
+    "$PLUGIN_ROOT/bin/teardown.sh" --pairs "$TOPIC" "${CMDRS[@]}" \
+      || log_warn "teardown failed for $TOPIC (continuing)"
+  fi
 else
   log_warn "troopers.txt missing for '$TOPIC'; falling back to topic-scan teardown"
-  "$PLUGIN_ROOT/bin/teardown.sh" "$TOPIC"
+  "$PLUGIN_ROOT/bin/teardown.sh" "$TOPIC" \
+    || log_warn "teardown failed for $TOPIC (continuing)"
 fi
 
 # v0.19.0: also kill any preflight pane that is NOT in troopers.txt
