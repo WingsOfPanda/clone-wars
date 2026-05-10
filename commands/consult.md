@@ -67,6 +67,30 @@ covers the whole roster in parallel.
 The user's `$ARGUMENTS` may contain shell metacharacters. Write it via the
 Write tool, then invoke sub-scripts with the resolved topic.
 
+**Canonical N-aware examples** (referenced by Steps 4 / 7 / 8):
+
+For N=3 (codex/rex, claude/cody, opencode/bly):
+
+```
+"$CLAUDE_PLUGIN_ROOT/bin/<verb>.sh" rex  codex    "$CONSULT_TOPIC"
+"$CLAUDE_PLUGIN_ROOT/bin/<verb>.sh" cody claude   "$CONSULT_TOPIC"
+"$CLAUDE_PLUGIN_ROOT/bin/<verb>.sh" bly  opencode "$CONSULT_TOPIC"
+```
+
+For N=2, issue 2 calls instead. Iterate `TROOPERS` to derive each call:
+
+```
+for entry in "${TROOPERS[@]}"; do
+  IFS=$'\t' read -r prov cmdr <<<"$entry"
+  # Issue: "$CLAUDE_PLUGIN_ROOT/bin/<verb>.sh" "$cmdr" "$prov" "$CONSULT_TOPIC"
+  # — but as a PARALLEL Bash tool call, not a serial loop.
+done
+```
+
+(The `for`-loop above is illustrative — Master Yoda emits N parallel
+Bash tool calls in one message, NOT a sequential bash loop. The Bash
+tool parallelism is what makes the spawns concurrent.)
+
 ### Step 0 — args-file + init + compute REPO_HASH
 
 Set task `0` → `in_progress`.
@@ -487,17 +511,8 @@ Set task `4` → `in_progress`.
 Issue `N` parallel Bash tool calls in a single message — one per entry
 in `TROOPERS`. Each call: `bin/consult-research-send.sh "$CONSULT_TOPIC"
 <commander> <provider>`. Sends complete in <1s, so foreground is fine.
-
-Canonical N=3 example:
-
-```
-"$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" rex  codex
-"$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" cody claude
-"$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" bly  opencode
-```
-
-For N=2, issue 2 calls instead. Use the same `TROOPERS` iteration pattern
-(`IFS=$'\t' read -r prov cmdr <<<"$entry"`) to derive each call.
+(See canonical N-aware examples in the "## Steps" preamble — substitute
+`consult-research-send` for `<verb>`.)
 
 Set task `4` → `completed`.
 
@@ -631,21 +646,14 @@ Set task `7` → `in_progress`.
 
 Send phase — issue `N` parallel Bash tool calls (foreground; sends
 complete in <1s). Each: `bin/consult-verify-send.sh "$CONSULT_TOPIC"
-<commander> <provider>`. Iterate `TROOPERS` to derive each call.
+<commander> <provider>`. (See canonical N-aware examples in the "## Steps"
+preamble — substitute `consult-verify-send` for `<verb>`.)
 
-Canonical N=3 example:
-
-```
-"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" rex  codex
-"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" cody claude
-"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" bly  opencode
-```
-
-For N=2 issue 2 calls. Verify scope (v0.15.0): each trooper verifies
-the **union of bucket files NOT containing this trooper** — i.e. claims
-nobody-else, the other-trooper-only set, and any pair-overlaps that
-don't include this trooper. `consult-verify-send.sh` computes the scope
-from `_consult/troopers.txt` automatically.
+Verify scope (v0.15.0): each trooper verifies the **union of bucket
+files NOT containing this trooper** — i.e. claims nobody-else, the
+other-trooper-only set, and any pair-overlaps that don't include this
+trooper. `consult-verify-send.sh` computes the scope from
+`_consult/troopers.txt` automatically.
 
 ### Step 8 — Parallel verify wait (N-aware, with question loop)
 
