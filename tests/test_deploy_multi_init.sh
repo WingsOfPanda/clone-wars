@@ -52,6 +52,21 @@ mapfile -t LINES < "$ART_DIR/troopers.txt"
 assert_eq "${LINES[0]}" "rex	$SANDBOX/auth	codex" "first commander = rex"
 assert_eq "${LINES[1]}" "wolffe	$SANDBOX/api	codex" "second commander = wolffe (cody skipped)"
 assert_eq "${LINES[2]}" "bly	$SANDBOX/ui	codex" "third commander = bly"
+
+# v0.20.3: cmdr-cwd-map.txt is written alongside troopers.txt
+assert_file_exists "$ART_DIR/cmdr-cwd-map.txt" "cmdr-cwd-map.txt written"
+EXPECTED_LINES=$(grep -cvE '^[[:space:]]*(#|$)' "$ART_DIR/troopers.txt")
+ACTUAL_LINES=$(wc -l < "$ART_DIR/cmdr-cwd-map.txt")
+[[ "$EXPECTED_LINES" == "$ACTUAL_LINES" ]] \
+  || { echo "FAIL: cmdr-cwd-map.txt has $ACTUAL_LINES lines, expected $EXPECTED_LINES" >&2; exit 1; }
+# Verify col 1 of each row matches a commander from troopers.txt col 1
+while IFS=$'\t' read -r cmdr cwd; do
+  grep -qE "^${cmdr}\\b" "$ART_DIR/troopers.txt" \
+    || { echo "FAIL: cmdr '$cmdr' from cmdr-cwd-map.txt not in troopers.txt col 1" >&2; exit 1; }
+  [[ "$cwd" == /* ]] || { echo "FAIL: cwd '$cwd' is not absolute" >&2; exit 1; }
+done < "$ART_DIR/cmdr-cwd-map.txt"
+pass "cmdr-cwd-map.txt mirrors troopers.txt commanders + paths"
+
 pass "deploy-multi-init: deterministic codex assignment + cody skip"
 
 # --- Test B: plugin sub-repo → cody/claude

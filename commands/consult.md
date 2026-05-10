@@ -1101,9 +1101,10 @@ guarantees the doc is deploy-ready:
   `/clone-wars:deploy <path-to-design-doc>` to dispatch implementation
   to a trooper with plan/implement/self-verify + cross-verify loop.
 - **Multi-repo** (`multi-repo.txt = multi`): suggest
-  `/executeorder66 <path-to-design-doc>` since `/clone-wars:deploy`
-  stays single-repo. The Execution DAG section drives the per-repo
-  dispatch order.
+  `/clone-wars:deploy <path-to-design-doc>` — `/clone-wars:deploy` v0.20+
+  auto-detects multi-repo design docs via the `**Target Sub-Project(s):**`
+  header + `## Execution DAG` section and dispatches per sub-repo
+  through its DAG wave loop.
 
 Set task `16` → `completed`.
 

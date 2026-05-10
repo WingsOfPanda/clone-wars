@@ -9,7 +9,7 @@
 
 ## Problem
 
-Today, ARS multi-agent commands (`/strike-team`, `/executeorder66`) spawn teammates via Claude Code's
+Today, ARS multi-agent commands spawn teammates via Claude Code's
 `Agent + TeamCreate` primitive. This works well — Claude Code auto-renders teammates as tmux panes
 the Admiral can attach to and watch live. But every teammate is a `claude` instance. When a teammate
 needs to invoke a different model (Codex for heavy implementation, Gemini for long-context reasoning),
@@ -37,14 +37,14 @@ existing teammates have, but for non-Claude models. File-based IPC (inbox/outbox
 - Multi-conductor coordination (one Claude Code session = one set of crews)
 - Standalone CLI surface (no `clone-wars team ...` from a bare terminal — slash-commands only)
 - Generic OpenAI-compat providers — LM Studio, ollama, vLLM, DeepSeek-via-other-clients (closed set: claude / codex / gemini / opencode → DeepSeek V4 Pro, pinned)
-- Replacing `/strike-team` or `/executeorder66` (they keep working; clone-wars is additive)
+- Replacing the existing ARS multi-agent commands (they keep working; clone-wars is additive)
 - Learning / pattern extraction / HUD / Telegram (OMC sprawl we explicitly reject)
 
-## Why a separate plugin (not folded into /strike-team)
+## Why a separate plugin (not folded into ARS multi-agent commands)
 
-`/strike-team` and `/executeorder66` already work. Folding multi-model dispatch into them up-front
+The existing ARS multi-agent commands already work. Folding multi-model dispatch into them up-front
 risks regressing flows that ship today. Clone-wars is the **primitive**: spawn-pane, send-inbox,
-collect-outbox, teardown. After dogfooding it on real tasks, we can extend `/strike-team` so a DAG
+collect-outbox, teardown. After dogfooding it on real tasks, those commands can be extended so a DAG
 part has a `provider:` field that routes to a clone-wars trooper instead of a Claude teammate.
 Order: build primitive → use it → harvest into the bigger commands.
 

@@ -6,7 +6,7 @@
 
 **Architecture:** Two new `lib/deploy.sh` helpers (`cw_deploy_extract_target` + `cw_deploy_resolve_target`) parse the header and validate the sub-repo path. One audit gate (`target_subproject_when_invalid`) rejects malformed slugs. `bin/deploy-init.sh` writes the resolved cwd to `_deploy/target_cwd.txt` and uses it for branch-create + provider detect + state-path hashing (via a new `cw_repo_hash_for <cwd>` helper in `lib/state.sh`). `bin/spawn.sh` learns a `--cwd <abs-path>` flag for the trooper pane. `commands/deploy.md` reads `target_cwd.txt` and threads it through Step 1.1 spawn + Step 2 cross-verify (`git -C "$TARGET_CWD"`). `commands/consult.md` Step 8.5 calls a new `cw_consult_detect_hub` helper and asks the user via `AskUserQuestion`.
 
-**Tech Stack:** bash 4.2+, file IPC (atomic tmp+rename writes via existing `cw_atomic_write`), tmux split-window `-c <cwd>`, `git -C <repo>` discipline (mirrors `/executeorder66`).
+**Tech Stack:** bash 4.2+, file IPC (atomic tmp+rename writes via existing `cw_atomic_write`), tmux split-window `-c <cwd>`, `git -C <repo>` discipline (the conductor never `cd`s into the sub-repo).
 
 **Spec:** `docs/superpowers/specs/2026-05-04-deploy-sub-repo-redirect-design.md` (committed `b9ab70e`)
 
@@ -1296,7 +1296,7 @@ Read `CLAUDE.md`. Find the status section near the bottom. Find the existing v0.
 Append IMMEDIATELY AFTER:
 
 ```markdown
-- [x] v0.10.0: deploy sub-repo redirect — `**Target Sub-Project:** <name>` header in design doc redirects trooper pane / branch / state / provider auto-detect into `<conductor-cwd>/<name>/`; mirrors /executeorder66 git -C / tmux -c discipline; consult design-doc walk asks for the header in hub repos
+- [x] v0.10.0: deploy sub-repo redirect — `**Target Sub-Project:** <name>` header in design doc redirects trooper pane / branch / state / provider auto-detect into `<conductor-cwd>/<name>/`; uses `git -C <sub-repo>` + `tmux split-window -c <sub-repo>` so the conductor never `cd`s; consult design-doc walk asks for the header in hub repos
 - [ ] v0.10.0 strict-dogfood pass on a real machine (release gate — see tests/test_deploy_v07_dogfood.sh scenarios 7-9)
 ```
 

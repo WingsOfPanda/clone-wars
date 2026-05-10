@@ -16,7 +16,7 @@ Let `/clone-wars:deploy` redirect into a sub-repo when the design doc declares a
 - New `cw_consult_detect_hub` helper + a self-review gate in `bin/consult-design-doc.sh` validate header well-formedness before commit.
 - `bin/medic.sh` deploy-helpers-load probe extends to smoke-test `cw_deploy_resolve_target`.
 - `tests/run.sh` stays green; pre-existing failure (`test_consult_load_prompt_migration.sh`) remains unrelated.
-- Multi-target / DAG dispatch is **out of scope** (deferred to a future v0.11 spec mirroring `/executeorder66`'s pattern).
+- Multi-target / DAG dispatch is **out of scope** (deferred to a future v0.11 spec following the established cross-repo orchestration pattern).
 
 ## Architecture
 
@@ -32,13 +32,13 @@ Let `/clone-wars:deploy` redirect into a sub-repo when the design doc declares a
    - Provider auto-detect reads `<sub-repo>/.claude-plugin/plugin.json` (not the hub's). The asymmetric confirmation pattern (codex auto-go / claude with confirmation) still applies; just relative to the sub-repo.
    - Tmux pane spawns with `cwd = <sub-repo>` so the trooper sees `git status` against the sub-repo, runs the sub-repo's tests, etc.
 
-3. **Conductor stays at the hub; trooper lives in the sub-repo.** Mirrors `/executeorder66`'s discipline: the conductor never `cd`s into the sub-repo. All sub-repo operations use absolute paths (`git -C <sub-repo> ...`, `tmux split-window -c <sub-repo>`). The user's `tmux select-pane` to attach the trooper still works because the pane's cwd is the sub-repo.
+3. **Conductor stays at the hub; trooper lives in the sub-repo.** The conductor never `cd`s into the sub-repo. All sub-repo operations use absolute paths (`git -C <sub-repo> ...`, `tmux split-window -c <sub-repo>`). The user's `tmux select-pane` to attach the trooper still works because the pane's cwd is the sub-repo.
 
 **What stays the same:** the single-repo flow (no header → today's behavior, full backward compat), the audit gates (with one new gate), the turn/fix-loop machinery, the cross-verify reads (just against `<sub-repo-hash>/<topic>/_deploy/...`), the teardown+archive flow, the spec/plan filename convention.
 
 **What's new:** a `**Target Sub-Project:** <name>` header convention; one new audit gate (`target_subproject_when_invalid`); `cw_deploy_extract_target` + `cw_deploy_resolve_target` helpers; `cw_repo_hash_for <cwd>` helper; redirected `git -C` / `tmux -c` invocations; sub-repo-keyed state path resolution; `bin/spawn.sh --cwd <abs-path>` flag; `cw_consult_detect_hub` helper; consult design-doc walk asks for the header in hub mode.
 
-**Out of scope:** multi-target / DAG dispatch (deferred to v0.11 spec — `/executeorder66`-style cross-repo orchestration); `.gitmodules` introspection (we don't care if the sub-repo is a submodule, just that it's a git repo); cross-sub-repo integration audit; a `--target` CLI override (the header is the source of truth).
+**Out of scope:** multi-target / DAG dispatch (deferred to v0.11 spec — established cross-repo orchestration pattern); `.gitmodules` introspection (we don't care if the sub-repo is a submodule, just that it's a git repo); cross-sub-repo integration audit; a `--target` CLI override (the header is the source of truth).
 
 ## Components
 
@@ -222,7 +222,7 @@ The assembled spec at `docs/clone-wars/specs/...` carries the header. When the u
 
 **9. Consult invoked in a non-hub repo** — `cw_consult_detect_hub` returns rc=1; consult's design-doc walk skips the Target Sub-Project prompt entirely. No behavior change for single-repo consult users.
 
-**10. Consult invoked in a hub but user picks "Hub-level / multi-target / not applicable"** — no `Target Sub-Project` header written. Designer can manually add it later, or split the spec, or use `/executeorder66` for multi-target. Consistent with the spec's deferred multi-target scope.
+**10. Consult invoked in a hub but user picks "Hub-level / multi-target / not applicable"** — no `Target Sub-Project` header written. Designer can manually add it later, or split the spec, or use external multi-agent dispatch for multi-target. Consistent with the spec's deferred multi-target scope.
 
 **11. Backward compatibility** — existing `_deploy/` directories from before this feature ships have no `target_cwd.txt`. Step 0 runs from scratch on each new deploy; existing pre-existing state was either teardown'd or lives in archive. No migration logic needed.
 

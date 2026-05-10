@@ -6,9 +6,9 @@
 
 `/clone-wars:deploy` is single-trooper and single-repo. When `/clone-wars:consult`
 produces a multi-repo design doc (with `**Target Sub-Project(s):**` header
-+ `## Execution DAG` section), the user is currently routed to
-`/executeorder66` (an ARS plugin command, not part of clone-wars) because
-deploy can't dispatch across multiple repos.
++ `## Execution DAG` section), the user is currently routed to an
+external multi-agent dispatch (an ARS plugin command, not part of clone-wars)
+because deploy can't dispatch across multiple repos.
 
 This forces the user to context-switch to a different plugin for the
 multi-repo case. It also leaves clone-wars without a first-class story
@@ -49,8 +49,8 @@ After v0.20.0 ships:
   and removed `_consult/synthesis.md` file.
 - `--provider opencode` is rejected explicitly; `cw_deploy_detect_provider`
   returns codex or claude only.
-- `/executeorder66` continues to work (separate plugin, separate repo);
-  this spec does not deprecate it. Future v0.21+ may revisit.
+- The external multi-agent dispatch continues to work (separate plugin,
+  separate repo); this spec does not deprecate it. Future v0.21+ may revisit.
 
 ## Architecture
 
@@ -460,8 +460,8 @@ extension). Single-repo path unchanged.
 - **Worktree isolation per trooper.** Multi-repo deploy uses `--cwd`
   to pin troopers to sibling sub-repos (already-existing dirs). True
   worktree isolation is still rejected per `docs/DESIGN.md`.
-- **`/executeorder66` deprecation.** Future revisit; for v0.20.0 the
-  two commands coexist.
+- **External multi-agent dispatch deprecation.** Future revisit; for
+  v0.20.0 the two commands coexist.
 - **Per-task trooper spawning.** User explicitly chose "one trooper per
   sub-repo, NOT one trooper per task." Each trooper does its own task
   decomposition internally via subagent-driven-development.

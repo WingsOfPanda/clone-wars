@@ -11,7 +11,7 @@ that coordinates multiple sub-repos) or a super-hub repo (a hub of hubs),
 the resulting design doc declares its target sub-projects, exposes a strict
 **Execution DAG**, surfaces **Cross-Repo Dependencies**, and tags every
 acceptance test with the Step it belongs to — producing an artifact that a
-future v0.11 `/clone-wars:deploy` (or today's `/executeorder66`) can split
+future v0.11 `/clone-wars:deploy` (or external multi-agent dispatch) can split
 into per-Step plans without further interactive design work.
 
 Single-repo consult runs remain byte-identical to v0.10. The hub-mode track
@@ -22,7 +22,7 @@ is gated entirely on hub detection at Step 0.
 The existing consult output is a flat single-repo design doc. For multi-repo
 work the user currently has to (a) run consult to get research + synthesis,
 (b) hand-edit the spec to add header lines, DAG, and per-repo dependency
-tables in the shape `/executeorder66`'s template requires. That hand-edit
+tables in the shape the external dispatch template requires. That hand-edit
 step is the friction this spec removes — Yoda walks the DAG, Cross-Repo
 Deps, and tagged tests interactively from the troopers' findings, and emits
 a deploy-ready spec.
@@ -490,7 +490,7 @@ Explicitly deferred to later versions:
   concern.
 - **Per-Step plan generation** — consult produces the master spec; per-Step
   plans (`<sub-repo>/docs/plans/YYYY-MM-DD-<topic>.md`) are a deploy-side
-  splitter concern, mirroring `/executeorder66`'s Step 1d.
+  splitter concern, similar to external multi-agent dispatch's Step 1d pattern.
 - **DAG-aware drilldown** — drilldown into a specific Step (rather than a
   section or sub-project) is deferred. Today's per-sub-project drill axis
   covers most cases.
@@ -501,4 +501,4 @@ Explicitly deferred to later versions:
 - [ ] `test_consult_design_doc_assemble_single_unchanged.sh` byte-equal compare against v0.10 fixture passes — proves single-repo backward-compat.
 - [ ] Static-wiring tests confirm directive Step 0 / Step 2 / Step 8.5 wire to the new helpers.
 - [ ] Manual dogfood scenarios CW-DF-CONS-1 through CW-DF-CONS-4 pass on a real machine before tagging v0.11.0.
-- [ ] Generated hub-mode spec is consumable by `/executeorder66` Step 1a–1e (DAG parser, target-match, Cross-Repo Deps validator) without manual edits — proves the spec shape contract.
+- [ ] Generated hub-mode spec is consumable by external multi-agent dispatch's Step 1a–1e (DAG parser, target-match, Cross-Repo Deps validator) without manual edits — proves the spec shape contract.

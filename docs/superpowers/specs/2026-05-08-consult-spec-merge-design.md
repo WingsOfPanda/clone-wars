@@ -19,11 +19,11 @@ This has three concrete frictions:
 
 1. **`/spec`'s output doesn't pass `cw_deploy_audit_doc`.** The audit requires `## Goal` and `## Success Criteria` headings; /spec emits Architecture / Components / Data Flow / Error Handling / Testing — neither Goal nor Success appears. Users hand-edit before /deploy will accept the doc.
 2. **The two-command surface is ceremony.** The user already invoked /consult; they now have to remember to invoke /spec, and they have to know about the source-defaulting magic that makes /spec find the right archive.
-3. **Multi-repo design docs have nowhere to live.** v0.14.0 deleted hub-mode (~530 LoC). The user's personal canonical design template at `~/.claude/templates/design-doc.md` defines plural `**Target Sub-Project(s):**` + Execution DAG grammar that /executeorder66 + /strike-team consume — but Clone Wars doesn't emit any of it.
+3. **Multi-repo design docs have nowhere to live.** v0.14.0 deleted hub-mode (~530 LoC). The user's personal canonical design template at `~/.claude/templates/design-doc.md` defines plural `**Target Sub-Project(s):**` + Execution DAG grammar that external ARS multi-agent commands consume — but Clone Wars doesn't emit any of it.
 
 ## Goal
 
-`/clone-wars:consult` is the single command from topic → deploy-audit-passing design doc. /spec is deleted. The output is consumed directly by /deploy (single-repo) or by the user pasting into /executeorder66 (multi-repo, after hand-translating soft DAG to strict grammar).
+`/clone-wars:consult` is the single command from topic → deploy-audit-passing design doc. /spec is deleted. The output is consumed directly by /deploy (single-repo) or by the user pasting into external multi-agent dispatch (multi-repo, after hand-translating soft DAG to strict grammar).
 
 ## Architecture
 
@@ -120,7 +120,7 @@ Numbered prose with explicit `(depends on N)` annotations:
 4. ARS-LVMGateway Part B — remove legacy fallback path (depends on 3)
 ```
 
-Human-readable, copy-pastable. /executeorder66 + /strike-team users hand-translate to strict `Step <N>: <repo>  <description>` grammar before dispatching. /clone-wars:deploy can consume directly (it ignores the DAG section).
+Human-readable, copy-pastable. External multi-agent dispatch users hand-translate to strict `Step <N>: <repo>  <description>` grammar before dispatching. /clone-wars:deploy can consume directly (it ignores the DAG section).
 
 ## Components
 
@@ -177,7 +177,7 @@ multi-repo.txt                      (single line: single | multi)
 
 ### /deploy boundary
 
-`/clone-wars:deploy` stays strictly single-repo. Multi-repo design docs from /consult are NOT a /deploy input — the user routes them to /executeorder66 (the ARS plugin's job) after hand-translating the soft DAG to strict `Step <N>: <repo>` grammar. We deliberately do NOT extend `cw_deploy_extract_target` to parse plural `Target Sub-Project(s):` — that would conflate /deploy with /executeorder66.
+`/clone-wars:deploy` stays strictly single-repo at v0.17. Multi-repo design docs from /consult are NOT a /deploy input — the user routes them to external multi-agent dispatch (the ARS plugin's job at v0.17) after hand-translating the soft DAG to strict `Step <N>: <repo>` grammar. We deliberately do NOT extend `cw_deploy_extract_target` to parse plural `Target Sub-Project(s):` — that would conflate /deploy with the external dispatcher. (Later restored in-plugin via /deploy v0.20.0+.)
 
 ## Data Flow
 
@@ -259,7 +259,7 @@ Steps 13-16: drill-deeper (optional) → teardown → archive → present
 OUTPUT: archive/<repo-hash>/<topic>/_consult-<ts>/design-doc/<date>-<slug>-design.md
         Consumed by:
         - /clone-wars:deploy (single-repo, OR via Target Sub-Project: redirect for sub-repos)
-        - /executeorder66 (multi-repo; user hand-translates soft DAG → strict grammar first)
+        - external multi-agent dispatch (multi-repo; user hand-translates soft DAG → strict grammar first)
 ```
 
 ### Data invariants
@@ -339,7 +339,7 @@ OUTPUT: archive/<repo-hash>/<topic>/_consult-<ts>/design-doc/<date>-<slug>-desig
 3. **Multi-repo escalated:** `/consult plan the migration of session storage from postgres to redis across api-server and auth-service` → auto-detect fires (with 2 sibling matches if dirs exist), walk produces 8-section doc with DAG + Per-Repo subsections + `Target Sub-Project(s):` header.
 4. **Audit-fail recovery:** deliberately Skip `success-criteria` during walk → Step 12 audit fails → re-walks just that section → audit passes.
 5. **`--targets` forces escalation:** `/consult --targets foo,bar <trivial topic>` → forces escalation despite no signals; produces 8-section multi-repo doc.
-6. **Deploy hand-off:** `/clone-wars:deploy` reads /consult's single-repo output cleanly (no manual edit needed). For multi-repo: user pastes into /executeorder66 after hand-translating soft DAG.
+6. **Deploy hand-off:** `/clone-wars:deploy` reads /consult's single-repo output cleanly (no manual edit needed). For multi-repo at v0.17: user pastes into external multi-agent dispatch after hand-translating soft DAG.
 
 ## Success Criteria
 
@@ -354,8 +354,8 @@ OUTPUT: archive/<repo-hash>/<topic>/_consult-<ts>/design-doc/<date>-<slug>-desig
 
 ## Out of scope
 
-- **Strict DAG grammar emission.** Soft DAG only. User hand-translates if /executeorder66 dispatch is needed.
-- **/deploy multi-repo dispatch.** /deploy stays single-repo. Multi-repo docs route to /executeorder66 (separate plugin).
+- **Strict DAG grammar emission.** Soft DAG only. User hand-translates if external multi-agent dispatch is needed.
+- **/deploy multi-repo dispatch.** /deploy stays single-repo at v0.17. Multi-repo docs route to external multi-agent dispatch (separate plugin). (Restored in-plugin via /deploy v0.20.0+.)
 - **Auto-translation soft → strict DAG.** Users do this manually.
 - **Resurrecting v0.11.0 hub-mode validators** (`dag.md`, `xrepo-deps.md`, `acceptance-tests.md` separate section files, Kahn topo-sort cycle detection, target-set validators). The 282 LoC of validators stays deleted. Section emission is Yoda-walked, not machine-validated.
 - **Auto-detect inside fast path.** Fast-path always single-repo. To get multi-repo output you must escalate (signals, `--use-force`, or `--targets`).

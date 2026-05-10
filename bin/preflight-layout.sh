@@ -30,7 +30,15 @@ if [[ "${1:-}" == "--art-dir" ]]; then
   ART_DIR_OVERRIDE="$2"
   shift 2
 fi
-[[ $# -eq 2 ]] || { echo "Usage: $0 [--art-dir <abs-path>] <topic> <N>" >&2; exit 2; }
+# v0.20.3: --cwd-from <abs-path> — TSV file <commander>\t<cwd>; per-pane cwd
+# for split-window -c. Optional; consult invocations don't pass it (byte-equal).
+CWD_FROM=""
+if [[ "${1:-}" == "--cwd-from" ]]; then
+  [[ -n "${2:-}" ]] || { echo "--cwd-from requires a value" >&2; exit 2; }
+  CWD_FROM="$2"
+  shift 2
+fi
+[[ $# -eq 2 ]] || { echo "Usage: $0 [--art-dir <abs-path>] [--cwd-from <abs-path>] <topic> <N>" >&2; exit 2; }
 TOPIC="$1"
 N="$2"
 
@@ -58,6 +66,15 @@ mapfile -t ROSTER < <(cw_consult_load_troopers "$ROSTER_FILE")
   log_error "troopers.txt has ${#ROSTER[@]} entries, expected $N"
   exit 1
 }
+
+# v0.20.3: load per-commander cwd map if --cwd-from was passed.
+declare -A CMDR_TO_CWD=()
+if [[ -n "$CWD_FROM" ]]; then
+  [[ -f "$CWD_FROM" ]] || { log_error "--cwd-from file not found: $CWD_FROM"; exit 1; }
+  while IFS=$'\t' read -r cmdr cwd; do
+    [[ -n "$cmdr" && -n "$cwd" ]] && CMDR_TO_CWD["$cmdr"]="$cwd"
+  done < "$CWD_FROM"
+fi
 
 # Discover Yoda's pane — the pane the conductor (this script's caller) is
 # running in. Prefer $TMUX_PANE (set by tmux per-pane env), fall back to
@@ -101,7 +118,12 @@ SPLIT_FLAG="-h"  # first split is horizontal; rest are vertical
 for i in "${!ROSTER[@]}"; do
   IFS=$'\t' read -r prov cmdr <<<"${ROSTER[$i]}"
   sentinel=$(build_sentinel "$cmdr" "$prov" "$TOPIC")
-  PANE=$(tmux split-window -P -F '#{pane_id}' "$SPLIT_FLAG" -t "$PREV_PANE" "$sentinel") || {
+  # v0.20.3: per-pane -c when CMDR_TO_CWD has an entry; empty array = byte-equal.
+  SPLIT_C_FLAG=()
+  if [[ -n "${CMDR_TO_CWD[$cmdr]:-}" ]]; then
+    SPLIT_C_FLAG=( -c "${CMDR_TO_CWD[$cmdr]}" )
+  fi
+  PANE=$(tmux split-window -P -F '#{pane_id}' "$SPLIT_FLAG" -t "$PREV_PANE" "${SPLIT_C_FLAG[@]}" "$sentinel") || {
     log_error "split-window failed at index $i ($cmdr)"
     exit 1
   }

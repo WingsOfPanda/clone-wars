@@ -442,11 +442,15 @@ Count troopers and run preflight:
 
 ```
 N=$(wc -l < "$ART_DIR/troopers.txt")
-"$CLAUDE_PLUGIN_ROOT/bin/preflight-layout.sh" --art-dir "$ART_DIR" "$TOPIC" "$N"
+"$CLAUDE_PLUGIN_ROOT/bin/preflight-layout.sh" --art-dir "$ART_DIR" --cwd-from "$ART_DIR/cmdr-cwd-map.txt" "$TOPIC" "$N"
 ```
 
 The `--art-dir` flag points preflight at the deploy art-dir
-(preflight-layout.sh accepts this flag as of v0.20.0).
+(preflight-layout.sh accepts this flag as of v0.20.0). The `--cwd-from`
+flag (v0.20.3) points preflight at deploy-multi-init's per-commander
+cwd map, so each preflight pane is allocated already-rooted in its
+sub-repo cwd via `tmux split-window -c` — no transient hub-cwd, no
+`cd` later.
 
 Load pane assignments:
 
