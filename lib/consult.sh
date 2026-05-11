@@ -23,7 +23,15 @@ unset _CONSULT_LIB_DIR
 # cw_consult_topic_dir <topic> — absolute path to the consult topic dir.
 # cw_consult_art_dir   <topic> — same, plus /_consult (where artifacts live).
 cw_consult_topic_dir() { cw_topic_state_dir "$1"; }
-cw_consult_art_dir()   { printf '%s/_consult\n' "$(cw_topic_state_dir "$1")"; }
+cw_consult_art_dir() {
+  local topic="$1" base
+  base=$(cw_topic_state_dir "$topic")
+  if [[ "$topic" == meditate-* ]]; then
+    printf '%s/_meditate\n' "$base"
+  else
+    printf '%s/_consult\n' "$base"
+  fi
+}
 
 cw_consult_findings_path() { printf '%s/findings.md\n' "$(cw_trooper_dir "$1" "$2" "$3")"; }
 cw_consult_verify_path()   { printf '%s/verify.md\n'   "$(cw_trooper_dir "$1" "$2" "$3")"; }

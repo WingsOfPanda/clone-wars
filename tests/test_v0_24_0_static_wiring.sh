@@ -102,10 +102,13 @@ for tpl in research.md verify.md drilldown.md; do
 done
 pass "3 consult templates no longer have TARGETS_BLOCK/SUBPROJECT_BLOCK sentinels"
 
-# 11. plugin.json at 0.24.x
+# 11. plugin.json semver-shape (loosened per v0.20.2 lesson — version-
+# stamped tests should not exact-lock their own version, or every future
+# bump breaks them. v0.24.0's original regex was an oversight; comment
+# already claimed "loosened" but code asserted exact 0.24.x. Fixed in v0.25.0.)
 PJ="$PLUGIN_ROOT/.claude-plugin/plugin.json"
-grep -qE '"version": "0\.24\.[0-9]+"' "$PJ" \
-  || { echo "FAIL: plugin.json not at 0.24.x" >&2; exit 1; }
-pass "plugin.json version field is 0.24.x"
+grep -qE '"version": "[0-9]+\.[0-9]+\.[0-9]+"' "$PJ" \
+  || { echo "FAIL: plugin.json version field not semver-shape" >&2; exit 1; }
+pass "plugin.json version field present + semver-shape"
 
 pass "v0.24.0 static wiring complete (11 invariants locked)"
