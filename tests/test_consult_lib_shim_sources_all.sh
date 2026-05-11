@@ -23,7 +23,7 @@ EXPECTED=(
   # consult-prompts.sh
   cw_consult_strip_block cw_consult_build_verify_prompt
   cw_consult_build_research_prompt cw_consult_design_doc_drilldown_prompt
-  cw_consult_parse_design_doc_flag cw_consult_load_prompt
+  cw_consult_load_prompt
   # consult.sh residual
   cw_consult_topic_dir cw_consult_art_dir
   cw_consult_findings_path cw_consult_verify_path

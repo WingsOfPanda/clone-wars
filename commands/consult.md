@@ -95,20 +95,18 @@ tool parallelism is what makes the spawns concurrent.)
 
 Set task `0` → `in_progress`.
 
-**`--design-doc` flag parsing (BEFORE init):** Strip exact
-`--design-doc` tokens via `cw_consult_parse_design_doc_flag` (token-aware
-— ignores `--design-documentation` etc). If the flag was present, fire
-`log_warn "--design-doc is obsolete as of v0.17.0 (silently ignored); /clone-wars:spec was removed"`
-AND surface a chat note: "Note: `--design-doc` is obsolete in v0.17.0 —
-`/clone-wars:consult` now produces the design doc directly." Use
-`$ARG_RAW` (the post-strip topic) for the rest of this directive.
+**`--design-doc` flag parsing (BEFORE init):**
+The flag was obsolete in v0.17.0 (silently ignored) and is fully
+removed in v0.24.0; passing it will error from `bin/consult-init.sh`
+downstream. Set `ARG_RAW="$ARGUMENTS"` directly — no flag parse
+needed.
 
-**v0.16.0 — `--use-force` flag parsing (after `--design-doc` parse, BEFORE init):**
+**v0.16.0 — `--use-force` flag parsing (BEFORE init):**
 
 The `--use-force` flag escalates immediately to the trooper roster, skipping
-the Yoda fast-path block (Step 2). Mirrors `cw_consult_parse_design_doc_flag`'s
-token-aware semantics — only EXACT `--use-force` tokens are stripped (not
-`--use-force-please`, `--use-forced`, etc.).
+the Yoda fast-path block (Step 2). Token-aware parse — only EXACT
+`--use-force` tokens are stripped (not `--use-force-please`,
+`--use-forced`, etc.).
 
 ```
 PARSE_UF=$(cw_consult_parse_use_force_flag "$ARG_RAW")
@@ -119,9 +117,7 @@ if [[ "$USE_FORCE" == "1" ]]; then
 fi
 ```
 
-Continue using `$ARG_RAW` for the topic from this point. Both flags can
-coexist (legal but unusual): the `--design-doc` deprecation warning fires
-and `--use-force` still escalates.
+Continue using `$ARG_RAW` for the topic from this point.
 
 1. Resolve args path:
 

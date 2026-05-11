@@ -103,30 +103,9 @@ cw_consult_design_doc_drilldown_prompt() {
   fi
 }
 
-# cw_consult_parse_design_doc_flag <args>
-# Token-aware parse: removes only EXACT --design-doc tokens (not substrings).
-# Emits "<flag>\t<topic>" on stdout, where <flag> ∈ {0,1}.
-# Subshell-safe (does not export anything; caller parses stdout).
-cw_consult_parse_design_doc_flag() {
-  local raw="${1:-}"
-  local flag=0
-  local -a kept=()
-  local tok
-  # IFS-split on whitespace; -r preserves backslashes.
-  read -r -a all <<< "$raw"
-  for tok in "${all[@]}"; do
-    if [[ "$tok" == "--design-doc" ]]; then
-      flag=1
-    else
-      kept+=("$tok")
-    fi
-  done
-  printf '%s\t%s\n' "$flag" "${kept[*]}"
-}
-
 # cw_consult_parse_use_force_flag <args>
 # v0.16.0: Token-aware parse: removes only EXACT --use-force tokens (not substrings
-# like --use-force-please or --use-forced). Mirrors cw_consult_parse_design_doc_flag.
+# like --use-force-please or --use-forced).
 # Emits "<flag>\t<topic>" on stdout, where <flag> ∈ {0,1}.
 # Subshell-safe (does not export anything; caller parses stdout).
 cw_consult_parse_use_force_flag() {
