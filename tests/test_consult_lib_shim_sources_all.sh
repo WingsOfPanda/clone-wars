@@ -31,7 +31,7 @@ EXPECTED=(
   cw_consult_citation_overlaps cw_consult_diff
   cw_consult_parse_verdicts
   cw_consult_topic_validate cw_consult_assert_topic cw_consult_assert_commander
-  cw_consult_status_load cw_consult_write_adjudicated
+  cw_consult_write_adjudicated
   cw_consult_classify_topic cw_consult_skill_hint_append
   cw_consult_question_payload_write cw_consult_question_payload_read
   cw_consult_question_validate_line cw_consult_question_extract_to_payload

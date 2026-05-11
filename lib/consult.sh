@@ -395,19 +395,6 @@ cw_consult_assert_commander() {
   [[ "$1" =~ ^[a-z0-9_-]+$ ]] || { log_error "invalid commander: $1"; exit 2; }
 }
 
-# cw_consult_status_load <file>
-# Source a per-commander state file (KEY=VAL lines) into the calling shell.
-# Missing file is a silent no-op (rc=0, no vars set). The file is written
-# exclusively by sub-scripts (research-send/wait, verify-send/wait), never by
-# troopers, so plain `source` is acceptable here — see spec Migration §
-# "cw_consult_status_load design note" for the threat-model rationale.
-cw_consult_status_load() {
-  local file="$1"
-  [[ -f "$file" ]] || return 0
-  # shellcheck disable=SC1090
-  source "$file"
-}
-
 # cw_consult_write_adjudicated <art_dir> <out>
 #
 # Compose the adjudicated-draft.md content from the artifacts in <art_dir>.

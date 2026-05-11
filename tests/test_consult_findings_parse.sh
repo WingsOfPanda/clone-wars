@@ -85,19 +85,3 @@ cw_consult_topic_validate ""                && { echo "FAIL: empty accepted" >&2
 cw_consult_topic_validate "no-prefix"       && { echo "FAIL: missing consult- prefix" >&2; exit 1; }
 pass "cw_consult_topic_validate accepts safe topics, rejects unsafe"
 
-# === cw_consult_status_load ===
-F="$TMP/state.txt"
-cat > "$F" <<EOF
-OFFSET=42
-FS=ok
-EOF
-cw_consult_status_load "$F"
-assert_eq "$OFFSET" "42" "OFFSET loaded"
-assert_eq "$FS" "ok" "FS loaded"
-pass "cw_consult_status_load reads KEY=VAL pairs"
-
-# Missing file → returns rc=0 silently with no vars set.
-unset OFFSET FS
-cw_consult_status_load "$TMP/missing.txt"
-[[ -z "${OFFSET:-}" ]] || { echo "FAIL: missing file leaked vars" >&2; exit 1; }
-pass "cw_consult_status_load missing file is silent no-op"
