@@ -21,22 +21,21 @@ source "$PLUGIN_ROOT/lib/consult.sh"
 # catches drift automatically.
 EXPECTED=(
   # consult-prompts.sh
-  cw_consult_strip_block cw_consult_build_verify_prompt
+  cw_consult_build_verify_prompt
   cw_consult_build_research_prompt cw_consult_design_doc_drilldown_prompt
-  cw_consult_parse_design_doc_flag cw_consult_load_prompt
+  cw_consult_load_prompt
   # consult.sh residual
   cw_consult_topic_dir cw_consult_art_dir
   cw_consult_findings_path cw_consult_verify_path
   cw_consult_parse_claims cw_consult_findings_status
   cw_consult_citation_overlaps cw_consult_diff
-  cw_consult_parse_verdicts cw_consult_synthesize
+  cw_consult_parse_verdicts
   cw_consult_topic_validate cw_consult_assert_topic cw_consult_assert_commander
-  cw_consult_status_load cw_consult_write_adjudicated
+  cw_consult_write_adjudicated
   cw_consult_classify_topic cw_consult_skill_hint_append
   cw_consult_question_payload_write cw_consult_question_payload_read
   cw_consult_question_validate_line cw_consult_question_extract_to_payload
   cw_consult_outbox_match_endbyte
-  cw_consult_design_doc_self_review
   # v0.15.0 additions
   cw_consult_provider_to_commander
   cw_consult_eligible_providers

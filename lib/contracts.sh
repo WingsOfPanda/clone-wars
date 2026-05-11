@@ -33,114 +33,65 @@ cw_contracts_providers() {
   ' "$path"
 }
 
-# Print the `binary:` field of <provider>, or empty + non-zero exit if not found.
-# binary: must appear at exactly 2-space indent (direct child of provider key) —
-# tighter than [[:space:]]+ to avoid matching nested binary: fields if any future
-# schema change introduces one.
-cw_contract_binary() {
-  local provider="$1" path bin
+# _cw_contract_field <provider> <field>
+# Private. Print the value of a 2-space-indented <field>: under the
+# <provider>: top-level block in contracts.yaml. Empty stdout if the
+# provider or field is missing. binary: indent guard (#fa10553) is
+# preserved by the literal `^  ` prefix — nested fields are not matched.
+_cw_contract_field() {
+  local provider="$1" field="$2" path
   path=$(cw_contracts_path)
   [[ -f "$path" ]] || return 1
-  bin=$(awk -v p="$provider" '
-    BEGIN { in_block = 0 }
-    /^[A-Za-z][A-Za-z0-9_-]*:[[:space:]]*$/ {
-      key = $0; sub(/:[[:space:]]*$/, "", key)
-      in_block = (key == p)
-      next
-    }
-    in_block && /^  binary:[[:space:]]*/ {
-      val = $0
-      sub(/^  binary:[[:space:]]*/, "", val)
-      gsub(/^[ \t]+|[ \t\r]+$/, "", val)
-      print val
-      exit
-    }
-  ' "$path")
-  [[ -n "$bin" ]] || return 1
-  printf '%s\n' "$bin"
-}
-
-# cw_contract_default_mode <provider> — print provider's default_mode field.
-cw_contract_default_mode() {
-  local provider="$1" path val
-  path=$(cw_contracts_path)
-  [[ -f "$path" ]] || return 1
-  val=$(awk -v p="$provider" '
+  awk -v p="$provider" -v f="$field" '
     BEGIN { in_block = 0 }
     /^[A-Za-z][A-Za-z0-9_-]*:[[:space:]]*$/ {
       key = $0; sub(/:[[:space:]]*$/, "", key)
       in_block = (key == p); next
     }
-    in_block && /^  default_mode:[[:space:]]*/ {
-      v = $0
-      sub(/^  default_mode:[[:space:]]*/, "", v)
+    in_block && $0 ~ "^  "f":[[:space:]]" {
+      v = $0; sub("^  "f":[[:space:]]*", "", v)
       gsub(/^[ \t]+|[ \t\r]+$/, "", v)
       print v; exit
     }
-  ' "$path")
-  [[ -n "$val" ]] || return 1
-  printf '%s\n' "$val"
+  ' "$path"
+}
+
+# Print the `binary:` field of <provider>, or empty + non-zero exit if not found.
+cw_contract_binary() {
+  local v; v=$(_cw_contract_field "$1" binary)
+  [[ -n "$v" ]] || return 1
+  printf '%s\n' "$v"
+}
+
+# cw_contract_default_mode <provider> — print provider's default_mode field.
+cw_contract_default_mode() {
+  local v; v=$(_cw_contract_field "$1" default_mode)
+  [[ -n "$v" ]] || return 1
+  printf '%s\n' "$v"
 }
 
 # cw_contract_ready_timeout <provider> — print provider's ready_timeout_s
 # (integer seconds). Falls back to 30 if unset.
 cw_contract_ready_timeout() {
-  local provider="$1" path val
-  path=$(cw_contracts_path)
-  [[ -f "$path" ]] || { printf '30\n'; return; }
-  val=$(awk -v p="$provider" '
-    BEGIN { in_block = 0 }
-    /^[A-Za-z][A-Za-z0-9_-]*:[[:space:]]*$/ {
-      key = $0; sub(/:[[:space:]]*$/, "", key)
-      in_block = (key == p); next
-    }
-    in_block && /^  ready_timeout_s:[[:space:]]*/ {
-      v = $0
-      sub(/^  ready_timeout_s:[[:space:]]*/, "", v)
-      gsub(/^[ \t]+|[ \t\r]+$/, "", v)
-      print v; exit
-    }
-  ' "$path")
-  [[ -n "$val" ]] || val=30
-  printf '%s\n' "$val"
+  local v; v=$(_cw_contract_field "$1" ready_timeout_s)
+  printf '%s\n' "${v:-30}"
 }
 
 # cw_contract_bootstrap_sleep <provider>
 # Print the seconds-to-sleep after launching the provider's TUI but BEFORE
-# nudging it to read its identity. Mirrors the parser shape of
-# cw_contract_ready_timeout.
-#
-# Default fallback when the field is unset is PROVIDER-SPECIFIC:
+# nudging it to read its identity. Per-provider fallback when unset:
 #   claude → 12 (preserves the v0.0.4 hardcoded BOOT_SLEEP)
 #   anything else → 8
-# This protects existing installs whose user-owned ~/.clone-wars/contracts.yaml
-# was copied before the field was introduced — claude users don't silently
-# regress to a too-short bootstrap. Once a user syncs bootstrap_sleep_s
-# into their contracts.yaml, the explicit value wins. Drop the per-provider
-# defaults in a future release after a migration window.
+# Protects existing installs whose user-owned contracts.yaml was copied
+# before the field was introduced.
 cw_contract_bootstrap_sleep() {
-  local provider="$1" path val default
+  local provider="$1" v default
   case "$provider" in
     claude) default=12 ;;
     *)      default=8  ;;
   esac
-  path=$(cw_contracts_path)
-  [[ -f "$path" ]] || { printf '%s\n' "$default"; return; }
-  val=$(awk -v p="$provider" '
-    BEGIN { in_block = 0 }
-    /^[A-Za-z][A-Za-z0-9_-]*:[[:space:]]*$/ {
-      key = $0; sub(/:[[:space:]]*$/, "", key)
-      in_block = (key == p); next
-    }
-    in_block && /^  bootstrap_sleep_s:[[:space:]]*/ {
-      v = $0
-      sub(/^  bootstrap_sleep_s:[[:space:]]*/, "", v)
-      gsub(/^[ \t]+|[ \t\r]+$/, "", v)
-      print v; exit
-    }
-  ' "$path")
-  [[ -n "$val" ]] || val="$default"
-  printf '%s\n' "$val"
+  v=$(_cw_contract_field "$provider" bootstrap_sleep_s)
+  printf '%s\n' "${v:-$default}"
 }
 
 # cw_consult_timeout <kind>

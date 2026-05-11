@@ -201,9 +201,12 @@ Set task `0` → `in_progress`.
       line="${EXTRACTED_LINES[$i]}"
       # Parse: "N. <slug> [(<abs-path>)] — <desc>" using the same regex shape
       # as cw_deploy_dag_parse_line (lib/deploy-dag.sh).
-      if [[ "$line" =~ ^[0-9]+\.[[:space:]]+([A-Za-z0-9_-]+)([[:space:]]+\((/[^\)]+)\))?[[:space:]]+—[[:space:]]+ ]]; then
-        slug="${BASH_REMATCH[1]}"
-        abs_path="${BASH_REMATCH[3]:-}"
+      # v0.24.0: parse via cw_deploy_dag_parse_line (single source of truth
+      # for the slug regex in lib/deploy-dag.sh). Returns 5-field TSV
+      # step\tslug\tabs_path\tdesc\tdeps; map "none" sentinel back to empty.
+      if parsed=$(cw_deploy_dag_parse_line "$line" 2>/dev/null); then
+        IFS=$'\t' read -r _step slug abs_path _desc _deps <<<"$parsed"
+        [[ "$abs_path" == "none" ]] && abs_path=""
       else
         VERIFY_FAILED+=( "line $line_no: regex parse failed: '$line'" )
         continue
@@ -319,13 +322,11 @@ Set task `0` → `in_progress`.
       || { log_error "rescue: dag-parse still failed; surfacing parser stderr"; exit 1; }
     "$CLAUDE_PLUGIN_ROOT/bin/deploy-multi-init.sh" "$TOPIC" "$TARGET_CWD" \
       || { log_error "rescue: multi-init failed"; exit 1; }
-    printf '%s\n' "$TARGET_CWD" > "$ART_DIR/target_cwd.txt.tmp" \
-      && mv "$ART_DIR/target_cwd.txt.tmp" "$ART_DIR/target_cwd.txt"
+    printf '%s\n' "$TARGET_CWD" | cw_atomic_write "$ART_DIR/target_cwd.txt"
     ( cd "$TARGET_CWD" && cw_deploy_branch_create "$TOPIC" "" ) \
       || { log_error "rescue: branch-create failed"; exit 1; }
     AUTO_PROVIDER=$(cw_deploy_detect_provider "$TARGET_CWD" "")
-    printf '%s\n' "$AUTO_PROVIDER" > "$ART_DIR/auto_provider.txt.tmp" \
-      && mv "$ART_DIR/auto_provider.txt.tmp" "$ART_DIR/auto_provider.txt"
+    printf '%s\n' "$AUTO_PROVIDER" | cw_atomic_write "$ART_DIR/auto_provider.txt"
     log_ok "DAG auto-extract complete; resuming Step 0 sub-step 6"
     ```
 
@@ -417,8 +418,7 @@ Set task `0` → `in_progress`.
 
    Atomically persist the final choice:
    ```
-   printf '%s\n' "$PROVIDER" > "$ART_DIR/provider.txt.tmp"
-   mv "$ART_DIR/provider.txt.tmp" "$ART_DIR/provider.txt"
+   printf '%s\n' "$PROVIDER" | cw_atomic_write "$ART_DIR/provider.txt"
    ```
 
 9. Re-confirm the target cwd resolved by `deploy-init.sh` and ensure it is
@@ -560,8 +560,7 @@ Branch on TS:
     ```
     STATUS_FILE="$TOPIC_DIR/cody-$PROVIDER/status.json"
     printf '{"state":"idle","updated":"%s","last_event":"force-reset"}\n' \
-      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$STATUS_FILE.tmp" \
-      && mv "$STATUS_FILE.tmp" "$STATUS_FILE"
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | cw_atomic_write "$STATUS_FILE"
     ```
     Then re-attempt `deploy-turn-send.sh`. The trooper's next inbox.md
     write will overlap its previous read but the END_OF_INSTRUCTION

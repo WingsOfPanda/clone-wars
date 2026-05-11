@@ -109,3 +109,24 @@ cw_pane_kill_now() {
   local pane="$1"
   tmux kill-pane -t "$pane" 2>/dev/null || true
 }
+
+# cw_preflight_kill_orphans <preflight-panes-file> <live-cmdr-1> [<live-cmdr-2> ...]
+# Kill tmux panes listed in <preflight-panes-file> (TSV: <cmdr>\t<pane>)
+# whose commander is NOT in the live-cmdr argument list. Idempotent —
+# returns silently if the preflight file is absent. Removes the
+# preflight-panes file on success.
+cw_preflight_kill_orphans() {
+  local pfp="$1"; shift
+  declare -A live; local c
+  for c in "$@"; do live["$c"]=1; done
+  [[ -f "$pfp" ]] || return 0
+  local cmdr pane
+  while IFS=$'\t' read -r cmdr pane; do
+    [[ -n "$cmdr" && -n "$pane" ]] || continue
+    [[ "${live[$cmdr]:-0}" == "1" ]] && continue
+    log_info "killing preflight orphan pane $pane (commander=$cmdr)"
+    tmux kill-pane -t "$pane" 2>/dev/null \
+      || log_warn "kill-pane $pane failed (already dead?)"
+  done < "$pfp"
+  rm -f "$pfp"
+}

@@ -2,55 +2,27 @@
 # Sourced by lib/consult.sh shim. Depends on lib/log.sh; reads templates from
 # $CLAUDE_PLUGIN_ROOT/config/prompt-templates/consult/.
 
-# cw_consult_strip_block <begin-regex> <end-regex>
-# Reads stdin, drops lines between (and including) the first match of
-# begin-regex through the first subsequent match of end-regex, plus one
-# trailing line (the consumed terminator). Used by template-builder helpers
-# to remove sentinel-bracketed optional blocks while preserving byte-equality
-# with v0.4.2 baselines for the empty-input case.
-cw_consult_strip_block() {
-  local begin_re="$1" end_re="$2"
-  awk -v b="$begin_re" -v e="$end_re" '
-    $0 ~ b               { skipping=1; next }
-    skipping && $0 ~ e   { skipping=0; getline; next }
-    !skipping            { print }
-  '
-}
-
 # cw_consult_build_verify_prompt <items_file> <write_to>
 # Build the verify-round prompt body. Reads <items_file> (one `[cite] text` per
 # line) and emits a self-contained instruction, terminated by END_OF_INSTRUCTION.
-# Prompts are uniform across cwd (v0.14.0 dropped the per-sub-project block).
+# Prompts are uniform across cwd (v0.14.0 dropped the per-sub-project block;
+# v0.24.0 removed the now-obsolete sentinel scaffolding entirely).
 cw_consult_build_verify_prompt() {
   local items_file="$1" write_to="$2"
   local items
   items=$(nl -ba -w1 -s'. ' "$items_file")
-  local out
-  out=$(cw_consult_load_prompt consult/verify.md \
-          "ITEMS=$items" "WRITE_TO=$write_to" \
-          "TARGETS_BLOCK_START=" "TARGETS_BLOCK_END=" \
-          "TARGETS=")
-  # Strip the per-sub-project sentinel block to preserve v0.4.2 byte-equality.
-  # The sentinels render as empty inline tokens; the strip range brackets the
-  # H2 heading through the line ending "verify pass downstream." and the
-  # trailing-line consume absorbs the blank that follows.
-  printf '%s\n' "$out" | cw_consult_strip_block '^## Per-sub-project structure$' '^verify pass downstream\\.$'
+  cw_consult_load_prompt consult/verify.md \
+    "ITEMS=$items" "WRITE_TO=$write_to"
 }
 
 # cw_consult_build_research_prompt <topic> <write_to>
 # Build the research-round prompt body. Emits a self-contained instruction
 # with the required Findings structure and citation rules, terminated by
 # END_OF_INSTRUCTION.
-# Prompts are uniform across cwd (v0.14.0 dropped the per-sub-project block).
 cw_consult_build_research_prompt() {
   local topic="$1" write_to="$2"
-  local out
-  out=$(cw_consult_load_prompt consult/research.md \
-          "TOPIC=$topic" "WRITE_TO=$write_to" \
-          "TARGETS_BLOCK_START=" "TARGETS_BLOCK_END=" \
-          "TARGETS=")
-  # Strip the per-sub-project sentinel block (see verify builder for rationale).
-  printf '%s\n' "$out" | cw_consult_strip_block '^## Per-sub-project structure$' '^verify pass downstream\\.$'
+  cw_consult_load_prompt consult/research.md \
+    "TOPIC=$topic" "WRITE_TO=$write_to"
 }
 
 # cw_consult_design_doc_drilldown_prompt <section> <design-doc-path> <commander> <dd-dir> <focus> [subproject] [out_path_override]
@@ -85,48 +57,16 @@ cw_consult_design_doc_drilldown_prompt() {
     out_path="$dd_dir/_scratch/drilldown-${section_slug}-${commander}.md"
   fi
   local resolved_focus="${focus:-Provide more depth, citations, and concrete trade-offs for the $section section.}"
-  local out
-  out=$(cw_consult_load_prompt consult/drilldown.md \
-          "SECTION=$section" \
-          "SYN=$syn" \
-          "FOCUS=$resolved_focus" \
-          "OUT_PATH=$out_path" \
-          "SUBPROJECT_BLOCK_START=" "SUBPROJECT_BLOCK_END=" \
-          "SUBPROJECT=${subproject:-N/A}")
-  if [[ -z "$subproject" ]]; then
-    # Single-repo: strip the per-sub-project block to match v0.5.3 baseline byte-for-byte.
-    # Sentinels render as empty inline tokens, so the Scope and "Other sub-projects"
-    # lines bracket the block; getline consumes the trailing blank line for byte-equality.
-    printf '%s\n' "$out" | cw_consult_strip_block '^Scope: drill specifically into' '^Other sub-projects'
-  else
-    printf '%s\n' "$out"
-  fi
-}
-
-# cw_consult_parse_design_doc_flag <args>
-# Token-aware parse: removes only EXACT --design-doc tokens (not substrings).
-# Emits "<flag>\t<topic>" on stdout, where <flag> ∈ {0,1}.
-# Subshell-safe (does not export anything; caller parses stdout).
-cw_consult_parse_design_doc_flag() {
-  local raw="${1:-}"
-  local flag=0
-  local -a kept=()
-  local tok
-  # IFS-split on whitespace; -r preserves backslashes.
-  read -r -a all <<< "$raw"
-  for tok in "${all[@]}"; do
-    if [[ "$tok" == "--design-doc" ]]; then
-      flag=1
-    else
-      kept+=("$tok")
-    fi
-  done
-  printf '%s\t%s\n' "$flag" "${kept[*]}"
+  cw_consult_load_prompt consult/drilldown.md \
+    "SECTION=$section" \
+    "SYN=$syn" \
+    "FOCUS=$resolved_focus" \
+    "OUT_PATH=$out_path"
 }
 
 # cw_consult_parse_use_force_flag <args>
 # v0.16.0: Token-aware parse: removes only EXACT --use-force tokens (not substrings
-# like --use-force-please or --use-forced). Mirrors cw_consult_parse_design_doc_flag.
+# like --use-force-please or --use-forced).
 # Emits "<flag>\t<topic>" on stdout, where <flag> ∈ {0,1}.
 # Subshell-safe (does not export anything; caller parses stdout).
 cw_consult_parse_use_force_flag() {

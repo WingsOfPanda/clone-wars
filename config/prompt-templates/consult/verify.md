@@ -28,16 +28,6 @@ external behavior (e.g., HTTP semantics, library APIs). If a tool is
 unavailable in your environment, mark the item UNCERTAIN and note the
 gap rather than fabricating evidence.
 
-{{TARGETS_BLOCK_START}}## Per-sub-project structure
-
-This consultation spans multiple sub-projects. Structure your `verify.md`
-with one `### <sub-project>` heading per sub-project, in this order:
-
-{{TARGETS}}
-
-Each sub-section's verdicts block contributes to the per-sub-project diff +
-verify pass downstream.{{TARGETS_BLOCK_END}}
-
 Then emit {"event":"done", "summary":"verified N items", "ts":"<iso>"} to your outbox.
 
 END_OF_INSTRUCTION
