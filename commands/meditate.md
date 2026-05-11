@@ -147,7 +147,7 @@ Set task `2` → `in_progress`.
 Allocate panes via the preflight helper (reuse from v0.20.0):
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/preflight-layout.sh" --art-dir _meditate "$ART_DIR"
+"$CLAUDE_PLUGIN_ROOT/bin/preflight-layout.sh" "$MEDITATE_TOPIC" "$N"
 ```
 
 This writes `_meditate/preflight-panes.txt` with ordered pane IDs.
@@ -163,9 +163,9 @@ SPAWN_RETRY_COUNT=0
 
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" \
+  <commander> <provider> "$MEDITATE_TOPIC" \
   --target-pane <pane_id_from_preflight> \
-  --preflight-art-dir "$ART_DIR" \
-  <commander> <provider> "$MEDITATE_TOPIC"
+  --preflight-art-dir "$ART_DIR"
 ```
 
 Evaluate the rc tuple after the parallel block:
