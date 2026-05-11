@@ -782,8 +782,8 @@ synthesize emits seeds, NOT a final design-doc — assembly happens in Step 12.)
 
 Set the trust-label envs first (`CW_PATH_LABEL` was exported in Step 3;
 `CW_SOURCE_LABEL` reflects the roster size). Both are consumed by
-`cw_consult_synthesize` to stamp seed drafts; the assembled design-doc
-inherits the labels via Step 12.
+`bin/consult-synthesize.sh` to stamp seed drafts; the assembled
+design-doc inherits the labels via Step 12.
 
 ```
 case "$N" in

@@ -29,7 +29,7 @@ EXPECTED=(
   cw_consult_findings_path cw_consult_verify_path
   cw_consult_parse_claims cw_consult_findings_status
   cw_consult_citation_overlaps cw_consult_diff
-  cw_consult_parse_verdicts cw_consult_synthesize
+  cw_consult_parse_verdicts
   cw_consult_topic_validate cw_consult_assert_topic cw_consult_assert_commander
   cw_consult_status_load cw_consult_write_adjudicated
   cw_consult_classify_topic cw_consult_skill_hint_append
