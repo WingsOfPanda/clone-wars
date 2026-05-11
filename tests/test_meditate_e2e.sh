@@ -38,6 +38,19 @@ ART_DIR="$SANDBOX/state/$REPO_HASH/$TOPIC/_meditate"
 [[ -d "$ART_DIR" ]] || { echo "FAIL: art dir not created"; exit 1; }
 pass "Phase 0: init created $ART_DIR"
 
+# v0.25.1: simulate Step 1 (Yoda's classifier writes lit-track.txt).
+# The init script doesn't write lit-track.txt itself (the directive does)
+# — running the classifier here verifies its output schema matches what
+# bin/meditate-research-send.sh consumes.
+TOPIC_TEXT_FROM_FILE=$(cat "$ART_DIR/topic.txt")
+LIT_FINAL=$(bash -c "source ../lib/log.sh; source ../lib/meditate.sh; cw_meditate_classify_topic \"$TOPIC_TEXT_FROM_FILE\"")
+printf '%s\nreason: auto-detect via keyword scan\n' "$LIT_FINAL" > "$ART_DIR/lit-track.txt"
+[[ -f "$ART_DIR/lit-track.txt" ]] || { echo "FAIL: lit-track.txt not written"; exit 1; }
+content=$(head -n1 "$ART_DIR/lit-track.txt")
+[[ "$content" == "ON" || "$content" == "OFF" ]] \
+  || { echo "FAIL: lit-track.txt first line is '$content' (expected ON or OFF)"; exit 1; }
+pass "Step 1 (simulated): lit-track.txt written with ON or OFF"
+
 # Mock Phase 3 trooper outputs
 cat > "$ART_DIR/findings-rex.md" <<'EOF'
 # Findings: compare websocket vs SSE
