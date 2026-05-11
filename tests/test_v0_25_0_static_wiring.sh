@@ -89,10 +89,10 @@ if grep -qE '^## Recommendation' "$PLUGIN_ROOT/commands/meditate.md"; then
 fi
 pass "commands/meditate.md has no '## Recommendation' header"
 
-# 11. plugin.json at 0.25.x
+# 11. plugin.json semver-shape (loosened per v0.20.2 lesson)
 PJ="$PLUGIN_ROOT/.claude-plugin/plugin.json"
-grep -qE '"version": "0\.25\.[0-9]+"' "$PJ" \
-  || { echo "FAIL: plugin.json not at 0.25.x" >&2; exit 1; }
-pass "plugin.json version field is 0.25.x"
+grep -qE '"version": "[0-9]+\.[0-9]+\.[0-9]+"' "$PJ" \
+  || { echo "FAIL: plugin.json version field not semver-shape" >&2; exit 1; }
+pass "plugin.json version field present + semver-shape"
 
 pass "v0.25.0 static wiring complete (11 invariants locked)"

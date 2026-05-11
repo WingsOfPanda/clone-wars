@@ -80,6 +80,7 @@ run concurrently.
 | `/clone-wars:list [<topic>]` | Show active troopers across topics, or scope to one. Flags `[ORPHAN]` panes for cleanup. |
 | `/clone-wars:teardown <topic>` / `<commander> <topic>` / `--all` | Graceful shutdown: 8s colored banner, then kill the pane and archive state. |
 | `/clone-wars:deploy [<design-path>]` | Codex implements + Yoda verifies a design doc. |
+| `/clone-wars:meditate [--lit\|--no-lit] <topic>` | Deep multi-aspect exploration: parallel-N research, optional literature-review track, preliminary synthesis, 5-signal confidence gate, adversary phase, tradeoff-matrix landscape doc with directional Conclusion that feeds `/clone-wars:consult`. |
 
 Full spec: `docs/DESIGN.md` §Slash commands. Runtime IPC (the `END_OF_INSTRUCTION` sentinel,
 JSONL outbox event types, status state machine) is in §File-IPC protocol.
