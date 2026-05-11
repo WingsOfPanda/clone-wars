@@ -101,9 +101,10 @@ cw_contract_bootstrap_sleep() {
 cw_consult_timeout() {
   local kind="$1" key default
   case "$kind" in
-    research) key=research_timeout_s; default=600 ;;
-    verify)   key=verify_timeout_s;   default=300 ;;
-    *) echo "cw_consult_timeout: kind must be 'research' or 'verify'; got '$kind'" >&2; return 2 ;;
+    research)  key=research_timeout_s;  default=600 ;;
+    verify)    key=verify_timeout_s;    default=300 ;;
+    adversary) key=adversary_timeout_s; default=600 ;;
+    *) echo "cw_consult_timeout: kind must be 'research', 'verify', or 'adversary'; got '$kind'" >&2; return 2 ;;
   esac
   local path; path=$(cw_contracts_path)
   [[ -f "$path" ]] || { printf '%s\n' "$default"; return 0; }
