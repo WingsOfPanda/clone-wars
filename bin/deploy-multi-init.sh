@@ -99,25 +99,21 @@ done
 
 mv "$TMP" "$ART_DIR/troopers.txt" || { log_error "mv troopers.txt failed"; exit 1; }
 
-# v0.20.3: write a per-commander cwd map for preflight-layout.sh's --cwd-from
-# flag. Separate file (not extending troopers.txt) so the existing Step 3b
-# `read cmdr cwd provider` parser stays byte-equal.
+# v0.20.3 + v0.22.0: derive two sidecar projections from troopers.txt in
+# a single pass:
+#  - cmdr-cwd-map.txt (TSV: cmdr\tcwd) for preflight-layout.sh --cwd-from
+#  - troopers-preflight.txt (TSV: provider\tcmdr) for preflight-layout.sh
+#    --troopers-from (consult-shaped, DAG order, with a generated-at header).
+# Separate files (not extending troopers.txt) so deploy's existing 3-col
+# Step 3b reader stays byte-equal.
 : > "$ART_DIR/cmdr-cwd-map.txt"
-while IFS=$'\t' read -r cmdr cwd _provider; do
-  [[ -n "$cmdr" && -n "$cwd" ]] && printf '%s\t%s\n' "$cmdr" "$cwd" >> "$ART_DIR/cmdr-cwd-map.txt"
+printf '# generated %s by bin/deploy-multi-init.sh (preflight sidecar)\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$ART_DIR/troopers-preflight.txt"
+while IFS=$'\t' read -r cmdr cwd provider; do
+  [[ -n "$cmdr" ]] || continue
+  [[ -n "$cwd" ]]      && printf '%s\t%s\n' "$cmdr"     "$cwd"  >> "$ART_DIR/cmdr-cwd-map.txt"
+  [[ -n "$provider" ]] && printf '%s\t%s\n' "$provider" "$cmdr" >> "$ART_DIR/troopers-preflight.txt"
 done < "$ART_DIR/troopers.txt"
-
-# v0.22.0: write troopers-preflight.txt sidecar — consult-shaped 2-col
-# <provider>\t<commander>, in DAG order (matches troopers.txt order).
-# bin/preflight-layout.sh reads this when invoked with --troopers-from
-# from the deploy path. Separate file so deploy's existing 3-col reader
-# (Step 3b) stays byte-equal.
-{
-  printf '# generated %s by bin/deploy-multi-init.sh (preflight sidecar)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  while IFS=$'\t' read -r cmdr _cwd provider; do
-    [[ -n "$cmdr" && -n "$provider" ]] && printf '%s\t%s\n' "$provider" "$cmdr"
-  done < "$ART_DIR/troopers.txt"
-} > "$ART_DIR/troopers-preflight.txt"
 
 log_ok "deploy-multi-init: ${#REPOS_ORDERED[@]} troopers assigned for topic $TOPIC"
 while IFS= read -r line; do printf '  %s\n' "$line"; done < "$ART_DIR/troopers.txt"
