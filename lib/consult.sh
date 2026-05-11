@@ -873,28 +873,6 @@ cw_consult_outbox_match_endbyte() {
   return 1
 }
 
-# ============================================================================
-# Design-doc mode helpers
-# ============================================================================
-
-# cw_consult_design_doc_self_review <doc-path>
-# Scans for placeholder strings (TBD/TODO/FIXME word-boundaried, bare three-dot
-# ellipsis surrounded by alpha or whitespace).
-# Reports each match as <path>:<lineno>: <line> to stderr.
-# rc=0 if clean, rc=1 if any match, rc=2 if file missing.
-cw_consult_design_doc_self_review() {
-  local doc="$1"
-  [[ -f "$doc" ]] || { echo "cw_consult_design_doc_self_review: $doc not found" >&2; return 2; }
-  local found=0
-  if grep -nE '\b(TBD|TODO|FIXME)\b' "$doc" >&2; then
-    found=1
-  fi
-  if grep -nE '([[:alpha:]]|[[:space:]])\.\.\.([[:alpha:]]|[[:space:]]|$)' "$doc" >&2; then
-    found=1
-  fi
-  return $found
-}
-
 # v0.15.0: provider → commander mapping (locked).
 # codex → rex (501st), claude → cody (212th), opencode → wolffe (327th).
 cw_consult_provider_to_commander() {
