@@ -1,19 +1,20 @@
 ---
 description: Deep multi-aspect exploration of hard topics — SOTA surveys, multi-angle thinking, adversary-tested landscape doc that feeds /clone-wars:consult
-argument-hint: [--lit | --no-lit] <topic>
+argument-hint: <topic>
 allowed-tools: Bash, Read, Write, Edit, Grep, Glob, AskUserQuestion, Skill, WebSearch, WebFetch
 ---
 
 # /clone-wars:meditate
 
 Deep multi-aspect exploration of `$ARGUMENTS`. Master Yoda orchestrates an
-N-trooper research pass, optionally with a parallel literature-review
-track for ML/SOTA topics, synthesizes a preliminary landscape doc, runs a
-5-signal confidence gate, dispatches all N troopers as adversaries
-against the synthesis if the gate doesn't let the user skip, and writes
-a final landscape doc with tradeoff matrix + adversary critiques +
-directional Conclusion intended as a hand-off seed for
-`/clone-wars:consult`.
+N-trooper research pass — classifying the topic up front to tell each
+trooper how much to weight academic-paper retrieval — synthesizes a
+preliminary landscape doc, runs a 5-signal confidence gate, dispatches
+all N troopers as adversaries against the synthesis if the gate doesn't
+let the user skip, and writes a final landscape doc with tradeoff matrix
++ adversary critiques + directional Conclusion intended as a hand-off
+seed for `/clone-wars:consult`. **Yoda itself never runs retrieval skills
+— troopers are the only retrievers.**
 
 **When to use this command.** Invoke `/clone-wars:meditate` when the user
 wants to explore, think deeply, find SOTA architectures, survey a
@@ -67,17 +68,6 @@ injection, write it via the Write tool, then invoke sub-scripts.
 
 Set task `0` → `in_progress`.
 
-**Token-aware `--lit` / `--no-lit` parse (BEFORE init):**
-
-```
-source "$CLAUDE_PLUGIN_ROOT/lib/log.sh"
-source "$CLAUDE_PLUGIN_ROOT/lib/meditate.sh"
-PARSE=$(cw_meditate_parse_lit_flag "$ARGUMENTS")
-LIT_STATE="${PARSE%%	*}"        # force-on | force-off | auto
-ARG_RAW="${PARSE#*	}"
-log_info "lit-state from flags: $LIT_STATE"
-```
-
 1. Resolve args path:
 
    ```
@@ -86,7 +76,7 @@ log_info "lit-state from flags: $LIT_STATE"
    echo "$ARGS_DIR/meditate.txt"
    ```
 
-2. Write tool: `file_path` = the path printed; `content` = `$ARG_RAW`.
+2. Write tool: `file_path` = the path printed; `content` = `$ARGUMENTS`.
 
 3. Initialize the topic + compute repo hash:
 
@@ -113,29 +103,19 @@ Set task `0` → `completed`.
 
 Set task `1` → `in_progress`.
 
-Resolve final lit-track state and write `_meditate/lit-track.txt`:
+Yoda classifies the topic via keyword scan and writes
+`_meditate/lit-track.txt`. The result is consumed by Step 2's per-trooper
+send-script via `{{LIT_GUIDANCE}}` — Yoda itself never runs retrieval.
 
 ```
-case "$LIT_STATE" in
-  force-on)
-    LIT_FINAL=ON
-    LIT_REASON="user --lit flag"
-    ;;
-  force-off)
-    LIT_FINAL=OFF
-    LIT_REASON="user --no-lit flag"
-    ;;
-  auto)
-    TOPIC_TEXT=$(cat "$ART_DIR/topic.txt")
-    LIT_FINAL=$(cw_meditate_classify_topic "$TOPIC_TEXT")
-    LIT_REASON="auto-detect via keyword scan"
-    ;;
-esac
+source "$CLAUDE_PLUGIN_ROOT/lib/meditate.sh"
+TOPIC_TEXT=$(cat "$ART_DIR/topic.txt")
+LIT_FINAL=$(cw_meditate_classify_topic "$TOPIC_TEXT")
 {
   printf '%s\n' "$LIT_FINAL"
-  printf 'reason: %s\n' "$LIT_REASON"
+  printf 'reason: auto-detect via keyword scan\n'
 } > "$ART_DIR/lit-track.txt"
-log_info "literature track: $LIT_FINAL ($LIT_REASON)"
+log_info "literature track: $LIT_FINAL (auto-detect via keyword scan)"
 ```
 
 Set task `1` → `completed`.
@@ -191,7 +171,7 @@ Evaluate the rc tuple after the parallel block:
 
   Surface specific provider failures to the user.
 
-### Step 3 — Parallel research dispatch + optional literature track
+### Step 3 — Parallel research dispatch
 
 Set task `3` → `in_progress`.
 
@@ -201,27 +181,12 @@ Issue N parallel Bash tool calls (one per trooper):
 "$CLAUDE_PLUGIN_ROOT/bin/meditate-research-send.sh" "$MEDITATE_TOPIC" <cmdr> <provider>
 ```
 
-IF `$LIT_FINAL == ON`, also issue ONE parallel `Skill` tool call in the
-same message:
-
-```
-Skill(
-  skill: "literature-review",
-  args: "Topic: $TOPIC_TEXT
-
-         Focus areas (extract from topic):
-         - Architecture: <extract from topic>
-         - Methods: <extract from topic>
-         - Comparable works: <inferred from topic>
-
-         Output requirements:
-         - Cite each paper with title, authors, year, venue, URL/DOI
-         - Quote key findings or numerical results
-         - Identify SOTA paper(s) and explain why
-         - Note papers that contradict each other
-         - Save report to: $ART_DIR/literature-review.md"
-)
-```
+Each trooper's research prompt has already been pre-rendered with the
+`{{LIT_GUIDANCE}}` block appropriate to `_meditate/lit-track.txt`
+(handled by `bin/meditate-research-send.sh` reading the lit-track value
+written by Step 1) — no separate conductor-side literature-retrieval
+call is needed. Yoda's role is to orchestrate and synthesize; troopers
+do all retrieval.
 
 Set task `3` → `completed`.
 
