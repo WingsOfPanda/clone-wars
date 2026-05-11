@@ -73,19 +73,35 @@ INITIAL_PROMPT=""
 SPAWN_CWD=""
 TARGET_PANE=""
 PREFLIGHT_ART_DIR_OVERRIDE=""
+
+# _kv_parse <var-name> "$@"
+# Accepts both `--flag VALUE` and `--flag=VALUE` forms. On `--flag` form
+# requires the next arg non-empty. Assigns to <var-name> via nameref and
+# updates the global SHIFT_COUNT (1 or 2) so the caller knows how far to
+# advance. Nameref + global avoids the subshell-loses-assignment trap.
+_kv_parse() {
+  local -n _ref="$1"
+  local a1="$2" a2="${3:-}"
+  if [[ "$a1" == *=* ]]; then
+    _ref="${a1#*=}"
+    SHIFT_COUNT=1
+  else
+    [[ -n "$a2" ]] || { echo "$a1 requires a value" >&2; exit 2; }
+    _ref="$a2"
+    SHIFT_COUNT=2
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --mode)                 MODE="$2"; shift 2 ;;
-    --mode=*)               MODE="${1#*=}"; shift ;;
-    --cwd)                  [[ -n "${2:-}" ]] || { echo "--cwd requires a value" >&2; exit 2; }
-                            SPAWN_CWD="$2"; shift 2 ;;
-    --cwd=*)                SPAWN_CWD="${1#*=}"; shift ;;
-    --target-pane)          [[ -n "${2:-}" ]] || { echo "--target-pane requires a value" >&2; exit 2; }
-                            TARGET_PANE="$2"; shift 2 ;;
-    --target-pane=*)        TARGET_PANE="${1#*=}"; shift ;;
-    --preflight-art-dir)    [[ -n "${2:-}" ]] || { echo "--preflight-art-dir requires a value" >&2; exit 2; }
-                            PREFLIGHT_ART_DIR_OVERRIDE="$2"; shift 2 ;;
-    --preflight-art-dir=*)  PREFLIGHT_ART_DIR_OVERRIDE="${1#*=}"; shift ;;
+    --mode|--mode=*)
+      _kv_parse MODE "$1" "${2:-}"; shift "$SHIFT_COUNT" ;;
+    --cwd|--cwd=*)
+      _kv_parse SPAWN_CWD "$1" "${2:-}"; shift "$SHIFT_COUNT" ;;
+    --target-pane|--target-pane=*)
+      _kv_parse TARGET_PANE "$1" "${2:-}"; shift "$SHIFT_COUNT" ;;
+    --preflight-art-dir|--preflight-art-dir=*)
+      _kv_parse PREFLIGHT_ART_DIR_OVERRIDE "$1" "${2:-}"; shift "$SHIFT_COUNT" ;;
     -h|--help)              usage; exit 0 ;;
     *)                      INITIAL_PROMPT="$*"; break ;;
   esac
