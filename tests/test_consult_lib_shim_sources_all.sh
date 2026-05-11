@@ -21,7 +21,7 @@ source "$PLUGIN_ROOT/lib/consult.sh"
 # catches drift automatically.
 EXPECTED=(
   # consult-prompts.sh
-  cw_consult_strip_block cw_consult_build_verify_prompt
+  cw_consult_build_verify_prompt
   cw_consult_build_research_prompt cw_consult_design_doc_drilldown_prompt
   cw_consult_load_prompt
   # consult.sh residual
