@@ -48,13 +48,6 @@ if (( ${#missing[@]} > 0 )); then
   exit 1
 fi
 
-# Lit-review is optional — log if ON but file missing
-if [[ -f "$ART_DIR/lit-track.txt" ]] && grep -q '^ON$' "$ART_DIR/lit-track.txt"; then
-  if [[ ! -s "$ART_DIR/literature-review.md" ]]; then
-    log_warn "lit-track.txt=ON but literature-review.md missing or empty (continuing)"
-  fi
-fi
-
 OUT_PATH="$ART_DIR/landscape-draft.md"
 log_info "[synth-preliminary] inputs validated for $TOPIC"
 log_info "  output target:    $OUT_PATH"
