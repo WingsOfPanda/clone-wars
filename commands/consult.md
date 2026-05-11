@@ -524,7 +524,8 @@ notification.
 
 If trooper questions storm the pane (e.g. mis-classified critical questions
 that should have been auto-answered from findings), there is a kill switch:
-see Pattern 3 below for `CW_CONSULT_SKILL_OVERRIDE=none`.
+see the Intervention patterns block at the end of this directive for
+`CW_CONSULT_SKILL_OVERRIDE=none`.
 
 Dispatch `N` parallel **background** Bash tool calls in a single message
 — one per entry in `TROOPERS`. Use the rank-prefixed trooper name in
@@ -571,7 +572,8 @@ On EACH notification, do:
    ```
 3. If `$DONE_SENTINEL` is missing, treat it as `FS=failed` (the wait-script
    crashed before writing terminal state). Surface the error to the user
-   and consider Pattern 1 (re-prompt) before proceeding.
+   and consider the malformed-findings re-prompt recovery (see Intervention
+   patterns) before proceeding.
 4. Otherwise, parse the last `FS=` line:
    ```
    FS=$(grep '^FS=' "$STATE_FILE" | tail -1 | cut -d= -f2)
@@ -587,7 +589,8 @@ b. Read `$TOPIC_DIR/<commander>-<model>/findings.md` (if it exists) for
    ```
    FINDINGS_PATH="$TOPIC_DIR/<commander>-<model>/findings.md"
    ```
-c. Classify as critical / non-critical (same rules as Pattern 3 below)
+c. Classify as critical / non-critical (same rules as the
+   critical-question relay in Intervention patterns)
    using the contents of `$FINDINGS_PATH`.
 d. Get an answer:
    - critical → `AskUserQuestion` with TEXT + OPTIONS.
@@ -618,8 +621,9 @@ transient state — only proceed to Step 6 when every trooper has a
 terminal value.
 
 - All `ok` / `empty` / `missing` → set task `5` → `completed`.
-- Any `failed` / `timeout` / `malformed` → consider Pattern 1 (re-prompt)
-  before proceeding; set task `5` → `completed` if accepting the degraded
+- Any `failed` / `timeout` / `malformed` → consider the
+  malformed-findings re-prompt (see Intervention patterns) before
+  proceeding; set task `5` → `completed` if accepting the degraded
   result.
 
 ### Step 6 — Diff (N-way Venn)
@@ -656,8 +660,9 @@ trooper. `consult-verify-send.sh` computes the scope from
 Set task `8` → `in_progress`.
 
 This step reuses the **Step 5 wait-template wholesale** (background
-dispatch, completion-notification loop, question-handling Pattern 3
-re-arm). Apply these 4 verify-specific differences:
+dispatch, completion-notification loop, question-handling
+critical-question relay re-arm). Apply these 4 verify-specific
+differences:
 
 1. **Script prefix:** invoke `bin/consult-verify-wait.sh` (not
    `consult-research-wait.sh`).
@@ -666,13 +671,15 @@ re-arm). Apply these 4 verify-specific differences:
    `STATE_FILE="$TOPIC_DIR/_consult/verify-<commander>.txt"`.
 4. **Question-loop findings source:** for `VS=question`, read
    `$TOPIC_DIR/<commander>-<model>/verify.md` (not `findings.md`) into
-   `$FINDINGS_PATH` before invoking Pattern 3's relay.
+   `$FINDINGS_PATH` before invoking the critical-question relay
+   (see Intervention patterns).
 
 Description strings should embed `verify` instead of `research`
 (e.g. `master yoda await captain rex verify (background)`).
 
-If **all** troopers report all-UNCERTAIN verdicts, consider Pattern 2
-intervention. Otherwise set task `8` → `completed`.
+If **all** troopers report all-UNCERTAIN verdicts, consider the
+all-UNCERTAIN verify re-prompt (see Intervention patterns).
+Otherwise set task `8` → `completed`.
 
 ### Step 9 — Adjudicate + Yoda resolves PENDING
 
@@ -1074,97 +1081,31 @@ Set task `16` → `completed`.
 
 ## Intervention patterns
 
-### Pattern 1: Malformed findings re-prompt
+Reference for failure modes the conductor handles inline. Diagnose
+first; don't generalize. Each item names the trigger and the recovery
+shape; the conductor adapts the exact commander/model/sentinel paths.
 
-> The wait-script runs in background; read state file + `.done` sentinel
-> from the controller's notification handler (see Step 5).
+### Malformed findings re-prompt
+When `research-<commander>.txt` shows `FS=malformed`: `cw_send` a
+"reformat your findings with [citation] prefixes" prompt, reset the
+offset (`bin/consult-offset-reset.sh`), re-arm the research-send +
+background research-wait, then re-run `bin/consult-diff.sh`. Wait
+mechanics mirror Step 5's notification handler.
 
-If `research-<commander>.txt` shows `FS=malformed`:
+### All-UNCERTAIN verify re-prompt
+When every verify verdict is UNCERTAIN: `cw_send` a "read the cited
+source and re-grade" prompt, reset the offset, re-arm verify-send +
+background verify-wait, then re-run `bin/consult-adjudicate.sh` and
+overwrite (or merge) `adjudicated.md`.
 
-```
-/clone-wars:send <commander> "$CONSULT_TOPIC" "Reformat your findings —
-   every claim needs a [<citation>] prefix. Write to <state-dir>/findings.md.
-   END_OF_INSTRUCTION"
-"$CLAUDE_PLUGIN_ROOT/bin/consult-offset-reset.sh" "$CONSULT_TOPIC" <commander> research
-"$CLAUDE_PLUGIN_ROOT/bin/consult-research-send.sh" "$CONSULT_TOPIC" <commander> <model>
+### Critical-question relay
+When a wait reports `FS=question` or `VS=question`: read
+`_consult/question-<commander>.txt`, classify (critical →
+`AskUserQuestion`; non-critical → Yoda answers), `cw_send --from
+master-yoda` the ANSWER line, remove the `.done` sentinel, and
+re-arm the wait in background. N troopers may emit independently;
+process notifications as they land.
 
-Bash(
-  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" <commander> <model>',
-  run_in_background: true,
-  description='master yoda await <commander> research re-prompt (background)'
-)
-# Wait for completion notification, then read state file as in Step 5.
-
-"$CLAUDE_PLUGIN_ROOT/bin/consult-diff.sh" "$CONSULT_TOPIC"
-```
-
-### Pattern 2: All-UNCERTAIN verify re-prompt
-
-> The wait-script runs in background; read state file + `.done` sentinel
-> from the controller's notification handler (see Step 5).
-
-If `verify-<commander>.txt` verdicts are all UNCERTAIN:
-
-```
-/clone-wars:send <commander> "$CONSULT_TOPIC" "For each UNCERTAIN item,
-   read the cited source at the file:line and re-grade. Write to
-   <state-dir>/verify.md. END_OF_INSTRUCTION"
-"$CLAUDE_PLUGIN_ROOT/bin/consult-offset-reset.sh" "$CONSULT_TOPIC" <commander> verify
-"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-send.sh" "$CONSULT_TOPIC" <commander> <model>
-
-Bash(
-  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-verify-wait.sh" "$CONSULT_TOPIC" <commander> <model>',
-  run_in_background: true,
-  description='master yoda await <commander> verify re-prompt (background)'
-)
-# Wait for completion notification, then read state file as in Step 5.
-
-"$CLAUDE_PLUGIN_ROOT/bin/consult-adjudicate.sh" "$CONSULT_TOPIC"
-cp "$TOPIC_DIR/_consult/adjudicated-draft.md" "$TOPIC_DIR/_consult/adjudicated.md"
-# (or manually merge the new draft into adjudicated.md if you want to
-# preserve specific prior PENDING resolutions — see spec Pattern 2.)
-```
-
-### Pattern 3: Critical-question relay
-
-When a wait-script reports `FS=question` (research) or `VS=question`
-(verify):
-
-1. Read `_consult/question-<commander>.txt` — note `TEXT` and `OPTIONS`.
-2. Read `$TROOPER_DIR/findings.md` (or `verify.md`) for findings-so-far.
-3. Classify:
-   - critical → `AskUserQuestion(TEXT, OPTIONS)`.
-   - non-critical → answer from topic + findings yourself.
-4. Send the answer (the new `--from` flag carries Yoda's identity):
-   ```
-   /clone-wars:send --from master-yoda <commander> "$CONSULT_TOPIC" "ANSWER: <answer>
-
-   (end of question response — resume your skill loop)
-   END_OF_INSTRUCTION"
-   ```
-5. Re-arm by removing the `.done` sentinel and re-running the wait-script
-   in BACKGROUND (no send-script, no offset-reset — the wait-script's
-   prior pass already advanced OFFSET past the question):
-   ```
-   rm -f "$TOPIC_DIR/_consult/research-<commander>.done"   # research
-   # or:
-   rm -f "$TOPIC_DIR/_consult/verify-<commander>.done"     # verify
-
-   Bash(
-     command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" <commander> <model>',
-     run_in_background: true,
-     description='master yoda await <commander> research re-arm (background)'
-   )
-   # or the verify-wait equivalent.
-   ```
-6. The new background task will fire a completion notification when the
-   trooper either re-emits FS=question (loop), produces a terminal event,
-   or times out.
-
-Any of the `N` troopers may emit questions independently. Notifications
-can arrive in any order; process each as it lands.
-
-**Kill switch:** if the question protocol misbehaves (storming,
-mis-classification), set `CW_CONSULT_SKILL_OVERRIDE=none` in the
-directive's environment. Send-scripts will append an empty hint
-(no autonomy contract); troopers will use their default behavior.
+**Kill switch:** set `CW_CONSULT_SKILL_OVERRIDE=none` to disable
+autonomy hints if the question protocol misbehaves. Send-scripts then
+append an empty hint and troopers use their default behavior.
