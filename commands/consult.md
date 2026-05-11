@@ -694,27 +694,17 @@ Copy the draft to Master Yoda's resolution surface:
 cp "$TOPIC_DIR/_consult/adjudicated-draft.md" "$TOPIC_DIR/_consult/adjudicated.md"
 ```
 
-**Resolve PENDING items.** PENDING resolution operates on
-`_consult/adjudicated.md` — an **intermediate artifact** with the
-5-section adjudicated structure (Consensus / Cross-verified / Contested /
-Refuted / Pending). This is NOT the final design-doc; the final design-doc
-(produced in Step 12 via walk-assemble) has a different shape (6 sections
-single-repo / 8 multi-repo: Problem / Goal / Architecture / Components /
-[Execution DAG / Cross-Repo Notes] / Testing / Success Criteria). Do not
-grep for `## Contested` in the design-doc — it only exists in the
-adjudicated intermediate.
+**Resolve PENDING items in the intermediate artifact
+`_consult/adjudicated.md`** (5-section: Consensus / Cross-verified /
+Contested / Refuted / Pending). This is NOT the final design-doc —
+Step 12 walk-assemble produces that from per-section drafts and the
+6/8-section shape differs. Do not grep for `## Contested` in the
+final design-doc; it only exists in the adjudicated intermediate.
 
-**MANDATORY first step — Read adjudicated.md via the Read tool.**
-The Edit tool calls below in step (d) will be REJECTED with
-"File has not been read yet" unless this Read happens FIRST. Do NOT
-substitute `cat` via Bash — only the Read tool establishes the Edit
-tool's per-path read tracker.
-
-```
-Read("$TOPIC_DIR/_consult/adjudicated.md")
-```
-
-(Substitute the absolute path resolved from `$TOPIC_DIR`.)
+**MANDATORY first step — `Read("$TOPIC_DIR/_consult/adjudicated.md")`.**
+Bash `cat` does not satisfy the Edit tool's per-path read tracker;
+Edit calls below will be rejected with "File has not been read yet"
+without this Read first.
 
 Then for every line beginning `- PENDING:`:
 
