@@ -385,7 +385,7 @@ cw_consult_parse_verdicts() {
 cw_consult_topic_validate() {
   local topic="$1"
   [[ -n "$topic" ]] || return 1
-  [[ "$topic" == consult-* ]] || return 1
+  [[ "$topic" == consult-* || "$topic" == meditate-* ]] || return 1
   [[ "$topic" =~ ^[A-Za-z0-9_.-]+$ ]] || return 1
   [[ "$topic" != .* && "$topic" != -* ]] || return 1
   [[ "$topic" != *..* ]] || return 1
