@@ -96,6 +96,27 @@ _teardown_batch() {
   fi
 }
 
+# _teardown_collect_pairs <topic-dir> <topic> <out-array-name> <cmdr-1> [<cmdr-2> ...]
+# For each commander, glob $topic_dir/${cmdr}-*/ , resolve model via
+# pane.json (cw_pane_meta_model with the dir-name strip fallback for
+# hyphenated models like claude-haiku), append "<cmdr>:<model>" to the
+# named output array. v0.24.0: shared by --pairs branch + 2-arg branch.
+_teardown_collect_pairs() {
+  local topic_dir="$1" topic="$2" out_name="$3"; shift 3
+  local -n out="$out_name"
+  shopt -s nullglob
+  local commander d name model_hint model
+  for commander in "$@"; do
+    for d in "$topic_dir/$commander"-*/; do
+      [[ -d "$d" ]] || continue
+      name="${d%/}"; name="${name##*/}"
+      model_hint="${name#${commander}-}"
+      model=$(cw_pane_meta_model "$commander" "$model_hint" "$topic")
+      out+=("$commander:$model")
+    done
+  done
+}
+
 teardown_topic() {
   local topic="$1"
   local topic_dir
@@ -152,17 +173,8 @@ case "${1:-}" in
     [[ $# -ge 2 ]] || { log_error "--pairs requires <topic> <cmdr1> [cmdr2] ..."; exit 2; }
     topic="$1"; shift
     topic_dir="$(cw_topic_state_dir "$topic")"
-    shopt -s nullglob
     pairs=()
-    for commander in "$@"; do
-      for d in "$topic_dir"/${commander}-*/; do
-        [[ -d "$d" ]] || continue
-        name="${d%/}"; name="${name##*/}"
-        model_hint="${name#${commander}-}"
-        model=$(cw_pane_meta_model "$commander" "$model_hint" "$topic")
-        pairs+=("$commander:$model")
-      done
-    done
+    _teardown_collect_pairs "$topic_dir" "$topic" pairs "$@"
     if (( ${#pairs[@]} > 0 )); then
       _teardown_batch "$topic" "${pairs[@]}"
     else
@@ -180,17 +192,8 @@ case "${1:-}" in
       # Two args — commander + topic
       commander="$1" topic="$2"
       topic_dir="$(cw_topic_state_dir "$topic")"
-      shopt -s nullglob
       pairs=()
-      for d in "$topic_dir"/${commander}-*/; do
-        [[ -d "$d" ]] || continue
-        name="${d%/}"; name="${name##*/}"
-        # Strip the known-commander prefix to recover the FULL model
-        # (handles hyphenated models like claude-haiku correctly).
-        model_hint="${name#${commander}-}"
-        model=$(cw_pane_meta_model "$commander" "$model_hint" "$topic")
-        pairs+=("$commander:$model")
-      done
+      _teardown_collect_pairs "$topic_dir" "$topic" pairs "$commander"
       (( ${#pairs[@]} > 0 )) || { log_error "no trooper '$commander' on topic '$topic'"; exit 1; }
       _teardown_batch "$topic" "${pairs[@]}"
       rm -f "$topic_dir/.last_pane" 2>/dev/null
