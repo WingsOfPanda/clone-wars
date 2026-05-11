@@ -1085,20 +1085,20 @@ Reference for failure modes the conductor handles inline. Diagnose
 first; don't generalize. Each item names the trigger and the recovery
 shape; the conductor adapts the exact commander/model/sentinel paths.
 
-### Malformed findings re-prompt
+### Pattern 1: Malformed findings re-prompt
 When `research-<commander>.txt` shows `FS=malformed`: `cw_send` a
 "reformat your findings with [citation] prefixes" prompt, reset the
 offset (`bin/consult-offset-reset.sh`), re-arm the research-send +
 background research-wait, then re-run `bin/consult-diff.sh`. Wait
 mechanics mirror Step 5's notification handler.
 
-### All-UNCERTAIN verify re-prompt
+### Pattern 2: All-UNCERTAIN verify re-prompt
 When every verify verdict is UNCERTAIN: `cw_send` a "read the cited
 source and re-grade" prompt, reset the offset, re-arm verify-send +
 background verify-wait, then re-run `bin/consult-adjudicate.sh` and
 overwrite (or merge) `adjudicated.md`.
 
-### Critical-question relay
+### Pattern 3: Critical-question relay
 When a wait reports `FS=question` or `VS=question`: read
 `_consult/question-<commander>.txt`, classify (critical →
 `AskUserQuestion`; non-critical → Yoda answers), `cw_send --from
