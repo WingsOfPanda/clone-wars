@@ -95,3 +95,26 @@ cw_commander_pick_random() {
   [[ -n "$candidates" ]] || return 1
   printf '%s\n' "$candidates" | shuf | head -n1
 }
+
+# cw_cmdr_rank <commander>
+# Print the canonical Star Wars rank for a commander (Captain / Commander /
+# Sergeant / Lieutenant / Trooper). Used by /clone-wars:deploy multi-repo
+# Step 3b to label per-trooper sub-rows in the conductor task display
+# (e.g. "3b.1 Captain Rex on auth-svc"). Lookup is case-insensitive;
+# unknown commanders fall through to "Trooper" — safe default that
+# renders cleanly. Lore source: Star Wars: The Clone Wars / Wookieepedia.
+cw_cmdr_rank() {
+  local cmdr="${1,,}"
+  case "$cmdr" in
+    rex|keeli|colt|trauma|blackout)
+      printf 'Captain' ;;
+    cody|bly|wolffe|fox|gree|ponds|bacara|neyo|doom|faie)
+      printf 'Commander' ;;
+    hunter)
+      printf 'Sergeant' ;;
+    havoc|thorn|thire|stone)
+      printf 'Lieutenant' ;;
+    *)
+      printf 'Trooper' ;;
+  esac
+}

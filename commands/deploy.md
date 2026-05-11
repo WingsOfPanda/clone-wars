@@ -26,8 +26,13 @@ Spec: `docs/superpowers/specs/2026-05-09-deploy-multi-repo-dag-design.md` (v0.20
 
 Create the task list using `TaskCreate`. Single-repo runs uses tasks
 0/1.1/1/2/3/4 (N=6, like v0.19.0). Multi-repo runs use tasks
-0/3a/3b/3c/3d/4 (N=6 also; the 1.1/1/2/3 single-repo tasks are skipped).
+0/3a/3c/3d/4 (N=5 upfront; the 1.1/1/2/3 single-repo tasks are skipped).
 Pick one set after Step 0's routing branch decides.
+
+For multi-repo runs, `3b` is intentionally absent from the upfront
+table — Step 3b creates one task PER (wave, repo) tuple at runtime
+once `dag-waves.txt` is known (v0.23.1+). See Step 3b for the
+TaskCreate prose.
 
 | # | subject | activeForm |
 |---|---|---|
@@ -37,7 +42,6 @@ Pick one set after Step 0's routing branch decides.
 | 2   | `2   Cross-verify (round N) [yoda]`               | `Yoda cross-verifying (round N)` |
 | 3   | `3   Author fix bundle (if needed) [yoda]`        | `Authoring fix bundle` |
 | 3a  | `3a  Preflight pane allocation (multi-repo) [yoda]` | `Multi-repo preflight` |
-| 3b  | `3b  DAG wave dispatch (multi-repo) [yoda+troopers]` | `Multi-repo DAG dispatch` |
 | 3c  | `3c  Final verification (multi-repo) [yoda]`      | `Multi-repo final verify` |
 | 3d  | `3d  Fix-loop (multi-repo) [yoda+troopers]`       | `Multi-repo fix-loop` |
 | 4   | `4   Teardown + archive [yoda]`                   | `Tearing down` |
@@ -697,7 +701,10 @@ Set task `3a` → `completed`.
 
 **Active only when `$ROUTING == "multi-repo"`.**
 
-Set task `3b` → `in_progress`.
+Step 3b does NOT pre-create a single `3b` task at upfront — instead,
+once `dag-waves.txt` is parsed below, fire one `TaskCreate` per
+`(wave, repo)` tuple so the conductor display surfaces each trooper's
+sub-repo. See "Per-trooper sub-row creation" block below.
 
 A **wave** is a set of sub-repos with no remaining unsatisfied
 dependencies that can run in parallel. `bin/deploy-dag-parse.sh`
@@ -770,6 +777,40 @@ TOTAL_REPOS=${#REPO_TO_CMDR[@]}
 log_info "[step 3b] DAG: $WAVE_COUNT wave(s) across $TOTAL_REPOS sub-repo(s)"
 ```
 
+**Per-trooper sub-row creation (v0.23.1+):**
+
+Source `lib/commanders.sh` for `cw_cmdr_rank`, then walk
+`dag-waves.txt` and fire one `TaskCreate` per row. Capture each
+returned task ID into `REPO_TO_TASK_ID["<repo>"]` for the wave loop's
+`in_progress` / `completed` transitions below.
+
+```
+source "$CLAUDE_PLUGIN_ROOT/lib/commanders.sh"
+
+declare -A REPO_TO_TASK_ID
+
+# For each (wave, step, repo, desc) row in dag-waves.txt: ISSUE one
+# TaskCreate tool call with:
+#   subject="3b.$step $rank ${cmdr^} on $repo [wave $wave]"
+#   description="Plan + implement + self-verify $repo DAG unit (${REPO_TO_PROVIDER[$repo]})"
+#   activeForm="$rank ${cmdr^} implementing $repo"
+# where $rank is $(cw_cmdr_rank "$cmdr") and ${cmdr^} capitalizes the
+# first letter (e.g. "rex" → "Rex"). CAPTURE the returned task ID
+# into REPO_TO_TASK_ID["$repo"].
+#
+# Example for a 3-row dag-waves.txt:
+#   1<TAB>1<TAB>auth-svc<TAB>plan + implement auth
+#   1<TAB>2<TAB>data-plane<TAB>plan + implement data
+#   2<TAB>3<TAB>api-gw<TAB>plan + implement gateway
+# Three TaskCreate calls fire (parallel is fine, order doesn't matter):
+#   TaskCreate(subject="3b.1 Captain Rex on auth-svc [wave 1]",
+#              activeForm="Captain Rex implementing auth-svc", …)
+#   TaskCreate(subject="3b.2 Commander Bly on data-plane [wave 1]",
+#              activeForm="Commander Bly implementing data-plane", …)
+#   TaskCreate(subject="3b.3 Commander Cody on api-gw [wave 2]",
+#              activeForm="Commander Cody implementing api-gw", …)
+```
+
 **Walk waves with explicit outer loop:**
 
 ```
@@ -802,6 +843,11 @@ for ((w=1; w<=WAVE_COUNT; w++)); do
   #   printf '%s' "$PROMPT" > "$PROMPT_FILE"
   #   "$CLAUDE_PLUGIN_ROOT/bin/send.sh" "${REPO_TO_CMDR[$repo]}" "$TOPIC" "@$PROMPT_FILE"
   #
+  # When the per-repo dispatch returns rc=0, ISSUE:
+  #   TaskUpdate(taskId=${REPO_TO_TASK_ID[$repo]}, status="in_progress")
+  # so the conductor display shows "<Rank> <Cmdr> implementing <repo>"
+  # in the spinner row for that trooper (v0.23.1+).
+  #
   # NOTE: dispatch uses `bin/send.sh @file` (NOT bare `cw_inbox_write`)
   # because `bin/send.sh` writes inbox.md AND nudges the trooper's pane
   # via `cw_pane_send` — the canonical write+nudge convention that every
@@ -822,7 +868,11 @@ for ((w=1; w<=WAVE_COUNT; w++)); do
   # Process notifications as they arrive. For each notification:
   #   1. Read $ART_DIR/wave-<cmdr>.txt
   #   2. Parse TS= line:
-  #        TS=ok      → trooper succeeded
+  #        TS=ok      → trooper succeeded; ISSUE
+  #                     TaskUpdate(taskId=${REPO_TO_TASK_ID[$repo]},
+  #                                status="completed")
+  #                     to flip that trooper's sub-row from spinner →
+  #                     ✓ in the conductor display (v0.23.1+).
   #        TS=failed  → enter Stage 1/2 failure handling (below)
   #        TS=timeout → enter Stage 1/2 failure handling (below)
   #
@@ -837,19 +887,25 @@ done
 
 After a wave's K spawns + wave-waits return:
 
-- **All K succeed** → continue to next wave. After last wave, set task
-  `3b` → `completed`.
+- **All K succeed** → continue to next wave. Per-trooper sub-rows for
+  succeeded repos are already flipped to `completed` from the wave-loop
+  notification handler above; no additional task transition needed.
 
 - **At least one fails AND `SPAWN_RETRY_COUNT == 0`** → **Stage 1
   retry-once**: full teardown + re-preflight + re-dispatch the entire
-  wave (mirrors v0.19.0 consult Step 3b).
+  wave (mirrors v0.19.0 consult Step 3b). Per-trooper sub-rows for the
+  in-flight repos remain `in_progress` across the retry — the work IS
+  in progress, just on attempt #2.
 
 - **At least one fails AND `SPAWN_RETRY_COUNT == 1`** → **Stage 2
   partial-success offer**: AskUserQuestion ("M/K spawned in this wave
   after retry. Proceed degraded with N=M / Abort all?"). On "Proceed
   degraded": rewrite `_deploy/troopers.txt` to drop the failed entry +
-  continue. On "Abort all": archive state + exit 1 (preserves
-  diagnostic context):
+  flip the dropped repo's sub-row to `completed` via
+  `TaskUpdate(taskId=${REPO_TO_TASK_ID[$repo]}, status="completed",
+  description="skipped per user choice")` so the conductor display
+  doesn't leave an orphan spinner. On "Abort all": archive state +
+  exit 1 (preserves diagnostic context):
 
   ```
   "$CLAUDE_PLUGIN_ROOT/bin/deploy-teardown.sh" "$TOPIC" 2>/dev/null || true
@@ -857,7 +913,10 @@ After a wave's K spawns + wave-waits return:
   exit 1
   ```
 
-Set task `3b` → `completed` only after ALL waves succeed.
+The wave loop exits after the last wave's per-trooper sub-rows have
+all been flipped to `completed` by the notification handler — no
+further task transition needed at the Step 3b boundary (v0.23.1+
+replaces the old single `Set task 3b → completed`).
 
 ### Step 3c — Final verification (multi-repo)
 
