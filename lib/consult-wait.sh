@@ -20,6 +20,10 @@ cw_consult_wait() {
       state_key="VS"; timeout_env_var="CW_CONSULT_VERIFY_TIMEOUT_OVERRIDE"
       timeout_key="verify"; handler_phase="verify"
       ;;
+    adversary)
+      state_key="AS"; timeout_env_var="CW_MEDITATE_ADVERSARY_TIMEOUT_OVERRIDE"
+      timeout_key="adversary"; handler_phase="adversary"
+      ;;
     *) log_error "cw_consult_wait: unknown kind '$kind'"; return 2 ;;
   esac
 
@@ -85,14 +89,22 @@ cw_consult_wait() {
       ;;
     done)
       local status
-      if [[ "$kind" == "research" ]]; then
-        status=$(cw_consult_findings_status \
-          "$(cw_consult_findings_path "$commander" "$model" "$topic")")
-      else
-        local verify_file
-        verify_file=$(cw_consult_verify_path "$commander" "$model" "$topic")
-        if [[ -s "$verify_file" ]]; then status=ok; else status=missing; fi
-      fi
+      case "$kind" in
+        research)
+          status=$(cw_consult_findings_status \
+            "$(cw_consult_findings_path "$commander" "$model" "$topic")")
+          ;;
+        verify)
+          local verify_file
+          verify_file=$(cw_consult_verify_path "$commander" "$model" "$topic")
+          if [[ -s "$verify_file" ]]; then status=ok; else status=missing; fi
+          ;;
+        adversary)
+          local adv_file
+          adv_file="$art_dir/adversary-$commander.md"
+          if [[ -s "$adv_file" ]]; then status=ok; else status=missing; fi
+          ;;
+      esac
       printf '%s=%s\n' "$state_key" "$status" >> "$state_file"
       log_info "[$kind-wait] $commander $state_key=$status"
       ;;
