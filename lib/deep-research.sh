@@ -116,6 +116,43 @@ cw_deep_research_pick_roster() {
   done
 }
 
+# cw_deep_research_format_metric_block
+# Reads K=V pairs on stdin, renders the structured metric.md body to stdout.
+# Required keys: primary_metric, direction (maximize|minimize).
+# Optional keys: target, acceptable, hard_constraints, notes.
+# rc=2 if a required key is missing or direction is invalid.
+cw_deep_research_format_metric_block() {
+  local primary_metric="" direction="" target="" acceptable="" hard_constraints="" notes=""
+  local line key val
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    key="${line%%=*}"
+    val="${line#*=}"
+    case "$key" in
+      primary_metric)    primary_metric="$val" ;;
+      direction)         direction="$val" ;;
+      target)            target="$val" ;;
+      acceptable)        acceptable="$val" ;;
+      hard_constraints)  hard_constraints="$val" ;;
+      notes)             notes="$val" ;;
+    esac
+  done
+
+  [[ -n "$primary_metric" ]] || { echo "missing required key: primary_metric" >&2; return 2; }
+  [[ -n "$direction" ]] || { echo "missing required key: direction" >&2; return 2; }
+  [[ "$direction" == "maximize" || "$direction" == "minimize" ]] \
+    || { echo "direction must be 'maximize' or 'minimize'; got '$direction'" >&2; return 2; }
+
+  printf '# Research goal\n\n'
+  printf '**Primary metric:** %s\n' "$primary_metric"
+  printf '**Direction:** %s\n' "$direction"
+  [[ -n "$target" ]]           && printf '**Target (good):** %s\n' "$target"
+  [[ -n "$acceptable" ]]       && printf '**Acceptable:** %s\n' "$acceptable"
+  [[ -n "$hard_constraints" ]] && printf '**Hard constraints:** %s\n' "$hard_constraints"
+  [[ -n "$notes" ]]            && printf '\n**Notes:** %s\n' "$notes"
+  return 0
+}
+
 # cw_deep_research_extract_approaches <landscape-md-path>
 # Parses ## Approaches section from a meditate landscape doc.
 # Expected format:
