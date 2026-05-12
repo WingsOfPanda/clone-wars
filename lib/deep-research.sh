@@ -56,3 +56,70 @@ cw_deep_research_extract_metric() {
   done
   printf '%s\n' "$best_word"
 }
+
+# cw_deep_research_validate_result_json <relative-path>
+# Caller must have cd'd to the branch dir (log_paths are relative).
+# Returns 0 on valid; >0 on invalid (stderr message).
+# Prefers jq when available; falls back to grep-based validation.
+cw_deep_research_validate_result_json() {
+  local path="${1:-}"
+  [[ -f "$path" ]] || { echo "result.json not found: $path" >&2; return 1; }
+  if command -v jq >/dev/null 2>&1; then
+    _cw_deep_research_validate_result_jq "$path"
+  else
+    _cw_deep_research_validate_result_grep "$path"
+  fi
+}
+
+_cw_deep_research_validate_result_jq() {
+  local path="$1"
+  jq empty "$path" 2>/dev/null || { echo "malformed JSON" >&2; return 1; }
+  local f
+  for f in branch_id approach_label metric_name metric_value status runtime_s log_paths; do
+    if [[ "$(jq -r "has(\"$f\")" "$path")" != "true" ]]; then
+      echo "missing required field: $f" >&2; return 1
+    fi
+  done
+  local status; status=$(jq -r '.status' "$path")
+  case "$status" in
+    ok|fail|timeout|cost_blown) ;;
+    *) echo "invalid status: $status" >&2; return 1 ;;
+  esac
+  local mv_null; mv_null=$(jq -r '.metric_value == null' "$path")
+  if [[ "$status" == "ok" && "$mv_null" == "true" ]]; then
+    echo "status=ok requires non-null metric_value" >&2; return 1
+  fi
+  if [[ "$status" != "ok" && "$mv_null" == "false" ]]; then
+    echo "status=$status requires null metric_value" >&2; return 1
+  fi
+  local p
+  while IFS= read -r p; do
+    [[ -f "$p" ]] || { echo "log_path missing: $p" >&2; return 1; }
+  done < <(jq -r '.log_paths[]' "$path")
+  return 0
+}
+
+_cw_deep_research_validate_result_grep() {
+  local path="$1"
+  local body; body=$(<"$path")
+  local f
+  for f in branch_id approach_label metric_name metric_value status runtime_s log_paths; do
+    grep -qE "\"$f\"" <<<"$body" || { echo "missing required field: $f" >&2; return 1; }
+  done
+  grep -qE '"status"[[:space:]]*:[[:space:]]*"(ok|fail|timeout|cost_blown)"' <<<"$body" \
+    || { echo "invalid status enum" >&2; return 1; }
+  local is_ok=0 is_null=0
+  grep -qE '"status"[[:space:]]*:[[:space:]]*"ok"' <<<"$body" && is_ok=1
+  grep -qE '"metric_value"[[:space:]]*:[[:space:]]*null' <<<"$body" && is_null=1
+  if (( is_ok == 1 && is_null == 1 )); then
+    echo "status=ok requires non-null metric_value" >&2; return 1
+  fi
+  # Crude log_paths existence check
+  local log_line; log_line=$(grep -oE '"log_paths"[[:space:]]*:[[:space:]]*\[[^]]*\]' <<<"$body")
+  local p
+  while IFS= read -r p; do
+    [[ -z "$p" ]] && continue
+    [[ -f "$p" ]] || { echo "log_path missing: $p" >&2; return 1; }
+  done < <(grep -oE '"\.\/[^"]+"' <<<"$log_line" | tr -d '"')
+  return 0
+}
