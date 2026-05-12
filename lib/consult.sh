@@ -26,11 +26,11 @@ cw_consult_topic_dir() { cw_topic_state_dir "$1"; }
 cw_consult_art_dir() {
   local topic="$1" base
   base=$(cw_topic_state_dir "$topic")
-  if [[ "$topic" == meditate-* ]]; then
-    printf '%s/_meditate\n' "$base"
-  else
-    printf '%s/_consult\n' "$base"
-  fi
+  case "$topic" in
+    meditate-*)      printf '%s/_meditate\n' "$base" ;;
+    deep-research-*) printf '%s/_deep-research\n' "$base" ;;
+    *)               printf '%s/_consult\n' "$base" ;;
+  esac
 }
 
 cw_consult_findings_path() { printf '%s/findings.md\n' "$(cw_trooper_dir "$1" "$2" "$3")"; }
@@ -385,7 +385,7 @@ cw_consult_parse_verdicts() {
 cw_consult_topic_validate() {
   local topic="$1"
   [[ -n "$topic" ]] || return 1
-  [[ "$topic" == consult-* || "$topic" == meditate-* ]] || return 1
+  [[ "$topic" == consult-* || "$topic" == meditate-* || "$topic" == deep-research-* ]] || return 1
   [[ "$topic" =~ ^[A-Za-z0-9_.-]+$ ]] || return 1
   [[ "$topic" != .* && "$topic" != -* ]] || return 1
   [[ "$topic" != *..* ]] || return 1

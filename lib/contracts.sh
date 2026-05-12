@@ -95,16 +95,19 @@ cw_contract_bootstrap_sleep() {
 }
 
 # cw_consult_timeout <kind>
-# Print the configured timeout for <kind> ∈ {research, verify}. Reads the
-# consult: block in contracts.yaml; falls back to research=600, verify=300
-# on missing block, missing field, or non-positive-integer value.
+# Print the configured timeout for <kind> ∈ {research, verify, adversary, experiment}.
+# Reads the consult: block in contracts.yaml; falls back to per-kind defaults
+# (research=600, verify=300, adversary=600, experiment=1800) on missing
+# block, missing field, or non-positive-integer value. experiment kind is
+# used by /clone-wars:deep-research (compute-heavy single-turn trooper).
 cw_consult_timeout() {
   local kind="$1" key default
   case "$kind" in
-    research)  key=research_timeout_s;  default=600 ;;
-    verify)    key=verify_timeout_s;    default=300 ;;
-    adversary) key=adversary_timeout_s; default=600 ;;
-    *) echo "cw_consult_timeout: kind must be 'research', 'verify', or 'adversary'; got '$kind'" >&2; return 2 ;;
+    research)   key=research_timeout_s;   default=600 ;;
+    verify)     key=verify_timeout_s;     default=300 ;;
+    adversary)  key=adversary_timeout_s;  default=600 ;;
+    experiment) key=experiment_timeout_s; default=1800 ;;
+    *) echo "cw_consult_timeout: kind must be 'research', 'verify', 'adversary', or 'experiment'; got '$kind'" >&2; return 2 ;;
   esac
   local path; path=$(cw_contracts_path)
   [[ -f "$path" ]] || { printf '%s\n' "$default"; return 0; }
