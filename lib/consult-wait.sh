@@ -57,27 +57,58 @@ cw_consult_wait() {
   timeout="${!timeout_env_var:-$(cw_consult_timeout "$timeout_key")}"
   log_info "[$kind-wait] $commander offset=$OFFSET timeout=${timeout}s"
 
-  cw_outbox_wait_since "$commander" "$model" "$topic" "$OFFSET" \
-    "done" "error" "question" "$timeout" >/dev/null || true
-
-  # Priority + race fix:
-  #   1. Terminal events (done/error) WIN over in-flight question events.
-  #   2. Among questions, FIRST wins (head -n1) — serialization across re-arms.
-  #   3. NEW_OFFSET is the matched line's exact end-byte (NOT wc -c).
+  # v0.27.2 BUG #6: wrap one-shot match logic in a stale-event-skipping
+  # loop. When kind==experiment, skip done events whose summary lacks the
+  # expected EXP_ID (phantom dones from prior empty-inbox responses) and
+  # keep polling for the EXP_ID-correct done. Other kinds (research /
+  # verify / adversary) break on first match — byte-equal v0.27.1.
   local outbox tail matched event new_offset
   outbox=$(cw_outbox_path "$commander" "$model" "$topic")
-  tail=$(tail -c "+$(( OFFSET + 1 ))" "$outbox" 2>/dev/null || true)
-  matched=$(printf '%s\n' "$tail" | grep -m1 -E '"event":"(done|error)"' || true)
-  [[ -z "$matched" ]] \
-    && matched=$(printf '%s\n' "$tail" | grep -m1 '"event":"question"' || true)
-  event=$(cw_event_name_extract "$matched")
+  local poll_deadline=$(( $(date +%s) + timeout ))
 
-  if [[ -n "$matched" ]]; then
-    new_offset=$(cw_consult_outbox_match_endbyte "$outbox" "$OFFSET" "$matched" 2>/dev/null) \
-      || new_offset="$OFFSET"
-  else
-    new_offset="$OFFSET"
-  fi
+  while :; do
+    local remaining=$(( poll_deadline - $(date +%s) ))
+    (( remaining > 0 )) || { matched=""; new_offset="$OFFSET"; event=""; break; }
+
+    cw_outbox_wait_since "$commander" "$model" "$topic" "$OFFSET" \
+      "done" "error" "question" "$remaining" >/dev/null || true
+
+    # Priority + race fix:
+    #   1. Terminal events (done/error) WIN over in-flight question events.
+    #   2. Among questions, FIRST wins (head -n1) — serialization across re-arms.
+    #   3. NEW_OFFSET is the matched line's exact end-byte (NOT wc -c).
+    tail=$(tail -c "+$(( OFFSET + 1 ))" "$outbox" 2>/dev/null || true)
+    matched=$(printf '%s\n' "$tail" | grep -m1 -E '"event":"(done|error)"' || true)
+    [[ -z "$matched" ]] \
+      && matched=$(printf '%s\n' "$tail" | grep -m1 '"event":"question"' || true)
+    event=$(cw_event_name_extract "$matched")
+
+    if [[ -n "$matched" ]]; then
+      new_offset=$(cw_consult_outbox_match_endbyte "$outbox" "$OFFSET" "$matched" 2>/dev/null) \
+        || new_offset="$OFFSET"
+    else
+      new_offset="$OFFSET"
+    fi
+
+    # EXP_ID guard: skip stale done events when kind==experiment.
+    # Persist advanced OFFSET so a wait-shim restart resumes past the
+    # stale event. Atomic tmp+mv preserves EXP_ID line.
+    if [[ "$kind" == "experiment" && "$event" == "done" ]]; then
+      local exp_id_expected
+      exp_id_expected=$(awk -F= '/^EXP_ID=/ { print $2 }' "$state_file" 2>/dev/null)
+      if [[ -n "$exp_id_expected" && "$matched" != *"$exp_id_expected"* ]]; then
+        log_warn "[$kind-wait] $commander: stale done event ignored (expected '$exp_id_expected', got: $(printf '%.80s' "$matched"))"
+        OFFSET="$new_offset"
+        {
+          printf 'OFFSET=%s\n' "$OFFSET"
+          printf 'EXP_ID=%s\n' "$exp_id_expected"
+        } > "$state_file.tmp" && mv "$state_file.tmp" "$state_file"
+        continue
+      fi
+    fi
+
+    break
+  done
 
   case "$event" in
     question)
