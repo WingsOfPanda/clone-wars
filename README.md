@@ -81,7 +81,7 @@ run concurrently.
 | `/clone-wars:teardown <topic>` / `<commander> <topic>` / `--all` | Graceful shutdown: 8s colored banner, then kill the pane and archive state. |
 | `/clone-wars:deploy [<design-path>]` | Codex implements + Yoda verifies a design doc. |
 | `/clone-wars:meditate <topic>` | Deep multi-aspect exploration: parallel-N research, preliminary synthesis, 5-signal confidence gate, adversary phase, tradeoff-matrix landscape doc with directional Conclusion that feeds `/clone-wars:consult`. |
-| `/clone-wars:deep-research <topic-with-metric>` | AIDE-pattern executable autoresearch. Conductor plans (hypothesize/score/select/synth); codex troopers execute (one branch per trooper, single-turn implement+run+result.json). K branches/round × N rounds tree search with convergence early-exit. ⚠️ runs codex with sandbox bypass — read DANGER block below. |
+| `/clone-wars:deep-research <topic-with-metric>` | Advisor-driven executable autoresearch. 2-3 long-lived codex troopers (PhD-student model) spawned once; advisor (Yoda) discusses the metric with the user, then dispatches experiments adaptively across the session. Stops on time-budget hit or 5-experiment stagnation. ⚠️ runs codex with sandbox bypass — read DANGER block below. |
 
 ### ⚠️ DANGER block — `/clone-wars:deep-research`
 
@@ -91,10 +91,13 @@ execute arbitrary code in your repo. **v1 sandboxing is honor-system**
 — troopers are *told* to stay inside their per-branch sandbox dir, but
 enforcement is not mechanical.
 
+**Net access is permitted by default in v0.27.0** (was opt-in via
+`--allow-net` in v0.26.0; the flag was removed). Troopers may install
+dependencies and download datasets as needed.
+
 Do **not** run on machines with sensitive credentials, production data,
 or shared state. Use a scratch worktree if uncertain (the command does
-**not** create one for you). `--allow-net=false` (default) tells
-troopers not to fetch external resources; honor-system enforcement only.
+**not** create one for you).
 
 Full spec: `docs/DESIGN.md` §Slash commands. Runtime IPC (the `END_OF_INSTRUCTION` sentinel,
 JSONL outbox event types, status state machine) is in §File-IPC protocol.
