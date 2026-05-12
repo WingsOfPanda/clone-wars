@@ -315,3 +315,57 @@ _cw_deep_research_validate_result_grep() {
   done < <(grep -oE '"\.\/[^"]+"' <<<"$log_line" | tr -d '"')
   return 0
 }
+
+# cw_deep_research_hardware_probe <out-path>  [v0.27.2 P2]
+# Writes either GPU rows or no-gpu marker to <out-path>. Format:
+#   detected_at\t<iso-8601-utc>\n
+#   gpu\t<name>\t<memory.total-mb>\t<memory.free-mb>\t<driver>\n   (one per GPU)
+# OR:
+#   detected_at\t<iso-8601-utc>\n
+#   no-gpu\n
+# Atomic via tmp+mv. rc=0 always when out-path given; rc=2 if missing.
+cw_deep_research_hardware_probe() {
+  local out="${1:-}"
+  [[ -n "$out" ]] || { echo "cw_deep_research_hardware_probe: out-path required" >&2; return 2; }
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    {
+      printf 'detected_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      nvidia-smi \
+        --query-gpu=name,memory.total,memory.free,driver_version \
+        --format=csv,noheader,nounits 2>/dev/null \
+        | awk -F', ' '{ printf "gpu\t%s\t%s\t%s\t%s\n", $1, $2, $3, $4 }'
+    } > "$out.tmp" && mv "$out.tmp" "$out"
+  else
+    {
+      printf 'detected_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      printf 'no-gpu\n'
+    } > "$out.tmp" && mv "$out.tmp" "$out"
+  fi
+}
+
+# cw_deep_research_hardware_diff_alert <baseline-path> <current-path>  [v0.27.2 P2]
+# Compares baseline vs current hardware probe files. Echoes ONE line to
+# stdout per GPU whose memory.free dropped >50% (else nothing). Format:
+#   "ALERT: gpu '<name>' memory.free <baseline-mb> -> <current-mb> (-X%)"
+# rc=0 always. Missing baseline or current → silent (no output).
+cw_deep_research_hardware_diff_alert() {
+  local baseline="${1:-}" current="${2:-}"
+  [[ -f "$baseline" && -f "$current" ]] || return 0
+  awk -F'\t' -v base="$baseline" '
+    BEGIN {
+      while ((getline line < base) > 0) {
+        split(line, f, "\t")
+        if (f[1] == "gpu") { base_free[f[2]] = f[4] }
+      }
+      close(base)
+    }
+    $1 == "gpu" {
+      name=$2; cur_free=$4
+      b = base_free[name]
+      if (b > 0 && cur_free < b * 0.5) {
+        drop = int((1 - cur_free / b) * 100)
+        printf "ALERT: gpu \047%s\047 memory.free %s -> %s MiB (-%d%%)\n", name, b, cur_free, drop
+      }
+    }
+  ' "$current"
+}

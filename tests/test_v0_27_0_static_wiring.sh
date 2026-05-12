@@ -40,11 +40,13 @@ for fn in \
   cw_deep_research_check_time_budget \
   cw_deep_research_extract_metric \
   cw_deep_research_extract_approaches \
-  cw_deep_research_validate_result_json; do
+  cw_deep_research_validate_result_json \
+  cw_deep_research_hardware_probe \
+  cw_deep_research_hardware_diff_alert; do
   declare -F "$fn" >/dev/null \
     || { echo "FAIL: $fn not exposed from lib/deep-research.sh" >&2; exit 1; }
 done
-pass "4. lib/deep-research.sh exposes 7 v0.27.0 helpers"
+pass "4. lib/deep-research.sh exposes 9 helpers (v0.27.2 adds hardware probe + diff alert)"
 
 # Invariant 5: removed v0.26.0 helpers MUST NOT be present
 for fn in \
@@ -69,7 +71,15 @@ grep -q "{{EXP_ID}}" "$TEMPLATE" \
 if grep -q "{{ALLOW_NET}}" "$TEMPLATE"; then
   echo "FAIL: {{ALLOW_NET}} placeholder still present (should be hardcoded)" >&2; exit 1
 fi
-pass "6. prompt template: BUG #3 fix + METRIC_BLOCK + EXP_ID present, ALLOW_NET hardcoded"
+# v0.27.2 BUG #5: TERMINAL STEP framing in step 5
+grep -q "THIS IS THE TERMINAL STEP" "$TEMPLATE" \
+  || { echo "FAIL: BUG #5 not fixed; 'THIS IS THE TERMINAL STEP' missing from template" >&2; exit 1; }
+grep -q "{{OUTBOX_PATH}}" "$TEMPLATE" \
+  || { echo "FAIL: {{OUTBOX_PATH}} placeholder missing (v0.27.2 BUG #5 wiring)" >&2; exit 1; }
+# v0.27.2 P2: HARDWARE_BLOCK placeholder
+grep -q "{{HARDWARE_BLOCK}}" "$TEMPLATE" \
+  || { echo "FAIL: {{HARDWARE_BLOCK}} placeholder missing (v0.27.2 P2 hardware probe)" >&2; exit 1; }
+pass "6. prompt template: BUG #3 + BUG #5 + P2 placeholders all present"
 
 # Invariant 7: directive frontmatter doesn't advertise removed flags
 DIRECTIVE="$PLUGIN_ROOT/commands/deep-research.md"
