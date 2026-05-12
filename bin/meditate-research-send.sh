@@ -44,12 +44,38 @@ TOPIC_TEXT=$(cat "$ART_DIR/topic.txt")
 PROMPT_FILE="$ART_DIR/${COMMANDER}_research_prompt.md"
 WRITE_TO="$ART_DIR/findings-$COMMANDER.md"
 
+# v0.25.1: read Yoda's lit-track classification (Step 1 of the directive
+# writes it). Defensive: if missing, fall back to OFF (brief SOTA block).
+LIT_TRACK=OFF
+if [[ -f "$ART_DIR/lit-track.txt" ]]; then
+  case "$(head -n1 "$ART_DIR/lit-track.txt")" in
+    ON)  LIT_TRACK=ON ;;
+    OFF) LIT_TRACK=OFF ;;
+  esac
+fi
+
+case "$LIT_TRACK" in
+  ON)
+    LIT_GUIDANCE="The topic is academic / SOTA-shaped. Prioritize peer-reviewed papers (arXiv, conference proceedings) over blog posts or vendor docs. List 3+ recent papers, projects, or benchmarks with citations including authors, year, venue, URL/DOI where available."
+    ;;
+  OFF)
+    LIT_GUIDANCE="The topic is not academic-shaped. Brief SOTA-evidence section is fine — list 1-2 anchor sources or write 'Not applicable' with a one-line reason."
+    ;;
+esac
+
 # Build prompt from meditate template.
 cw_consult_load_prompt meditate/research.md \
-  "TOPIC=$TOPIC_TEXT" "WRITE_TO=$WRITE_TO" > "$PROMPT_FILE"
+  "TOPIC=$TOPIC_TEXT" "WRITE_TO=$WRITE_TO" "LIT_GUIDANCE=$LIT_GUIDANCE" > "$PROMPT_FILE"
 
 OFFSET=$(wc -c < "$OUTBOX" | tr -d ' ')
 printf 'OFFSET=%s\n' "$OFFSET" > "$STATE_FILE"
+
+# v0.25.1: dry-run mode for unit tests — skip the actual send.sh nudge
+# so the test doesn't require a real tmux pane to exercise the rendering.
+if [[ "${CW_MEDITATE_DRY_RUN:-0}" == "1" ]]; then
+  log_info "[research-send] $COMMANDER DRY_RUN — prompt rendered to $PROMPT_FILE; skipping send.sh"
+  exit 0
+fi
 
 if ! "$PLUGIN_ROOT/bin/send.sh" "$COMMANDER" "$TOPIC" "@$PROMPT_FILE" >/dev/null; then
   log_error "send.sh failed; state file kept for retry via consult-offset-reset.sh"

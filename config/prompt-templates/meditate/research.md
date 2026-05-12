@@ -17,9 +17,7 @@ Output requirements — write to {{WRITE_TO}} with this EXACT structure:
   ...
 
   ## SOTA evidence
-  <if the topic is about SOTA / methods / architectures, list 3+ recent
-  papers, projects, or benchmarks with their citations. If the topic is
-  not SOTA-shaped, write "Not applicable" and explain why in one line.>
+  {{LIT_GUIDANCE}}
 
   ## Tradeoffs
   - <approach A> wins on <criterion> because <reason with citation>

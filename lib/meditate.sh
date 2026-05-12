@@ -3,8 +3,6 @@
 #
 # Public:
 #   cw_meditate_art_dir <topic>           — print absolute _meditate/ path
-#   cw_meditate_parse_lit_flag <args>     — emit "<state>\t<topic-without-flags>"
-#                                            state ∈ {force-on, force-off, auto}
 #   cw_meditate_classify_topic <topic>    — print ON or OFF (keyword scan)
 #   cw_meditate_lit_keywords              — print the keyword list, one per line
 
@@ -65,23 +63,3 @@ cw_meditate_classify_topic() {
   echo "OFF"
 }
 
-# cw_meditate_parse_lit_flag <args>
-# Token-aware parse (mirror of cw_consult_parse_use_force_flag). Removes
-# EXACT --lit and --no-lit tokens (not substrings like --litmus).
-# When both flags appear, last wins. Emits "<state>\t<topic>" where state ∈
-# {force-on, force-off, auto}.
-cw_meditate_parse_lit_flag() {
-  local raw="${1:-}"
-  local state=auto
-  local -a kept=()
-  local tok
-  read -r -a all <<< "$raw"
-  for tok in "${all[@]}"; do
-    case "$tok" in
-      --lit)    state=force-on  ;;
-      --no-lit) state=force-off ;;
-      *)        kept+=("$tok") ;;
-    esac
-  done
-  printf '%s\t%s\n' "$state" "${kept[*]}"
-}

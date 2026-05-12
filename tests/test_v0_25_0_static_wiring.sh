@@ -39,14 +39,14 @@ for s in meditate-init meditate-research-send meditate-synth-preliminary \
 done
 pass "all 7 bin/meditate-*.sh scripts present + executable"
 
-# 3. lib/meditate.sh + 3 public functions
+# 3. lib/meditate.sh + 2 public functions (v0.25.1: dropped cw_meditate_parse_lit_flag)
 [[ -f "$PLUGIN_ROOT/lib/meditate.sh" ]] \
   || { echo "FAIL: lib/meditate.sh missing" >&2; exit 1; }
-for fn in cw_meditate_art_dir cw_meditate_classify_topic cw_meditate_parse_lit_flag; do
+for fn in cw_meditate_art_dir cw_meditate_classify_topic; do
   grep -qE "^${fn}\(\)" "$PLUGIN_ROOT/lib/meditate.sh" \
     || { echo "FAIL: $fn missing in lib/meditate.sh" >&2; exit 1; }
 done
-pass "lib/meditate.sh exposes 3 required functions"
+pass "lib/meditate.sh exposes 2 required functions"
 
 # 4. 3 prompt templates
 for tpl in research.md adversary.md landscape-skeleton.md; do
