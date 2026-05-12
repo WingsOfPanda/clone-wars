@@ -6,7 +6,7 @@
 #
 # Public:
 #   cw_consult_wait <kind> <topic> <commander> <model>
-# Where <kind> is "research" or "verify".
+# Where <kind> is "research", "verify", "adversary", or "experiment".
 
 cw_consult_wait() {
   local kind="$1" topic="$2" commander="$3" model="$4"
@@ -23,6 +23,10 @@ cw_consult_wait() {
     adversary)
       state_key="AS"; timeout_env_var="CW_MEDITATE_ADVERSARY_TIMEOUT_OVERRIDE"
       timeout_key="adversary"; handler_phase="adversary"
+      ;;
+    experiment)
+      state_key="EX"; timeout_env_var="CW_DEEP_RESEARCH_EXPERIMENT_TIMEOUT_OVERRIDE"
+      timeout_key="experiment"; handler_phase="experiment"
       ;;
     *) log_error "cw_consult_wait: unknown kind '$kind'"; return 2 ;;
   esac
