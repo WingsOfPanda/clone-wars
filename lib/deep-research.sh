@@ -27,3 +27,32 @@ cw_deep_research_compute_per_branch_timeout() {
   local result=$(( (total + total_branches - 1) / total_branches ))
   printf '%d\n' "$result"
 }
+
+# Canonical metric vocabulary. Whole-word case-insensitive match in topic
+# text; first-by-position wins.
+_CW_DEEP_RESEARCH_METRIC_VOCAB=(
+  accuracy auc cost f1 latency loss memory params precision recall throughput
+)
+
+# cw_deep_research_extract_metric <topic-text>
+# Returns first metric vocabulary match (lexically by topic position).
+# Empty string if no match (caller should AskUserQuestion-prompt user).
+cw_deep_research_extract_metric() {
+  local topic="${1:-}"
+  [[ -n "$topic" ]] || { echo ""; return 0; }
+  local lower; lower=$(printf '%s' "$topic" | tr '[:upper:]' '[:lower:]')
+  local best_pos=999999 best_word=""
+  local word
+  for word in "${_CW_DEEP_RESEARCH_METRIC_VOCAB[@]}"; do
+    # Whole-word match using bash regex with non-word-character borders
+    if [[ " $lower " =~ [^a-z0-9]"$word"[^a-z0-9] ]]; then
+      local pre="${lower%%"$word"*}"
+      local pos=${#pre}
+      if (( pos < best_pos )); then
+        best_pos=$pos
+        best_word=$word
+      fi
+    fi
+  done
+  printf '%s\n' "$best_word"
+}
