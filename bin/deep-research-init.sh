@@ -94,9 +94,15 @@ if [[ -n "$SEED_FROM" ]]; then
   printf '%s\n' "$SEED_FROM" > "$ART_DIR/seed-from.txt"
 fi
 
+# v0.27.2 P2: init-time hardware probe baseline. Per-experiment probe
+# + diff alert lives in bin/deep-research-experiment-send.sh; this
+# snapshot lets the diff helper detect mid-session memory.free drops.
+cw_deep_research_hardware_probe "$ART_DIR/hardware.txt"
+
 log_info "deep-research topic: $TOPIC_NAME"
 log_info "  artifacts dir:     $ART_DIR"
 log_info "  metric (seed):     ${metric:-(empty — directive will discuss in Phase 1)}"
+log_info "  hardware:          $(head -2 "$ART_DIR/hardware.txt" 2>/dev/null | tr '\n' ' ' | sed 's/  *$//')"
 [[ -n "$SEED_FROM" ]] && log_info "  seed-from:         $SEED_FROM"
 
 printf '%s\n' "$TOPIC_NAME"
