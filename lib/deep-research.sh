@@ -239,6 +239,31 @@ cw_deep_research_check_stagnation() {
   return 0
 }
 
+# cw_deep_research_check_time_budget <budget-path> <session-start-path>
+# Reads time-budget.txt ('none' or integer seconds) + session-start.txt
+# (ISO-8601 UTC). rc=0 if elapsed >= budget; rc=1 otherwise. rc=1 when
+# budget is 'none'. rc=2 on missing/malformed inputs.
+cw_deep_research_check_time_budget() {
+  local budget_path="${1:-}" start_path="${2:-}"
+  [[ -f "$budget_path" ]] || { echo "budget file missing: $budget_path" >&2; return 2; }
+  [[ -f "$start_path" ]] || { echo "session-start file missing: $start_path" >&2; return 2; }
+
+  local budget; budget=$(<"$budget_path"); budget="${budget//[[:space:]]/}"
+  [[ "$budget" == "none" ]] && return 1
+  [[ "$budget" =~ ^[1-9][0-9]*$ ]] \
+    || { echo "malformed budget: '$budget' (expected 'none' or positive integer)" >&2; return 2; }
+
+  local start_iso; start_iso=$(<"$start_path"); start_iso="${start_iso//[[:space:]]/}"
+  local start_epoch
+  start_epoch=$(date -u -d "$start_iso" +%s 2>/dev/null) \
+    || start_epoch=$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$start_iso" +%s 2>/dev/null) \
+    || { echo "could not parse session-start: '$start_iso'" >&2; return 2; }
+
+  local now_epoch; now_epoch=$(date -u +%s)
+  local elapsed=$(( now_epoch - start_epoch ))
+  (( elapsed >= budget )) && return 0 || return 1
+}
+
 # cw_deep_research_extract_approaches <landscape-md-path>
 # Parses ## Approaches section from a meditate landscape doc.
 # Expected format:
