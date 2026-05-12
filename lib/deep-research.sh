@@ -99,6 +99,41 @@ _cw_deep_research_validate_result_jq() {
   return 0
 }
 
+# Codex-eligible commander pool — ordered (first allocated first).
+# rex is canonical codex commander; cody/bly/wolffe excluded because they
+# canonically map to claude/opencode in lib/consult.sh:cw_consult_provider_to_commander.
+# 17 commanders total: 5 Captain + 7 Commander + 1 Sergeant + 4 Lieutenant.
+_CW_DEEP_RESEARCH_CMDR_POOL=(
+  rex keeli colt trauma blackout
+  fox gree ponds bacara neyo doom faie
+  hunter
+  havoc thorn thire stone
+)
+
+# cw_deep_research_allocate_commanders <round> <K>
+# K unique commanders for one round; mod-rotated across rounds (positions
+# (round-1)*K .. round*K - 1 in the pool).
+# rc=2 if K or (round*K) exceeds pool, or args invalid.
+cw_deep_research_allocate_commanders() {
+  local round="${1:-}" k="${2:-}"
+  [[ "$round" =~ ^[1-9][0-9]*$ ]] || { echo "round must be positive integer" >&2; return 2; }
+  [[ "$k" =~ ^[1-9][0-9]*$ ]] || { echo "K must be positive integer" >&2; return 2; }
+  local pool_size=${#_CW_DEEP_RESEARCH_CMDR_POOL[@]}
+  if (( k > pool_size )); then
+    echo "K=$k exceeds codex-eligible pool size ($pool_size)" >&2; return 2
+  fi
+  local total_slots=$(( round * k ))
+  if (( total_slots > pool_size )); then
+    echo "round=$round × K=$k = $total_slots exceeds pool size $pool_size; reduce --max-rounds or --branches-per-round" >&2
+    return 2
+  fi
+  local start=$(( (round - 1) * k ))
+  local i
+  for (( i = 0; i < k; i++ )); do
+    printf '%s\n' "${_CW_DEEP_RESEARCH_CMDR_POOL[$((start + i))]}"
+  done
+}
+
 # cw_deep_research_extract_approaches <landscape-md-path>
 # Parses ## Approaches section from a meditate landscape doc.
 # Expected format:
