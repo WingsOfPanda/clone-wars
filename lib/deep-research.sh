@@ -342,3 +342,30 @@ cw_deep_research_hardware_probe() {
     } > "$out.tmp" && mv "$out.tmp" "$out"
   fi
 }
+
+# cw_deep_research_hardware_diff_alert <baseline-path> <current-path>  [v0.27.2 P2]
+# Compares baseline vs current hardware probe files. Echoes ONE line to
+# stdout per GPU whose memory.free dropped >50% (else nothing). Format:
+#   "ALERT: gpu '<name>' memory.free <baseline-mb> -> <current-mb> (-X%)"
+# rc=0 always. Missing baseline or current → silent (no output).
+cw_deep_research_hardware_diff_alert() {
+  local baseline="${1:-}" current="${2:-}"
+  [[ -f "$baseline" && -f "$current" ]] || return 0
+  awk -F'\t' -v base="$baseline" '
+    BEGIN {
+      while ((getline line < base) > 0) {
+        split(line, f, "\t")
+        if (f[1] == "gpu") { base_free[f[2]] = f[4] }
+      }
+      close(base)
+    }
+    $1 == "gpu" {
+      name=$2; cur_free=$4
+      b = base_free[name]
+      if (b > 0 && cur_free < b * 0.5) {
+        drop = int((1 - cur_free / b) * 100)
+        printf "ALERT: gpu \047%s\047 memory.free %s -> %s MiB (-%d%%)\n", name, b, cur_free, drop
+      }
+    }
+  ' "$current"
+}
