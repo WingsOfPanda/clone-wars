@@ -100,27 +100,19 @@ _CW_DEEP_RESEARCH_CMDR_POOL=(
   havoc thorn thire stone
 )
 
-# cw_deep_research_allocate_commanders <round> <K>
-# K unique commanders for one round; mod-rotated across rounds (positions
-# (round-1)*K .. round*K - 1 in the pool).
-# rc=2 if K or (round*K) exceeds pool, or args invalid.
-cw_deep_research_allocate_commanders() {
-  local round="${1:-}" k="${2:-}"
-  [[ "$round" =~ ^[1-9][0-9]*$ ]] || { echo "round must be positive integer" >&2; return 2; }
-  [[ "$k" =~ ^[1-9][0-9]*$ ]] || { echo "K must be positive integer" >&2; return 2; }
-  local pool_size=${#_CW_DEEP_RESEARCH_CMDR_POOL[@]}
-  if (( k > pool_size )); then
-    echo "K=$k exceeds codex-eligible pool size ($pool_size)" >&2; return 2
-  fi
-  local total_slots=$(( round * k ))
-  if (( total_slots > pool_size )); then
-    echo "round=$round × K=$k = $total_slots exceeds pool size $pool_size; reduce --max-rounds or --branches-per-round" >&2
-    return 2
-  fi
-  local start=$(( (round - 1) * k ))
+# cw_deep_research_pick_roster <N>
+# Returns first N commanders from the codex-eligible pool, deterministic
+# order. Used once at preflight in /clone-wars:deep-research (v0.27.0
+# advisor model; replaces v0.26.0's mod-rotated cw_deep_research_allocate_commanders).
+# Valid N: 2 or 3 (narrow vs broad survey — judgment lives in directive
+# prose, not bash). rc=2 if N is not 2 or 3.
+cw_deep_research_pick_roster() {
+  local n="${1:-}"
+  [[ "$n" == "2" || "$n" == "3" ]] \
+    || { echo "N must be 2 or 3; got '$n'" >&2; return 2; }
   local i
-  for (( i = 0; i < k; i++ )); do
-    printf '%s\n' "${_CW_DEEP_RESEARCH_CMDR_POOL[$((start + i))]}"
+  for (( i = 0; i < n; i++ )); do
+    printf '%s\n' "${_CW_DEEP_RESEARCH_CMDR_POOL[$i]}"
   done
 }
 
