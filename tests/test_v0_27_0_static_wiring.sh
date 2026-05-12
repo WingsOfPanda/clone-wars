@@ -8,16 +8,16 @@ source lib/assert.sh
 PLUGIN_ROOT="$(cd .. && pwd)"
 export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
 
-# Invariant 1: plugin.json version = 0.27.0
-grep -qE '"version"[[:space:]]*:[[:space:]]*"0\.27\.0"' "$PLUGIN_ROOT/.claude-plugin/plugin.json" \
-  || { echo "FAIL: plugin.json version != 0.27.0" >&2; exit 1; }
-pass "1. plugin.json version 0.27.0"
+# Invariant 1: plugin.json version on 0.27.x line (any patch — v0.25.0 precedent)
+grep -qE '"version"[[:space:]]*:[[:space:]]*"0\.27\.[0-9]+"' "$PLUGIN_ROOT/.claude-plugin/plugin.json" \
+  || { echo "FAIL: plugin.json version not on 0.27.x line" >&2; exit 1; }
+pass "1. plugin.json version on 0.27.x"
 
-# Invariant 2: marketplace.json has 2 v0.27.0 fields
-count=$(grep -cE '"version"[[:space:]]*:[[:space:]]*"0\.27\.0"' "$PLUGIN_ROOT/.claude-plugin/marketplace.json")
+# Invariant 2: marketplace.json has 2 v0.27.x fields
+count=$(grep -cE '"version"[[:space:]]*:[[:space:]]*"0\.27\.[0-9]+"' "$PLUGIN_ROOT/.claude-plugin/marketplace.json")
 [[ "$count" == "2" ]] \
-  || { echo "FAIL: marketplace.json expected 2 v0.27.0 fields, got $count" >&2; exit 1; }
-pass "2. marketplace.json has 2 v0.27.0 version fields"
+  || { echo "FAIL: marketplace.json expected 2 v0.27.x fields, got $count" >&2; exit 1; }
+pass "2. marketplace.json has 2 v0.27.x version fields"
 
 # Invariant 3: 5 deep-research bin scripts present + executable
 for s in deep-research-init deep-research-experiment-send deep-research-experiment-wait deep-research-score deep-research-teardown; do
