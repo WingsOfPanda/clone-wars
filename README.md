@@ -81,6 +81,20 @@ run concurrently.
 | `/clone-wars:teardown <topic>` / `<commander> <topic>` / `--all` | Graceful shutdown: 8s colored banner, then kill the pane and archive state. |
 | `/clone-wars:deploy [<design-path>]` | Codex implements + Yoda verifies a design doc. |
 | `/clone-wars:meditate <topic>` | Deep multi-aspect exploration: parallel-N research, preliminary synthesis, 5-signal confidence gate, adversary phase, tradeoff-matrix landscape doc with directional Conclusion that feeds `/clone-wars:consult`. |
+| `/clone-wars:deep-research <topic-with-metric>` | AIDE-pattern executable autoresearch. Conductor plans (hypothesize/score/select/synth); codex troopers execute (one branch per trooper, single-turn implement+run+result.json). K branches/round × N rounds tree search with convergence early-exit. ⚠️ runs codex with sandbox bypass — read DANGER block below. |
+
+### ⚠️ DANGER block — `/clone-wars:deep-research`
+
+`/clone-wars:deep-research` spawns codex troopers under
+`--dangerously-bypass-approvals-and-sandbox` and has them write +
+execute arbitrary code in your repo. **v1 sandboxing is honor-system**
+— troopers are *told* to stay inside their per-branch sandbox dir, but
+enforcement is not mechanical.
+
+Do **not** run on machines with sensitive credentials, production data,
+or shared state. Use a scratch worktree if uncertain (the command does
+**not** create one for you). `--allow-net=false` (default) tells
+troopers not to fetch external resources; honor-system enforcement only.
 
 Full spec: `docs/DESIGN.md` §Slash commands. Runtime IPC (the `END_OF_INSTRUCTION` sentinel,
 JSONL outbox event types, status state machine) is in §File-IPC protocol.
