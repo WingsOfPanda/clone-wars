@@ -136,7 +136,14 @@ if [[ -n "$TARGETS_RAW" ]]; then
     printf '%s\t%s\n' "$s" "$abs" >> "$TMPF"
   done
   mv "$TMPF" "$TARGETS_FILE"
-  printf 'multi\n' > "$ART_DIR/multi-repo.txt"
+  # 1 slug → single-sub (single-repo shape, singular Target Sub-Project header).
+  # 2+ slugs → multi (multi-repo DAG flow). Distinction matters for
+  # bin/consult-walk-assemble.sh's header form and section list.
+  if (( ${#TARGET_SLUGS[@]} == 1 )); then
+    printf 'single-sub\n' > "$ART_DIR/multi-repo.txt"
+  else
+    printf 'multi\n' > "$ART_DIR/multi-repo.txt"
+  fi
   log_info "  --targets:        ${#TARGET_SLUGS[@]} slugs → $TARGETS_FILE"
 fi
 

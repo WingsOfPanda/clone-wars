@@ -36,15 +36,27 @@ DATE=$(date -u +%Y-%m-%d)
 OUT="$ART/design-doc/$DATE-$SLUG-design.md"
 
 # Multi-repo detection: read _consult/multi-repo.txt + targets.txt.
+# Three modes: multi (2+ targets), single-sub (1 target, single-repo shape +
+# singular Target Sub-Project header), single/absent (no header).
 MULTI_REPO=0
+SINGLE_SUB=0
 TARGET_SLUGS=""
+SINGLE_SUB_SLUG=""
 if [[ -f "$ART/multi-repo.txt" ]]; then
   mode=$(tr -d '[:space:]' < "$ART/multi-repo.txt")
-  if [[ "$mode" == "multi" ]]; then
-    [[ -f "$ART/targets.txt" ]] || { log_error "walk-assemble: multi-repo.txt=multi but targets.txt missing"; exit 1; }
-    MULTI_REPO=1
-    TARGET_SLUGS=$(grep -v '^#' "$ART/targets.txt" | awk -F'\t' 'NF{print $1}' | paste -sd ',' - | sed 's/,/, /g')
-  fi
+  case "$mode" in
+    multi)
+      [[ -f "$ART/targets.txt" ]] || { log_error "walk-assemble: multi-repo.txt=multi but targets.txt missing"; exit 1; }
+      MULTI_REPO=1
+      TARGET_SLUGS=$(grep -v '^#' "$ART/targets.txt" | awk -F'\t' 'NF{print $1}' | paste -sd ',' - | sed 's/,/, /g')
+      ;;
+    single-sub)
+      [[ -f "$ART/targets.txt" ]] || { log_error "walk-assemble: multi-repo.txt=single-sub but targets.txt missing"; exit 1; }
+      SINGLE_SUB_SLUG=$(grep -v '^#' "$ART/targets.txt" | awk -F'\t' 'NF{print $1}' | head -1)
+      [[ -n "$SINGLE_SUB_SLUG" ]] || { log_error "walk-assemble: multi-repo.txt=single-sub but targets.txt has no slug"; exit 1; }
+      SINGLE_SUB=1
+      ;;
+  esac
 fi
 
 if (( MULTI_REPO )); then
@@ -60,6 +72,9 @@ printf '# %s\n\n' "$TITLE" > "$TMPF"
 if (( MULTI_REPO )); then
   printf '**Date:** %s\n' "$DATE" >> "$TMPF"
   printf '**Target Sub-Project(s):** %s\n\n' "$TARGET_SLUGS" >> "$TMPF"
+elif (( SINGLE_SUB )); then
+  printf '**Date:** %s\n' "$DATE" >> "$TMPF"
+  printf '**Target Sub-Project:** %s\n\n' "$SINGLE_SUB_SLUG" >> "$TMPF"
 fi
 
 for section in "${SECTIONS[@]}"; do

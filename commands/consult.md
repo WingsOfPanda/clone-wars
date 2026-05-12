@@ -750,7 +750,23 @@ If `$HITS` is empty (no sibling matches OR --targets was set):
 - single-repo path. Write `_consult/multi-repo.txt = single` if not already
   present. Skip the AskUserQuestion confirmation.
 
-If `$HITS` is non-empty (auto-detect found candidate slugs):
+If `$HITS` has **exactly 1 line** (one sub-repo target — the common
+"hub-with-one-affected-sub-repo" case):
+- Issue `AskUserQuestion`:
+  - Question: "Topic targets sub-project `<slug>` (detected from sibling
+    repos). Use it as the single sub-repo target, or treat as hub-level
+    work?"
+  - Header: `Target`
+  - Options: `Use <slug>` (recommended) / `Treat as hub-level`
+- On `Use <slug>`: write `_consult/targets.txt` from `$HITS`
+  + `_consult/multi-repo.txt = single-sub`. `bin/consult-walk-assemble.sh`
+  will emit the singular `**Target Sub-Project:** <slug>` header so
+  `/clone-wars:deploy` redirects target_cwd / branch / state into the
+  sub-repo (v0.10.0 mechanism).
+- On `Treat as hub-level`: write `_consult/multi-repo.txt = single`. No
+  targets.txt.
+
+If `$HITS` has **2+ lines** (multi-repo topic candidates):
 - Issue `AskUserQuestion`:
   - Question: "Detected multi-repo topic candidates: <slug list>. Use
     these as targets, edit, or proceed single-repo?"
@@ -759,7 +775,9 @@ If `$HITS` is non-empty (auto-detect found candidate slugs):
   + `_consult/multi-repo.txt = multi`.
 - On `Edit list`: AskUserQuestion (free-form) for the edited slug list
   (comma-separated). Validate each against `${CW_SLUG_REGEX_BASE}` and
-  re-prompt on rejection. Write `targets.txt` + `multi-repo.txt = multi`.
+  re-prompt on rejection. Write `targets.txt` + `multi-repo.txt = multi`
+  for 2+ slugs, or `multi-repo.txt = single-sub` if the user edits down
+  to exactly 1 slug.
 - On `Proceed single-repo`: write `_consult/multi-repo.txt = single`. No
   targets.txt.
 
