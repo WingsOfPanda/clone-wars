@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # tests/test_v0_26_0_static_wiring.sh — version-stamped invariant lock for v0.26.0.
 # Never edit — adjust at v0.27.0 by creating a new static-wiring test.
+#
+# v0.27.0 documented exception: the advisor rewrite explicitly removes
+# cw_deep_research_compute_per_branch_timeout + cw_deep_research_allocate_commanders
+# and changes the directive's argument-hint shape. Invariants 4 and 6 are
+# updated accordingly. See docs/superpowers/specs/2026-05-12-v0.27.0-deep-research-advisor-rewrite-design.md §9.
 set -euo pipefail
 cd "$(dirname "$0")"
 source lib/assert.sh
@@ -34,25 +39,25 @@ source "$PLUGIN_ROOT/lib/commanders.sh"
 source "$PLUGIN_ROOT/lib/deep-research.sh"
 
 for fn in \
-  cw_deep_research_compute_per_branch_timeout \
   cw_deep_research_extract_metric \
   cw_deep_research_validate_result_json \
-  cw_deep_research_extract_approaches \
-  cw_deep_research_allocate_commanders; do
+  cw_deep_research_extract_approaches; do
   declare -F "$fn" >/dev/null \
     || { echo "FAIL: $fn not exposed from lib/deep-research.sh" >&2; exit 1; }
 done
-pass "4. lib/deep-research.sh exposes 5 expected helpers"
+pass "4. lib/deep-research.sh exposes 3 retained v0.26.0 helpers (compute_per_branch_timeout + allocate_commanders removed in v0.27.0)"
 
 # Invariant 5: experiment.md prompt template exists
 [[ -f "$PLUGIN_ROOT/config/prompt-templates/deep-research/experiment.md" ]] \
   || { echo "FAIL: experiment.md template missing" >&2; exit 1; }
 pass "5. config/prompt-templates/deep-research/experiment.md present"
 
-# Invariant 6: commands/deep-research.md frontmatter argument-hint shape
-grep -qE '^argument-hint:.*<topic-with-explicit-metric>' "$PLUGIN_ROOT/commands/deep-research.md" \
-  || { echo "FAIL: argument-hint shape wrong" >&2; exit 1; }
-pass "6. directive frontmatter has expected argument-hint"
+# Invariant 6: commands/deep-research.md has an argument-hint frontmatter
+# (v0.27.0 changed the exact shape from <topic-with-explicit-metric> to
+# <topic-with-metric>; lock now asserts presence of the key only).
+grep -qE '^argument-hint:.*<topic' "$PLUGIN_ROOT/commands/deep-research.md" \
+  || { echo "FAIL: argument-hint frontmatter missing" >&2; exit 1; }
+pass "6. directive frontmatter has argument-hint with <topic...> token"
 
 # Invariant 7: directive references all 5 bin scripts
 for s in deep-research-init deep-research-experiment-send deep-research-experiment-wait deep-research-score deep-research-teardown; do
