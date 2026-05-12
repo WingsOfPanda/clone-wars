@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# bin/deep-research-score.sh — parse all branch result.json files in a round
-# and produce scoreboard.md (sorted descending by metric_value, failed
-# branches grouped at bottom). Yoda's select phase reads scoreboard.md to
-# pick survivors.
+# bin/deep-research-score.sh — write rolling scoreboard for a /clone-wars:deep-research topic.
 #
-# Usage: bin/deep-research-score.sh <topic> <round>
+# Usage: bin/deep-research-score.sh <topic>
+#
+# Reads all _deep-research/experiments/exp-*/result.json, validates each
+# via cw_deep_research_validate_result_json, writes
+# _deep-research/scoreboard.md (atomic tmp+mv). OK rows sorted desc by
+# metric_value; failed/timeout/cost_blown rows grouped at the bottom in
+# experiment-id order.
 
 set -uo pipefail
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -13,90 +16,83 @@ source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/consult.sh"
 source "$PLUGIN_ROOT/lib/deep-research.sh"
 
-[[ $# -eq 2 ]] || { echo "Usage: $0 <topic> <round>" >&2; exit 2; }
-TOPIC="$1"; ROUND="$2"
+[[ $# -eq 1 ]] || { log_error "Usage: $0 <topic>"; exit 2; }
+TOPIC="$1"
+[[ "$TOPIC" == deep-research-* ]] \
+  || { log_error "topic must start with 'deep-research-': $TOPIC"; exit 2; }
+cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 2; }
 
-[[ "$TOPIC" == deep-research-* ]] || { log_error "bad topic: $TOPIC"; exit 2; }
-[[ "$ROUND" =~ ^[1-9][0-9]*$ ]] || { log_error "bad round: $ROUND"; exit 2; }
+state_root="${CLONE_WARS_HOME:-$HOME/.clone-wars}"
+repo_hash=$(cw_repo_hash)
+TOPIC_DIR="$state_root/state/$repo_hash/$TOPIC"
+ART_DIR="$TOPIC_DIR/_deep-research"
+EXPS_DIR="$ART_DIR/experiments"
+[[ -d "$EXPS_DIR" ]] || { log_error "experiments dir missing: $EXPS_DIR"; exit 1; }
 
-ART_DIR=$(cw_consult_art_dir "$TOPIC")
-ROUND_DIR="$ART_DIR/round-$ROUND"
-BRANCHES_FILE="$ROUND_DIR/branches.txt"
-[[ -f "$BRANCHES_FILE" ]] || { log_error "no branches.txt for round $ROUND"; exit 1; }
+SB_TMP=$(mktemp)
+OK_ROWS=$(mktemp)
+FAIL_ROWS=$(mktemp)
+trap 'rm -f "$SB_TMP" "$OK_ROWS" "$FAIL_ROWS"' EXIT
 
-# Build rows: branch_label\tcommander\tmetric_value\tstatus\truntime_s\tlabel
-declare -a OK_ROWS=() BAD_ROWS=()
-while IFS=$'\t' read -r bid cmdr label _brief; do
-  [[ -n "$bid" ]] || continue
-  bd="$ART_DIR/round-$ROUND-$cmdr-$bid"
-  result="$bd/result.json"
-  branch_label="${cmdr}-${bid}"
+shopt -s nullglob
+for branch_dir in "$EXPS_DIR"/*/; do
+  branch_dir="${branch_dir%/}"
+  result="$branch_dir/result.json"
+  [[ -f "$result" ]] || continue
 
-  if [[ ! -f "$result" ]]; then
-    BAD_ROWS+=("${branch_label}"$'\t'"${cmdr}"$'\t'"null"$'\t'"missing"$'\t'"0"$'\t'"${label}")
-    continue
-  fi
-  if ! ( cd "$bd" && cw_deep_research_validate_result_json result.json 2>/dev/null ); then
-    BAD_ROWS+=("${branch_label}"$'\t'"${cmdr}"$'\t'"null"$'\t'"invalid"$'\t'"0"$'\t'"${label}")
-    continue
-  fi
+  basename_dir=$(basename "$branch_dir")  # e.g. "exp-007-rex"
+  exp_id="${basename_dir%-*}"             # exp-007
+  cmdr="${basename_dir##*-}"              # rex
 
+  # Validate schema (sets stderr message on failure)
+  (cd "$branch_dir" && cw_deep_research_validate_result_json result.json) 2>/dev/null \
+    || { log_warn "result.json schema invalid: $result (skipping)"; continue; }
+
+  # Extract fields (prefer jq, fall back to grep)
   if command -v jq >/dev/null 2>&1; then
-    mv=$(jq -r '.metric_value // "null"' "$result")
-    st=$(jq -r '.status' "$result")
-    rt=$(jq -r '.runtime_s' "$result")
+    metric=$(jq -r '.metric_value' "$result")
+    status=$(jq -r '.status' "$result")
+    runtime=$(jq -r '.runtime_s' "$result")
+    label=$(jq -r '.approach_label' "$result")
   else
-    mv=$(grep -oE '"metric_value"[[:space:]]*:[[:space:]]*[^,}]+' "$result" \
-      | sed 's/.*://; s/[[:space:]]*//g')
-    st=$(grep -oE '"status"[[:space:]]*:[[:space:]]*"[^"]+"' "$result" \
-      | sed -E 's/.*"([^"]+)"$/\1/')
-    rt=$(grep -oE '"runtime_s"[[:space:]]*:[[:space:]]*[0-9]+' "$result" \
-      | sed 's/.*://; s/[[:space:]]*//g')
+    metric=$(grep -oE '"metric_value"[[:space:]]*:[[:space:]]*[^,}]+' "$result" \
+      | sed 's/.*:[[:space:]]*//' | tr -d ' "')
+    status=$(grep -oE '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$result" \
+      | sed 's/.*"\([^"]*\)"/\1/')
+    runtime=$(grep -oE '"runtime_s"[[:space:]]*:[[:space:]]*[0-9.]+' "$result" \
+      | sed 's/.*:[[:space:]]*//')
+    label=$(grep -oE '"approach_label"[[:space:]]*:[[:space:]]*"[^"]*"' "$result" \
+      | sed 's/.*"\([^"]*\)"/\1/')
   fi
 
-  if [[ "$st" == "ok" ]]; then
-    OK_ROWS+=("${branch_label}"$'\t'"${cmdr}"$'\t'"${mv}"$'\t'"${st}"$'\t'"${rt}"$'\t'"${label}")
+  if [[ "$status" == "ok" ]]; then
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$metric" "$exp_id" "$cmdr" "$status" "$runtime" "$label" >> "$OK_ROWS"
   else
-    BAD_ROWS+=("${branch_label}"$'\t'"${cmdr}"$'\t'"${mv}"$'\t'"${st}"$'\t'"${rt}"$'\t'"${label}")
+    printf '%s\t%s\t%s\t%s\t%s\n' "$exp_id" "$cmdr" "$status" "$runtime" "$label" >> "$FAIL_ROWS"
   fi
-done < "$BRANCHES_FILE"
+done
 
-# Sort ok rows descending by metric_value (column 3); bad rows alpha by branch_label
-SORTED_OK=""
-if [[ ${#OK_ROWS[@]} -gt 0 ]]; then
-  SORTED_OK=$(printf '%s\n' "${OK_ROWS[@]}" | sort -t$'\t' -k3,3rg)
-fi
-SORTED_BAD=""
-if [[ ${#BAD_ROWS[@]} -gt 0 ]]; then
-  SORTED_BAD=$(printf '%s\n' "${BAD_ROWS[@]}" | sort -t$'\t' -k1,1)
-fi
-
-# Render scoreboard.md (atomic tmp + rename)
-SCOREBOARD="$ROUND_DIR/scoreboard.md"
-TMP_OUT=$(mktemp)
 {
-  echo "# Round $ROUND scoreboard"
-  echo ""
-  echo "| Rank | Branch | Commander | Metric | Status | Runtime | Approach |"
-  echo "|---|---|---|---|---|---|---|"
+  printf '# Scoreboard\n\n'
+  printf '| Rank | Experiment | Commander | Metric | Status | Runtime | Approach |\n'
+  printf '|---|---|---|---|---|---|---|\n'
   rank=1
-  if [[ -n "$SORTED_OK" ]]; then
-    while IFS=$'\t' read -r bid cmdr mv st rt label; do
-      [[ -n "$bid" ]] || continue
+  if [[ -s "$OK_ROWS" ]]; then
+    while IFS=$'\t' read -r metric exp cmdr status runtime label; do
       printf '| %d | %s | %s | %s | %s | %ss | %s |\n' \
-        "$rank" "$bid" "$cmdr" "$mv" "$st" "$rt" "$label"
+        "$rank" "$exp" "$cmdr" "$metric" "$status" "$runtime" "$label"
       rank=$((rank + 1))
-    done <<< "$SORTED_OK"
+    done < <(sort -t$'\t' -k1,1 -rn "$OK_ROWS")
   fi
-  if [[ -n "$SORTED_BAD" ]]; then
-    while IFS=$'\t' read -r bid cmdr mv st rt label; do
-      [[ -n "$bid" ]] || continue
-      printf '| %d | %s | %s | %s | %s | %ss | %s |\n' \
-        "$rank" "$bid" "$cmdr" "$mv" "$st" "$rt" "$label"
+  if [[ -s "$FAIL_ROWS" ]]; then
+    while IFS=$'\t' read -r exp cmdr status runtime label; do
+      printf '| %d | %s | %s | n/a | %s | %ss | %s |\n' \
+        "$rank" "$exp" "$cmdr" "$status" "$runtime" "$label"
       rank=$((rank + 1))
-    done <<< "$SORTED_BAD"
+    done < <(sort -t$'\t' -k1,1 "$FAIL_ROWS")
   fi
-} > "$TMP_OUT"
+} > "$SB_TMP"
 
-mv "$TMP_OUT" "$SCOREBOARD"
-log_ok "[score] round $ROUND scoreboard at $SCOREBOARD"
+SB="$ART_DIR/scoreboard.md"
+mv "$SB_TMP" "$SB"
+log_ok "[score] scoreboard at $SB"

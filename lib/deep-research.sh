@@ -2,31 +2,21 @@
 # Sourced. Depends on lib/log.sh, lib/state.sh, lib/consult.sh, lib/commanders.sh.
 #
 # Public:
-#   cw_deep_research_compute_per_branch_timeout <total-s> <rounds> <K>
-#       — ceiling-divide total budget across (rounds * K) branches
 #   cw_deep_research_extract_metric <topic-text>
 #       — heuristic metric name extraction; empty string if ambiguous
 #   cw_deep_research_validate_result_json <relative-path>
 #       — schema check; rc=0 valid; rc>0 invalid (stderr); call from branch dir
 #   cw_deep_research_extract_approaches <landscape-md-path>
 #       — TSV "label\tbrief\n" from meditate landscape ## Approaches section
-#   cw_deep_research_allocate_commanders <round> <K>
-#       — K codex-eligible commanders, mod-rotated per round (deterministic)
-#   cw_deep_research_check_convergence <slug> <round>
-#       — rc=0 if delta<1% vs prior round; rc=1 otherwise
-
-# cw_deep_research_compute_per_branch_timeout <total-s> <rounds> <K>
-# Ceiling-divide total wall-clock budget across all planned branches.
-# Errors with rc=2 if any arg is non-positive integer.
-cw_deep_research_compute_per_branch_timeout() {
-  local total="${1:-}" rounds="${2:-}" k="${3:-}"
-  [[ "$total" =~ ^[1-9][0-9]*$ ]] || { echo "total must be positive integer" >&2; return 2; }
-  [[ "$rounds" =~ ^[1-9][0-9]*$ ]] || { echo "rounds must be positive integer" >&2; return 2; }
-  [[ "$k" =~ ^[1-9][0-9]*$ ]] || { echo "K must be positive integer" >&2; return 2; }
-  local total_branches=$((rounds * k))
-  local result=$(( (total + total_branches - 1) / total_branches ))
-  printf '%d\n' "$result"
-}
+#   cw_deep_research_pick_roster <N>
+#       — first N codex-eligible commanders (N=2 or N=3); deterministic
+#   cw_deep_research_format_metric_block
+#       — render metric.md from K=V pairs on stdin
+#   cw_deep_research_check_stagnation <scoreboard> <cursor-path>
+#       — rc=0 if last 5 post-cursor exps all <1% of running best AND
+#         exp_count >= 5; rc!=0 otherwise
+#   cw_deep_research_check_time_budget <budget-path> <session-start-path>
+#       — rc=0 if elapsed >= budget seconds; rc=1 on 'none' or not yet hit
 
 # Canonical metric vocabulary. Whole-word case-insensitive match in topic
 # text; first-by-position wins.
@@ -110,28 +100,168 @@ _CW_DEEP_RESEARCH_CMDR_POOL=(
   havoc thorn thire stone
 )
 
-# cw_deep_research_allocate_commanders <round> <K>
-# K unique commanders for one round; mod-rotated across rounds (positions
-# (round-1)*K .. round*K - 1 in the pool).
-# rc=2 if K or (round*K) exceeds pool, or args invalid.
-cw_deep_research_allocate_commanders() {
-  local round="${1:-}" k="${2:-}"
-  [[ "$round" =~ ^[1-9][0-9]*$ ]] || { echo "round must be positive integer" >&2; return 2; }
-  [[ "$k" =~ ^[1-9][0-9]*$ ]] || { echo "K must be positive integer" >&2; return 2; }
-  local pool_size=${#_CW_DEEP_RESEARCH_CMDR_POOL[@]}
-  if (( k > pool_size )); then
-    echo "K=$k exceeds codex-eligible pool size ($pool_size)" >&2; return 2
-  fi
-  local total_slots=$(( round * k ))
-  if (( total_slots > pool_size )); then
-    echo "round=$round × K=$k = $total_slots exceeds pool size $pool_size; reduce --max-rounds or --branches-per-round" >&2
-    return 2
-  fi
-  local start=$(( (round - 1) * k ))
+# cw_deep_research_pick_roster <N>
+# Returns first N commanders from the codex-eligible pool, deterministic
+# order. Used once at preflight in /clone-wars:deep-research (v0.27.0
+# advisor model; replaces v0.26.0's mod-rotated cw_deep_research_allocate_commanders).
+# Valid N: 2 or 3 (narrow vs broad survey — judgment lives in directive
+# prose, not bash). rc=2 if N is not 2 or 3.
+cw_deep_research_pick_roster() {
+  local n="${1:-}"
+  [[ "$n" == "2" || "$n" == "3" ]] \
+    || { echo "N must be 2 or 3; got '$n'" >&2; return 2; }
   local i
-  for (( i = 0; i < k; i++ )); do
-    printf '%s\n' "${_CW_DEEP_RESEARCH_CMDR_POOL[$((start + i))]}"
+  for (( i = 0; i < n; i++ )); do
+    printf '%s\n' "${_CW_DEEP_RESEARCH_CMDR_POOL[$i]}"
   done
+}
+
+# cw_deep_research_format_metric_block
+# Reads K=V pairs on stdin, renders the structured metric.md body to stdout.
+# Required keys: primary_metric, direction (maximize|minimize).
+# Optional keys: target, acceptable, hard_constraints, notes.
+# rc=2 if a required key is missing or direction is invalid.
+cw_deep_research_format_metric_block() {
+  local primary_metric="" direction="" target="" acceptable="" hard_constraints="" notes=""
+  local line key val
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    key="${line%%=*}"
+    val="${line#*=}"
+    case "$key" in
+      primary_metric)    primary_metric="$val" ;;
+      direction)         direction="$val" ;;
+      target)            target="$val" ;;
+      acceptable)        acceptable="$val" ;;
+      hard_constraints)  hard_constraints="$val" ;;
+      notes)             notes="$val" ;;
+    esac
+  done
+
+  [[ -n "$primary_metric" ]] || { echo "missing required key: primary_metric" >&2; return 2; }
+  [[ -n "$direction" ]] || { echo "missing required key: direction" >&2; return 2; }
+  [[ "$direction" == "maximize" || "$direction" == "minimize" ]] \
+    || { echo "direction must be 'maximize' or 'minimize'; got '$direction'" >&2; return 2; }
+
+  printf '# Research goal\n\n'
+  printf '**Primary metric:** %s\n' "$primary_metric"
+  printf '**Direction:** %s\n' "$direction"
+  [[ -n "$target" ]]           && printf '**Target (good):** %s\n' "$target"
+  [[ -n "$acceptable" ]]       && printf '**Acceptable:** %s\n' "$acceptable"
+  [[ -n "$hard_constraints" ]] && printf '**Hard constraints:** %s\n' "$hard_constraints"
+  [[ -n "$notes" ]]            && printf '\n**Notes:** %s\n' "$notes"
+  return 0
+}
+
+# cw_deep_research_check_stagnation <scoreboard-path> <cursor-path>
+# Reads scoreboard.md (any sort order; we re-sort by exp-NNN chronologically)
+# + stagnation-cursor.txt. Returns rc=0 if last 5 experiments after cursor
+# all <1% over running best AND total post-cursor exp count >= 5. Returns
+# rc=1 otherwise.
+# Notes:
+#   - Floor: never rc=0 when post-cursor exp count < 5.
+#   - Direction: max-direction only (higher metric = better). Future
+#     parameterization deferred to v0.28+.
+#   - Cursor file format: single integer line. Missing file treated as '0'.
+cw_deep_research_check_stagnation() {
+  local sb="${1:-}" cursor_path="${2:-}"
+  [[ -f "$sb" ]] || { echo "scoreboard missing: $sb" >&2; return 2; }
+
+  local cursor=0
+  [[ -f "$cursor_path" ]] && cursor=$(<"$cursor_path")
+  [[ "$cursor" =~ ^[0-9]+$ ]] || cursor=0
+
+  # Parse scoreboard rows. Each table row: "| rank | exp-id | metric | status |"
+  local -a exp_nums=() metrics=() statuses=()
+  local line exp_num metric status exp_id
+  local -a fields=()
+  while IFS= read -r line; do
+    [[ "$line" =~ ^\|[[:space:]]+[0-9]+[[:space:]]+\| ]] || continue
+    IFS='|' read -r -a fields <<<"$line"
+    exp_id="${fields[2]//[[:space:]]/}"
+    metric="${fields[3]//[[:space:]]/}"
+    status="${fields[4]//[[:space:]]/}"
+    exp_num="${exp_id#exp-}"
+    exp_num="${exp_num#0}"; exp_num="${exp_num#0}"
+    [[ -z "$exp_num" ]] && exp_num=0
+    [[ "$exp_num" =~ ^[0-9]+$ ]] || continue
+    exp_nums+=("$exp_num")
+    metrics+=("$metric")
+    statuses+=("$status")
+  done < "$sb"
+
+  # Build chronologically-ordered post-cursor list (only ok rows)
+  local -a chron_nums=() chron_metrics=()
+  local i n m s idx
+  local -a sorted_idx=()
+  while IFS=$'\t' read -r idx _; do
+    sorted_idx+=("$idx")
+  done < <(
+    for i in "${!exp_nums[@]}"; do
+      printf '%d\t%d\n' "$i" "${exp_nums[$i]}"
+    done | sort -k2,2n
+  )
+
+  for idx in "${sorted_idx[@]}"; do
+    n="${exp_nums[$idx]}"
+    m="${metrics[$idx]}"
+    s="${statuses[$idx]}"
+    (( n > cursor )) || continue
+    [[ "$s" == "ok" ]] || continue
+    chron_nums+=("$n")
+    chron_metrics+=("$m")
+  done
+
+  local post_count="${#chron_nums[@]}"
+  (( post_count >= 5 )) || return 1
+
+  # Find running-best across all post-cursor exps
+  local best="${chron_metrics[0]}"
+  for m in "${chron_metrics[@]}"; do
+    awk -v a="$m" -v b="$best" 'BEGIN { exit !(a > b) }' && best="$m"
+  done
+
+  # Check the last 5 post-cursor exps: all must be <1% of best
+  local start=$(( post_count - 5 ))
+  for (( i = start; i < post_count; i++ )); do
+    m="${chron_metrics[$i]}"
+    if awk -v a="$m" -v b="$best" 'BEGIN {
+      if (b == 0) exit 0;
+      d = (a > b ? a - b : b - a);
+      exit !(d / b * 100 < 1.0);
+    }'; then
+      continue
+    else
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+# cw_deep_research_check_time_budget <budget-path> <session-start-path>
+# Reads time-budget.txt ('none' or integer seconds) + session-start.txt
+# (ISO-8601 UTC). rc=0 if elapsed >= budget; rc=1 otherwise. rc=1 when
+# budget is 'none'. rc=2 on missing/malformed inputs.
+cw_deep_research_check_time_budget() {
+  local budget_path="${1:-}" start_path="${2:-}"
+  [[ -f "$budget_path" ]] || { echo "budget file missing: $budget_path" >&2; return 2; }
+  [[ -f "$start_path" ]] || { echo "session-start file missing: $start_path" >&2; return 2; }
+
+  local budget; budget=$(<"$budget_path"); budget="${budget//[[:space:]]/}"
+  [[ "$budget" == "none" ]] && return 1
+  [[ "$budget" =~ ^[1-9][0-9]*$ ]] \
+    || { echo "malformed budget: '$budget' (expected 'none' or positive integer)" >&2; return 2; }
+
+  local start_iso; start_iso=$(<"$start_path"); start_iso="${start_iso//[[:space:]]/}"
+  local start_epoch
+  start_epoch=$(date -u -d "$start_iso" +%s 2>/dev/null) \
+    || start_epoch=$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$start_iso" +%s 2>/dev/null) \
+    || { echo "could not parse session-start: '$start_iso'" >&2; return 2; }
+
+  local now_epoch; now_epoch=$(date -u +%s)
+  local elapsed=$(( now_epoch - start_epoch ))
+  (( elapsed >= budget )) && return 0 || return 1
 }
 
 # cw_deep_research_extract_approaches <landscape-md-path>

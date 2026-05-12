@@ -108,6 +108,9 @@ cw_consult_wait() {
           adv_file="$art_dir/adversary-$commander.md"
           if [[ -s "$adv_file" ]]; then status=ok; else status=missing; fi
           ;;
+        experiment)
+          status=ok
+          ;;
       esac
       printf '%s=%s\n' "$state_key" "$status" >> "$state_file"
       log_info "[$kind-wait] $commander $state_key=$status"
