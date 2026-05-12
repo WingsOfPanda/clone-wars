@@ -106,6 +106,10 @@ cw_consult_timeout() {
     research)   key=research_timeout_s;   default=600 ;;
     verify)     key=verify_timeout_s;     default=300 ;;
     adversary)  key=adversary_timeout_s;  default=600 ;;
+    # v0.27.2 doc: 1800s is the wall-clock SAFETY CAP, not a target. On
+    # L20-class GPUs, MNIST-style 60-epoch runs finish in 3-7 min. The
+    # cap exists to prevent runaway experiments from blocking the
+    # advisor loop indefinitely.
     experiment) key=experiment_timeout_s; default=1800 ;;
     *) echo "cw_consult_timeout: kind must be 'research', 'verify', 'adversary', or 'experiment'; got '$kind'" >&2; return 2 ;;
   esac
