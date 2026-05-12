@@ -315,3 +315,30 @@ _cw_deep_research_validate_result_grep() {
   done < <(grep -oE '"\.\/[^"]+"' <<<"$log_line" | tr -d '"')
   return 0
 }
+
+# cw_deep_research_hardware_probe <out-path>  [v0.27.2 P2]
+# Writes either GPU rows or no-gpu marker to <out-path>. Format:
+#   detected_at\t<iso-8601-utc>\n
+#   gpu\t<name>\t<memory.total-mb>\t<memory.free-mb>\t<driver>\n   (one per GPU)
+# OR:
+#   detected_at\t<iso-8601-utc>\n
+#   no-gpu\n
+# Atomic via tmp+mv. rc=0 always when out-path given; rc=2 if missing.
+cw_deep_research_hardware_probe() {
+  local out="${1:-}"
+  [[ -n "$out" ]] || { echo "cw_deep_research_hardware_probe: out-path required" >&2; return 2; }
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    {
+      printf 'detected_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      nvidia-smi \
+        --query-gpu=name,memory.total,memory.free,driver_version \
+        --format=csv,noheader,nounits 2>/dev/null \
+        | awk -F', ' '{ printf "gpu\t%s\t%s\t%s\t%s\n", $1, $2, $3, $4 }'
+    } > "$out.tmp" && mv "$out.tmp" "$out"
+  else
+    {
+      printf 'detected_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      printf 'no-gpu\n'
+    } > "$out.tmp" && mv "$out.tmp" "$out"
+  fi
+}
