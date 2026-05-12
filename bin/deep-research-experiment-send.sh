@@ -84,29 +84,79 @@ METRIC_NAME=$(awk '
 # Metric block = entire metric.md body (interpolated as-is)
 METRIC_BLOCK=$(<"$METRIC_MD")
 
+# v0.27.2 P2: per-experiment hardware probe + diff alert.
+# Baseline hardware.txt is written once at session start by
+# bin/deep-research-init.sh. Current hardware-current.txt is overwritten
+# every dispatch. ALERT lines appended to HARDWARE_BLOCK so trooper sees
+# any mid-session GPU memory pressure.
+HW_CURRENT="$ART_DIR/hardware-current.txt"
+cw_deep_research_hardware_probe "$HW_CURRENT"
+ALERT=$(cw_deep_research_hardware_diff_alert "$ART_DIR/hardware.txt" "$HW_CURRENT" 2>/dev/null || true)
+[[ -n "$ALERT" ]] && log_warn "$ALERT"
+HARDWARE_BLOCK=$(cat "$HW_CURRENT")
+[[ -n "$ALERT" ]] && HARDWARE_BLOCK="$HARDWARE_BLOCK"$'\n'"$ALERT"
+
+# v0.27.2 BUG #5: OUTBOX_PATH placeholder so trooper doesn't need to
+# string-concat the outbox path themselves. Resolved absolute path.
+OUTBOX_PATH="$TOPIC_DIR/$COMMANDER-codex/outbox.jsonl"
+
 # Render prompt from template
 TEMPLATE="$PLUGIN_ROOT/config/prompt-templates/deep-research/experiment.md"
 [[ -f "$TEMPLATE" ]] || { log_error "template missing: $TEMPLATE"; exit 1; }
 
 PROMPT_FILE="$BRANCH_DIR/prompt.md"
 
-# Substitute METRIC_BLOCK (multi-line) via awk, then single-line tokens via sed.
+# v0.27.2 BUG #4 fix: single awk pass replaces sed substitution. Awk's
+# gsub handles multi-line content natively (via -v) but treats `&` and
+# `\` specially in the replacement string: `&` means "matched substring"
+# and `\` is escape-context. Pre-escape these in every var via bash
+# parameter expansion (safe on multi-line content) so substitution is
+# truly literal — JSON-like braces, regex metachars, unicode all just work.
+_awk_esc() {
+  # Double-escape: awk -v processes backslash escapes (`\\` → `\`,
+  # `\&` → `&` with warning), then gsub interprets `&` as matched-text
+  # and `\&` as literal `&`. To get a literal byte through both layers:
+  #   original `\` → emit `\\\\` (4 bytes) → -v parses to `\\` → gsub
+  #     treats as literal `\`
+  #   original `&` → emit `\\&` (3 bytes) → -v parses to `\&` → gsub
+  #     treats as literal `&`
+  local s="$1"
+  s="${s//\\/\\\\\\\\}"   # \ → \\\\ (4 bytes; awk needs 4 → 2 → 1)
+  s="${s//&/\\\\&}"       # & → \\& (3 bytes; awk needs 3 → 2 → 1 literal)
+  printf '%s' "$s"
+}
 TOPIC_TEXT_VAL=$(cat "$ART_DIR/topic.txt")
-awk -v block="$METRIC_BLOCK" '
-  { gsub(/\{\{METRIC_BLOCK\}\}/, block); print }
-' "$TEMPLATE" \
-  | sed \
-      -e "s|{{TOPIC}}|$(printf '%s' "$TOPIC_TEXT_VAL" | sed 's/[\\&|]/\\&/g')|g" \
-      -e "s|{{EXP_ID}}|$EXP_ID|g" \
-      -e "s|{{APPROACH_LABEL}}|$(printf '%s' "$APPROACH_LABEL" | sed 's/[\\&|]/\\&/g')|g" \
-      -e "s|{{APPROACH_BRIEF}}|$(printf '%s' "$APPROACH_BRIEF" | sed 's/[\\&|]/\\&/g')|g" \
-      -e "s|{{BRANCH_DIR}}|$BRANCH_DIR|g" \
-      -e "s|{{METRIC_NAME}}|$METRIC_NAME|g" \
-      -e "s|{{TIME_BUDGET_S}}|$TIME_BUDGET_S|g" \
-  > "$PROMPT_FILE.tmp"
+awk \
+  -v topic="$(_awk_esc "$TOPIC_TEXT_VAL")" \
+  -v exp_id="$(_awk_esc "$EXP_ID")" \
+  -v approach_label="$(_awk_esc "$APPROACH_LABEL")" \
+  -v approach_brief="$(_awk_esc "$APPROACH_BRIEF")" \
+  -v branch_dir="$(_awk_esc "$BRANCH_DIR")" \
+  -v metric_name="$(_awk_esc "$METRIC_NAME")" \
+  -v metric_block="$(_awk_esc "$METRIC_BLOCK")" \
+  -v hardware_block="$(_awk_esc "$HARDWARE_BLOCK")" \
+  -v outbox_path="$(_awk_esc "$OUTBOX_PATH")" \
+  -v time_budget="$(_awk_esc "$TIME_BUDGET_S")" '
+{
+  gsub(/\{\{METRIC_BLOCK\}\}/,    metric_block)
+  gsub(/\{\{HARDWARE_BLOCK\}\}/,  hardware_block)
+  gsub(/\{\{OUTBOX_PATH\}\}/,     outbox_path)
+  gsub(/\{\{TOPIC\}\}/,           topic)
+  gsub(/\{\{EXP_ID\}\}/,          exp_id)
+  gsub(/\{\{APPROACH_LABEL\}\}/,  approach_label)
+  gsub(/\{\{APPROACH_BRIEF\}\}/,  approach_brief)
+  gsub(/\{\{BRANCH_DIR\}\}/,      branch_dir)
+  gsub(/\{\{METRIC_NAME\}\}/,     metric_name)
+  gsub(/\{\{TIME_BUDGET_S\}\}/,   time_budget)
+  print
+}' "$TEMPLATE" > "$PROMPT_FILE.tmp"
 mv "$PROMPT_FILE.tmp" "$PROMPT_FILE"
 
-# Sanity: no unrendered placeholders
+# v0.27.2 BUG #4 followup: tighten sanity check. Previous grep-only
+# check silently passed a 0-byte file because grep finds no placeholders
+# in an empty file. Add a -s (non-empty) check first.
+[[ -s "$PROMPT_FILE" ]] \
+  || { log_error "$PROMPT_FILE rendered empty (template substitution failed)"; exit 1; }
 if grep -qE '\{\{[A-Z_]+\}\}' "$PROMPT_FILE"; then
   log_error "unrendered placeholders remain in $PROMPT_FILE:"
   grep -E '\{\{[A-Z_]+\}\}' "$PROMPT_FILE" >&2
