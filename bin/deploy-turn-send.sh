@@ -60,7 +60,7 @@ else
   fi
 fi
 
-OFFSET=$(wc -c < "$OUTBOX" | tr -d ' ')
+OFFSET=$(cw_outbox_offset "$OUTBOX")
 printf 'OFFSET=%s\n' "$OFFSET" > "$STATE_FILE"
 
 if ! "$PLUGIN_ROOT/bin/send.sh" cody "$TOPIC" "@$PROMPT_FILE" >/dev/null; then

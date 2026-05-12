@@ -40,7 +40,7 @@ BASE_PROMPT=$(cw_consult_build_research_prompt \
   "$TOPIC_TEXT" "$TROOPER_DIR/findings.md")
 cw_consult_skill_hint_append "$ART_DIR/skill.txt" "$BASE_PROMPT" > "$PROMPT_FILE"
 
-OFFSET=$(wc -c < "$OUTBOX" | tr -d ' ')
+OFFSET=$(cw_outbox_offset "$OUTBOX")
 printf 'OFFSET=%s\n' "$OFFSET" > "$STATE_FILE"
 
 if ! "$PLUGIN_ROOT/bin/send.sh" "$COMMANDER" "$TOPIC" "@$PROMPT_FILE" >/dev/null; then

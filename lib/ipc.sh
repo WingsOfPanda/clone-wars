@@ -164,6 +164,21 @@ cw_event_name_extract() {
   printf '%s' "$1" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p'
 }
 
+# cw_outbox_offset <outbox-path>
+# Print the byte size of <outbox-path>, or `0` if the file does not exist.
+# Canonical "snapshot pre-nudge byte offset" idiom for the wait-since
+# pattern. Strips whitespace so the value is safe to compare numerically
+# (BSD `wc` pads with leading spaces).
+cw_outbox_offset() {
+  local outbox="${1:-}"
+  [[ -n "$outbox" ]] || { echo "cw_outbox_offset: outbox path required" >&2; return 2; }
+  if [[ -f "$outbox" ]]; then
+    wc -c < "$outbox" | tr -d '[:space:]'
+  else
+    printf '0'
+  fi
+}
+
 # cw_outbox_wait <commander> <model> <topic> <event1> [<event2> ...] <timeout>
 # Poll the outbox for ANY of the named events. Events are positional args
 # between <topic> and the FINAL <timeout> arg. Print the matching JSON line
@@ -204,8 +219,8 @@ cw_outbox_wait() {
 
 # cw_outbox_wait_since <commander> <model> <topic> <byte-offset> <event...> <timeout>
 # Like cw_outbox_wait, but only considers content AFTER <byte-offset>. Capture
-# `wc -c < "$outbox" | tr -d ' '` BEFORE the inbox nudge; this wait then
-# matches only events the dispatched task produced.
+# `cw_outbox_offset "$outbox"` BEFORE the inbox nudge; this wait then matches
+# only events the dispatched task produced.
 cw_outbox_wait_since() {
   local commander="$1" model="$2" topic="$3" offset="$4"
   shift 4
@@ -219,7 +234,7 @@ cw_outbox_wait_since() {
   local i event pat tail_size tail_content
   for ((i = 0; i < timeout; i++)); do
     if [[ -f "$outbox" ]]; then
-      tail_size=$(wc -c < "$outbox" | tr -d ' ')
+      tail_size=$(cw_outbox_offset "$outbox")
       if (( tail_size > offset )); then
         tail_content=$(tail -c "+$((offset + 1))" "$outbox")
         for event in "${events[@]}"; do

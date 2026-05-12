@@ -16,8 +16,8 @@ grep -q 'cw_deploy_build_turn_prompt_round1' ../bin/deploy-turn-send.sh \
   || { echo "FAIL: missing round-1 prompt builder" >&2; exit 1; }
 grep -q 'cw_deploy_build_turn_prompt_fix' ../bin/deploy-turn-send.sh \
   || { echo "FAIL: missing fix prompt builder" >&2; exit 1; }
-grep -q 'wc -c' ../bin/deploy-turn-send.sh \
-  || { echo "FAIL: missing wc -c offset capture" >&2; exit 1; }
+grep -q 'cw_outbox_offset' ../bin/deploy-turn-send.sh \
+  || { echo "FAIL: missing cw_outbox_offset capture" >&2; exit 1; }
 grep -q 'OFFSET=' ../bin/deploy-turn-send.sh \
   || { echo "FAIL: missing OFFSET= write" >&2; exit 1; }
 grep -q 'turn-cody-' ../bin/deploy-turn-send.sh \

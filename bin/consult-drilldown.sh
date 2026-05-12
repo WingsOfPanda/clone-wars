@@ -92,7 +92,7 @@ dispatch_drill() {
   local commander="$1" model="$2" out_path="$3"
   local trooper_dir offset prompt
   trooper_dir=$(cw_trooper_dir "$commander" "$model" "$TOPIC")
-  offset=$(wc -c < "$trooper_dir/outbox.jsonl" 2>/dev/null || echo 0)
+  offset=$(cw_outbox_offset "$trooper_dir/outbox.jsonl")
   prompt=$(cw_consult_design_doc_drilldown_prompt \
     "$TITLE" "$DESIGN_DOC" "$commander" "$DD_DIR" "$FOCUS" "$SUBPROJECT" "$out_path")
   "$PLUGIN_ROOT/bin/send.sh" "$commander" "$TOPIC" "$prompt" >/dev/null
