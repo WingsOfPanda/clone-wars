@@ -99,6 +99,33 @@ _cw_deep_research_validate_result_jq() {
   return 0
 }
 
+# cw_deep_research_extract_approaches <landscape-md-path>
+# Parses ## Approaches section from a meditate landscape doc.
+# Expected format:
+#   ## Approaches
+#   N. **<label>** — <brief>
+#   N. **<label>** — <brief>
+# Output: TSV "label\tbrief\n" per line; empty if no Approaches section.
+# Returns 1 if path missing.
+cw_deep_research_extract_approaches() {
+  local path="${1:-}"
+  [[ -f "$path" ]] || { echo "landscape doc not found: $path" >&2; return 1; }
+  awk '
+    /^##[[:space:]]+Approaches[[:space:]]*$/ { in_section=1; next }
+    /^##[[:space:]]/ && in_section { in_section=0 }
+    in_section && /^[0-9]+\.[[:space:]]+\*\*/ {
+      line = $0
+      sub(/^[0-9]+\.[[:space:]]+\*\*/, "", line)
+      idx = index(line, "**")
+      if (idx == 0) next
+      label = substr(line, 1, idx - 1)
+      rest = substr(line, idx + 2)
+      sub(/^[[:space:]]*[—–-][[:space:]]*/, "", rest)
+      printf "%s\t%s\n", label, rest
+    }
+  ' "$path"
+}
+
 _cw_deep_research_validate_result_grep() {
   local path="$1"
   local body; body=$(<"$path")
