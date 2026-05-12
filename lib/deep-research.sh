@@ -153,6 +153,92 @@ cw_deep_research_format_metric_block() {
   return 0
 }
 
+# cw_deep_research_check_stagnation <scoreboard-path> <cursor-path>
+# Reads scoreboard.md (any sort order; we re-sort by exp-NNN chronologically)
+# + stagnation-cursor.txt. Returns rc=0 if last 5 experiments after cursor
+# all <1% over running best AND total post-cursor exp count >= 5. Returns
+# rc=1 otherwise.
+# Notes:
+#   - Floor: never rc=0 when post-cursor exp count < 5.
+#   - Direction: max-direction only (higher metric = better). Future
+#     parameterization deferred to v0.28+.
+#   - Cursor file format: single integer line. Missing file treated as '0'.
+cw_deep_research_check_stagnation() {
+  local sb="${1:-}" cursor_path="${2:-}"
+  [[ -f "$sb" ]] || { echo "scoreboard missing: $sb" >&2; return 2; }
+
+  local cursor=0
+  [[ -f "$cursor_path" ]] && cursor=$(<"$cursor_path")
+  [[ "$cursor" =~ ^[0-9]+$ ]] || cursor=0
+
+  # Parse scoreboard rows. Each table row: "| rank | exp-id | metric | status |"
+  local -a exp_nums=() metrics=() statuses=()
+  local line exp_num metric status exp_id
+  local -a fields=()
+  while IFS= read -r line; do
+    [[ "$line" =~ ^\|[[:space:]]+[0-9]+[[:space:]]+\| ]] || continue
+    IFS='|' read -r -a fields <<<"$line"
+    exp_id="${fields[2]//[[:space:]]/}"
+    metric="${fields[3]//[[:space:]]/}"
+    status="${fields[4]//[[:space:]]/}"
+    exp_num="${exp_id#exp-}"
+    exp_num="${exp_num#0}"; exp_num="${exp_num#0}"
+    [[ -z "$exp_num" ]] && exp_num=0
+    [[ "$exp_num" =~ ^[0-9]+$ ]] || continue
+    exp_nums+=("$exp_num")
+    metrics+=("$metric")
+    statuses+=("$status")
+  done < "$sb"
+
+  # Build chronologically-ordered post-cursor list (only ok rows)
+  local -a chron_nums=() chron_metrics=()
+  local i n m s idx
+  local -a sorted_idx=()
+  while IFS=$'\t' read -r idx _; do
+    sorted_idx+=("$idx")
+  done < <(
+    for i in "${!exp_nums[@]}"; do
+      printf '%d\t%d\n' "$i" "${exp_nums[$i]}"
+    done | sort -k2,2n
+  )
+
+  for idx in "${sorted_idx[@]}"; do
+    n="${exp_nums[$idx]}"
+    m="${metrics[$idx]}"
+    s="${statuses[$idx]}"
+    (( n > cursor )) || continue
+    [[ "$s" == "ok" ]] || continue
+    chron_nums+=("$n")
+    chron_metrics+=("$m")
+  done
+
+  local post_count="${#chron_nums[@]}"
+  (( post_count >= 5 )) || return 1
+
+  # Find running-best across all post-cursor exps
+  local best="${chron_metrics[0]}"
+  for m in "${chron_metrics[@]}"; do
+    awk -v a="$m" -v b="$best" 'BEGIN { exit !(a > b) }' && best="$m"
+  done
+
+  # Check the last 5 post-cursor exps: all must be <1% of best
+  local start=$(( post_count - 5 ))
+  for (( i = start; i < post_count; i++ )); do
+    m="${chron_metrics[$i]}"
+    if awk -v a="$m" -v b="$best" 'BEGIN {
+      if (b == 0) exit 0;
+      d = (a > b ? a - b : b - a);
+      exit !(d / b * 100 < 1.0);
+    }'; then
+      continue
+    else
+      return 1
+    fi
+  done
+
+  return 0
+}
+
 # cw_deep_research_extract_approaches <landscape-md-path>
 # Parses ## Approaches section from a meditate landscape doc.
 # Expected format:
