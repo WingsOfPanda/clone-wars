@@ -12,8 +12,8 @@ grep -qE 'cw_consult_(assert|topic_validate)' ../bin/consult-research-send.sh \
   || { echo "FAIL: missing topic validation" >&2; exit 1; }
 grep -q 'consult_build_research_prompt' ../bin/consult-research-send.sh \
   || { echo "FAIL: missing research prompt builder" >&2; exit 1; }
-grep -q 'wc -c' ../bin/consult-research-send.sh \
-  || { echo "FAIL: missing wc -c offset capture" >&2; exit 1; }
+grep -q 'cw_outbox_offset' ../bin/consult-research-send.sh \
+  || { echo "FAIL: missing cw_outbox_offset capture" >&2; exit 1; }
 grep -q 'OFFSET=' ../bin/consult-research-send.sh \
   || { echo "FAIL: missing OFFSET= write" >&2; exit 1; }
 pass "research-send wiring"

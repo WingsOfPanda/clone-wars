@@ -20,7 +20,7 @@ source "$PLUGIN_ROOT/lib/meditate.sh"
 [[ $# -eq 3 ]] || { echo "Usage: $0 <meditate-topic> <commander> <model>" >&2; exit 2; }
 TOPIC="$1"; COMMANDER="$2"; MODEL="$3"
 [[ "$TOPIC" == meditate-* ]] || { log_error "topic must start with 'meditate-': $TOPIC"; exit 2; }
-[[ "$TOPIC" =~ ^[a-z0-9-]+$ ]] || { log_error "invalid topic: $TOPIC"; exit 2; }
+cw_consult_assert_topic "$TOPIC"
 cw_consult_assert_commander "$COMMANDER"
 [[ "$MODEL" =~ ^[a-z0-9_-]+$ ]] || { log_error "invalid model: $MODEL"; exit 2; }
 
@@ -48,7 +48,7 @@ cw_consult_load_prompt meditate/adversary.md \
   "COMMANDER=$COMMANDER" \
   "OUT_PATH=$OUT_PATH" > "$PROMPT_FILE"
 
-OFFSET=$(wc -c < "$OUTBOX" | tr -d ' ')
+OFFSET=$(cw_outbox_offset "$OUTBOX")
 printf 'OFFSET=%s\n' "$OFFSET" > "$STATE_FILE"
 
 if ! "$PLUGIN_ROOT/bin/send.sh" "$COMMANDER" "$TOPIC" "@$PROMPT_FILE" >/dev/null; then

@@ -23,7 +23,7 @@ TOPIC="$1"; COMMANDER="$2"; MODEL="$3"
 # Topic must start with "meditate-" to ensure we're not writing into a
 # consult topic dir by accident.
 [[ "$TOPIC" == meditate-* ]] || { log_error "topic must start with 'meditate-': $TOPIC"; exit 2; }
-[[ "$TOPIC" =~ ^[a-z0-9-]+$ ]] || { log_error "invalid topic: $TOPIC"; exit 2; }
+cw_consult_assert_topic "$TOPIC"
 cw_consult_assert_commander "$COMMANDER"
 [[ "$MODEL" =~ ^[a-z0-9_-]+$ ]] || { log_error "invalid model: $MODEL"; exit 2; }
 
@@ -67,7 +67,7 @@ esac
 cw_consult_load_prompt meditate/research.md \
   "TOPIC=$TOPIC_TEXT" "WRITE_TO=$WRITE_TO" "LIT_GUIDANCE=$LIT_GUIDANCE" > "$PROMPT_FILE"
 
-OFFSET=$(wc -c < "$OUTBOX" | tr -d ' ')
+OFFSET=$(cw_outbox_offset "$OUTBOX")
 printf 'OFFSET=%s\n' "$OFFSET" > "$STATE_FILE"
 
 # v0.25.1: dry-run mode for unit tests — skip the actual send.sh nudge

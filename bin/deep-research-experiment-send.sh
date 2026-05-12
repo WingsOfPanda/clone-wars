@@ -65,7 +65,7 @@ OUTBOX="$TOPIC_DIR/$COMMANDER-codex/outbox.jsonl"
   || { log_error "trooper outbox missing: $OUTBOX (was spawn.sh run for $COMMANDER?)"; exit 1; }
 
 # Compute current outbox offset (for cw_consult_wait OFFSET= state file)
-offset=$(wc -c < "$OUTBOX" | tr -d '[:space:]')
+offset=$(cw_outbox_offset "$OUTBOX")
 
 # Per-experiment wall-clock cap. Defaults per lib/contracts.sh; env override.
 TIME_BUDGET_S="${CW_DEEP_RESEARCH_EXPERIMENT_TIMEOUT_OVERRIDE:-$(cw_consult_timeout experiment)}"
