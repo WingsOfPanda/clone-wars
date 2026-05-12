@@ -4,6 +4,16 @@ Topic: {{TOPIC}}
 
 {{METRIC_BLOCK}}
 
+Hardware:
+{{HARDWARE_BLOCK}}
+
+  Interpretation:
+  - 'gpu' rows mean CUDA is available. Use `torch.cuda` + AMP +
+    `torch.compile`. Assert `torch.cuda.is_available() == True`.
+  - 'no-gpu' means CPU only. Reduce batch size / epochs accordingly.
+  - 'ALERT:' lines mean a co-tenant grabbed GPU memory mid-session —
+    consider smaller batch size or accept slower throughput.
+
 Your experiment:
   Experiment ID:   {{EXP_ID}}
   Approach label:  {{APPROACH_LABEL}}
@@ -50,10 +60,18 @@ In ONE turn, do all of the following:
    - Write via tmp + rename for atomicity:
        printf '%s' '<json>' > result.json.tmp && mv result.json.tmp result.json
 
-5. Emit ONE outbox event to indicate completion. Use safe printf — single-
-   quote the format string to avoid format-string failures:
+5. **THIS IS THE TERMINAL STEP.** Immediately after `result.json` is on
+   disk (via tmp+rename), emit ONE outbox event and STOP. Do not explore,
+   do not summarize, do not verify, do not re-read your own logs — emit
+   done as the very last action of this turn. The advisor's wait shim is
+   actively polling; every second of post-result analysis blocks the next
+   experiment.
 
-     printf '%s\n' '{"event":"done","summary":"experiment {{EXP_ID}} metric=<value> status=<status>","ts":"<iso-8601>"}'
+   Use safe printf — single-quote the format string to avoid format-string
+   failures:
+
+     printf '%s\n' '{"event":"done","summary":"experiment {{EXP_ID}} metric=<value> status=<status>","ts":"<iso-8601>"}' \
+       >> {{OUTBOX_PATH}}
 
    (printf '%2C' would fail catastrophically; printf "$value" is also
    unsafe. Always use printf '%s' "$value".)
