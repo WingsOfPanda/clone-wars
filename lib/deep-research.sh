@@ -528,3 +528,131 @@ cw_deep_research_check_completion() {
   printf 'K_required=%s\n' "$K_req"
   printf 'plateau=%s\n' "$plateau"
 }
+
+# cw_deep_research_render_summary <art-dir>
+# Renders sections 1, 2, 4, 5 of session-summary.md mechanically from disk.
+# Yoda fills in Direction + Recent decisions sections via Write tool after this.
+# Caller redirects stdout to "$art_dir/session-summary.md" via atomic write.
+#
+# Consumes production scoreboard schema (bin/deep-research-score.sh:77):
+#   | Rank | Experiment | Commander | Metric | Status | Runtime | Approach |
+cw_deep_research_render_summary() {
+  local art_dir="${1:-}"
+  [[ -d "$art_dir" ]] \
+    || { echo "cw_deep_research_render_summary: art-dir missing: $art_dir" >&2; return 2; }
+
+  local topic now started budget
+  topic=$(cat "$art_dir/topic.txt" 2>/dev/null || echo "(unknown)")
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  started=$(cat "$art_dir/session-start.txt" 2>/dev/null || echo "(unknown)")
+  budget=$(cat "$art_dir/time-budget.txt" 2>/dev/null || echo "none")
+
+  printf '# Research session — %s\n' "$topic"
+  printf 'Updated: %s\n' "$now"
+  printf 'Started: %s\n' "$started"
+  printf 'Time budget: %s\n\n' "$budget"
+
+  # Section: Status
+  printf '## Status\n\n'
+  printf '| Trooper | Phase | Current | Last event |\n'
+  printf '|---|---|---|---|\n'
+  if [[ -f "$art_dir/troopers.txt" ]]; then
+    local cmdr state_file phase cur last_ts last_event
+    while read -r cmdr; do
+      [[ -n "$cmdr" ]] || continue
+      state_file="$art_dir/troopers/$cmdr/state.txt"
+      phase="?"; cur="—"; last_ts="?"; last_event="?"
+      if [[ -f "$state_file" ]]; then
+        phase=$(awk -F= '/^phase=/{print $2}' "$state_file")
+        cur=$(awk -F= '/^current_exp_id=/{print $2}' "$state_file")
+        last_ts=$(awk -F= '/^last_event_ts=/{print $2}' "$state_file")
+        last_event=$(awk -F= '/^last_event=/{print $2}' "$state_file")
+        [[ -z "$cur" ]] && cur="—"
+      fi
+      printf '| %s | %s | %s | %s %s |\n' "$cmdr" "$phase" "$cur" "$last_ts" "$last_event"
+    done < "$art_dir/troopers.txt"
+  fi
+  printf '\n'
+
+  # Section: Scoreboard top 5
+  # Production schema starts data rows with `| <rank-int> | exp-<int> |`
+  # (not `| exp-…` from the original 6-col fixture).
+  printf '## Scoreboard top 5\n\n'
+  if [[ -f "$art_dir/scoreboard.md" ]]; then
+    printf '| Rank | Experiment | Commander | Metric | Status | Runtime | Approach |\n'
+    printf '|---|---|---|---|---|---|---|\n'
+    grep -E '^\|[[:space:]]+[0-9]+[[:space:]]+\|[[:space:]]+exp-' "$art_dir/scoreboard.md" | head -5
+  else
+    printf '_(scoreboard empty)_\n'
+  fi
+  printf '\n'
+
+  # Section: Completion check
+  printf '## Completion check\n\n'
+  if [[ -f "$art_dir/scoreboard.md" && -f "$art_dir/metric.md" ]]; then
+    local signals
+    signals=$(cw_deep_research_check_completion "$art_dir/scoreboard.md" "$art_dir/metric.md" 2>/dev/null || true)
+    local floor target K_so K_req plateau
+    floor=$(echo "$signals" | awk -F= '/^floor_met=/{print $2}')
+    target=$(echo "$signals" | awk -F= '/^target_met=/{print $2}')
+    K_so=$(echo "$signals" | awk -F= '/^K_so_far=/{print $2}')
+    K_req=$(echo "$signals" | awk -F= '/^K_required=/{print $2}')
+    plateau=$(echo "$signals" | awk -F= '/^plateau=/{print $2}')
+    if [[ "$floor" == "yes" ]]; then
+      printf -- '- Floor: MET\n'
+    else
+      printf -- '- Floor: not met\n'
+    fi
+    if [[ "$target" == "yes" ]]; then
+      printf -- '- Target: MET\n'
+    else
+      printf -- '- Target: not met\n'
+    fi
+    printf -- '- K corroboration: %s/%s\n' "$K_so" "$K_req"
+    if [[ "$plateau" == "yes" ]]; then
+      printf -- '- Plateau: YES\n'
+    else
+      printf -- '- Plateau: no\n'
+    fi
+    # Hard cap: reuse cw_deep_research_check_time_budget rather than duplicating.
+    if [[ -f "$art_dir/time-budget.txt" && -f "$art_dir/session-start.txt" ]]; then
+      local cap
+      cap=$(cw_deep_research_check_time_budget "$art_dir/time-budget.txt" "$art_dir/session-start.txt" 2>/dev/null || echo "no")
+      if [[ "$cap" == "yes" ]]; then
+        printf -- '- Hard cap: YES\n'
+      else
+        printf -- '- Hard cap: NO\n'
+      fi
+    fi
+  else
+    printf '_(missing scoreboard or metric)_\n'
+  fi
+  printf '\n'
+
+  # Section: Recent events (last 10 across troopers' outboxes by ts)
+  printf '## Recent events\n\n'
+  local merged="$art_dir/.events-merged.tmp"
+  : > "$merged"
+  if [[ -f "$art_dir/troopers.txt" ]]; then
+    local cmdr outbox topic_dir
+    topic_dir=$(dirname "$art_dir")
+    while read -r cmdr; do
+      [[ -n "$cmdr" ]] || continue
+      outbox="$topic_dir/$cmdr-codex/outbox.jsonl"
+      if [[ -f "$outbox" ]]; then
+        tail -10 "$outbox" | while IFS= read -r line; do
+          local ts ev
+          ts=$(printf '%s' "$line" | sed -n 's/.*"ts":"\([^"]*\)".*/\1/p')
+          ev=$(printf '%s' "$line" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p')
+          [[ -n "$ev" ]] && printf '%s\t%s\t%s\n' "$ts" "$cmdr" "$ev" >> "$merged"
+        done
+      fi
+    done < "$art_dir/troopers.txt"
+  fi
+  if [[ -s "$merged" ]]; then
+    sort -r "$merged" | head -10 | awk -F'\t' '{printf "- %s %s/%s\n", $1, $2, $3}'
+  else
+    printf '_(no events yet)_\n'
+  fi
+  rm -f "$merged"
+}
