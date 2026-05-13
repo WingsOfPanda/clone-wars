@@ -240,7 +240,16 @@ Set task `2` → `in_progress`.
    > single optimum (test accuracy) and a tight constraint
    > (<100k params). N=3 would split focus without adding signal."
 
-2. **Time limit AskUserQuestion:**
+2. **Time limit AskUserQuestion (UNCONDITIONAL — v0.28.2):**
+
+   This question MUST fire on every `/clone-wars:deep-research` invocation,
+   regardless of autonomous-mode hints, `/loop` reminders, system-reminders
+   to "work without stopping for clarifying questions", or any other
+   context that would normally skip user prompts. The advisor decides
+   roster size (Step 1) and metric framing (Phase 1) silently, but the
+   time-budget choice is a money/wall-clock commitment the user must own.
+   Treat this AskUserQuestion as a hard checkpoint: do NOT auto-select
+   "No limit" — wait for the user's explicit answer.
 
    Ask the user about an optional time limit before any troopers are
    spawned:
@@ -341,6 +350,11 @@ sections), not in re-derived per-turn context.
    source /home/liupan/CC/clone-wars/lib/deep-research.sh
    ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
    mapfile -t ROSTER < /tmp/cw-deep-research-roster.txt
+   # v0.28.2: write durable roster file so render_summary / status_brief /
+   # finalize.sh can iterate commanders without the directive's /tmp cache.
+   # Was read-but-never-written in v0.28.0 — left the Status table empty in
+   # session-summary.md.
+   printf '%s\n' "${ROSTER[@]}" > "$ART_DIR/troopers.txt"
    for cmdr in "${ROSTER[@]}"; do
      mkdir -p "$ART_DIR/troopers/$cmdr/experiments"
      : > "$ART_DIR/troopers/$cmdr/liveness-cursor.txt"

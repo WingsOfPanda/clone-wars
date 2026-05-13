@@ -46,7 +46,11 @@ If `$ART_DIR/halt.flag` exists OR `cw_deep_research_check_time_budget` returns t
 
 For each `<task-notification>` in this turn's context, route by event type:
 
-- **done | error** → run `bin/deep-research-score.sh "$TOPIC"`. This iterates all per-trooper experiments, appends scoreboard rows, and sets state.txt `phase=idle` for each commander that produced a scored result.
+- **done | error** → run `bin/deep-research-score.sh "$TOPIC"`. This iterates all per-trooper experiments, appends scoreboard rows, and sets state.txt `phase=idle` for each commander that produced a scored result. **v0.28.2:** after the score call, render the status-brief and surface it verbatim to chat so the user sees a structured update on every landed experiment:
+  ```bash
+  cw_deep_research_render_status_brief "$ART_DIR" "<cmdr>" "<exp-id>"
+  ```
+  `<cmdr>` and `<exp-id>` come from the `<task-notification>` event JSON (`trooper` + `summary`-derived `exp-id`). Output is compact markdown — print it as your next chat message before running Step 4 (completion check) or Step 5 (dispatch). If multiple done events queue in one turn, render the brief ONCE after the final score.sh call (single status snapshot, not N×).
 - **question** → surface the trooper's question to user in chat; set `cw_deep_research_trooper_state_write "$ART_DIR" "<cmdr>" phase=blocked`. Do NOT auto-dispatch — wait for user direction.
 - **stale** → send `status?` probe via `bin/send.sh "<cmdr>" "$TOPIC" "status? brief update on current experiment please"`. Set `phase=stale, probe_sent_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)`. Debounce: skip if `probe_sent_ts` was already set within `LIVENESS_STUCK_S` window.
 - **stuck** → use Yoda judgment. Either abort (Ctrl-C trooper pane via tmux, set `phase=failed`) or extend (clear `probe_sent_ts`, give more time).
