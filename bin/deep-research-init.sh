@@ -99,6 +99,13 @@ fi
 # snapshot lets the diff helper detect mid-session memory.free drops.
 cw_deep_research_hardware_probe "$ART_DIR/hardware.txt"
 
+# v0.28.0: touch active.txt. The UserPromptSubmit hook scans for this
+# file under $CLONE_WARS_HOME/state/ to detect an in-progress session
+# and inject handler 3.b context (commands/deep-research-resume.md).
+# Per-trooper dirs (troopers/<cmdr>/state.txt) are created by the
+# directive in Phase 4.a after Phase 2 picks the roster.
+printf '%s\n' "$TOPIC_NAME" > "$ART_DIR/active.txt"
+
 log_info "deep-research topic: $TOPIC_NAME"
 log_info "  artifacts dir:     $ART_DIR"
 log_info "  metric (seed):     ${metric:-(empty — directive will discuss in Phase 1)}"
