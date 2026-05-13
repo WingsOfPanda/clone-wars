@@ -12,7 +12,7 @@
 #       — first N codex-eligible commanders (N=2 or N=3); deterministic
 #   cw_deep_research_format_metric_block
 #       — render metric.md from K=V pairs on stdin
-#   cw_deep_research_check_stagnation <scoreboard> <cursor-path>
+#   cw_deep_research_check_plateau <scoreboard> <cursor-path>
 #       — rc=0 if last 5 post-cursor exps all <1% of running best AND
 #         exp_count >= 5; rc!=0 otherwise
 #   cw_deep_research_check_time_budget <budget-path> <session-start-path>
@@ -119,10 +119,14 @@ cw_deep_research_pick_roster() {
 # cw_deep_research_format_metric_block
 # Reads K=V pairs on stdin, renders the structured metric.md body to stdout.
 # Required keys: primary_metric, direction (maximize|minimize).
-# Optional keys: target, acceptable, hard_constraints, notes.
+# v0.28.0+ fields: min_acceptable (floor), K_corroboration (default 1),
+#   plateau_window (default 5), plateau_threshold (default 0.01).
+# Optional keys: target, acceptable (v0.27.x — preserved for back-compat),
+#   hard_constraints, notes.
 # rc=2 if a required key is missing or direction is invalid.
 cw_deep_research_format_metric_block() {
   local primary_metric="" direction="" target="" acceptable="" hard_constraints="" notes=""
+  local min_acceptable="" K_corroboration="" plateau_window="" plateau_threshold=""
   local line key val
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
@@ -133,6 +137,10 @@ cw_deep_research_format_metric_block() {
       direction)         direction="$val" ;;
       target)            target="$val" ;;
       acceptable)        acceptable="$val" ;;
+      min_acceptable)    min_acceptable="$val" ;;
+      K_corroboration)   K_corroboration="$val" ;;
+      plateau_window)    plateau_window="$val" ;;
+      plateau_threshold) plateau_threshold="$val" ;;
       hard_constraints)  hard_constraints="$val" ;;
       notes)             notes="$val" ;;
     esac
@@ -143,17 +151,26 @@ cw_deep_research_format_metric_block() {
   [[ "$direction" == "maximize" || "$direction" == "minimize" ]] \
     || { echo "direction must be 'maximize' or 'minimize'; got '$direction'" >&2; return 2; }
 
+  : "${min_acceptable:=(not set)}"
+  : "${K_corroboration:=1}"
+  : "${plateau_window:=5}"
+  : "${plateau_threshold:=0.01}"
+
   printf '# Research goal\n\n'
   printf '**Primary metric:** %s\n' "$primary_metric"
   printf '**Direction:** %s\n' "$direction"
-  [[ -n "$target" ]]           && printf '**Target (good):** %s\n' "$target"
-  [[ -n "$acceptable" ]]       && printf '**Acceptable:** %s\n' "$acceptable"
+  printf '**min_acceptable:** %s\n' "$min_acceptable"
+  [[ -n "$target" ]]           && printf '**target:** %s\n' "$target"
+  printf '**K_corroboration:** %s\n' "$K_corroboration"
+  printf '**plateau_window:** %s\n' "$plateau_window"
+  printf '**plateau_threshold:** %s\n' "$plateau_threshold"
+  [[ -n "$acceptable" ]]       && printf '**acceptable (legacy):** %s\n' "$acceptable"
   [[ -n "$hard_constraints" ]] && printf '**Hard constraints:** %s\n' "$hard_constraints"
   [[ -n "$notes" ]]            && printf '\n**Notes:** %s\n' "$notes"
   return 0
 }
 
-# cw_deep_research_check_stagnation <scoreboard-path> <cursor-path>
+# cw_deep_research_check_plateau <scoreboard-path> <cursor-path>
 # Reads scoreboard.md (any sort order; we re-sort by exp-NNN chronologically)
 # + stagnation-cursor.txt. Returns rc=0 if last 5 experiments after cursor
 # all <1% over running best AND total post-cursor exp count >= 5. Returns
@@ -163,7 +180,7 @@ cw_deep_research_format_metric_block() {
 #   - Direction: max-direction only (higher metric = better). Future
 #     parameterization deferred to v0.28+.
 #   - Cursor file format: single integer line. Missing file treated as '0'.
-cw_deep_research_check_stagnation() {
+cw_deep_research_check_plateau() {
   local sb="${1:-}" cursor_path="${2:-}"
   [[ -f "$sb" ]] || { echo "scoreboard missing: $sb" >&2; return 2; }
 
@@ -178,9 +195,14 @@ cw_deep_research_check_stagnation() {
   while IFS= read -r line; do
     [[ "$line" =~ ^\|[[:space:]]+[0-9]+[[:space:]]+\| ]] || continue
     IFS='|' read -r -a fields <<<"$line"
+    # Production scoreboard schema (bin/deep-research-score.sh:77):
+    #   | Rank | Experiment | Commander | Metric | Status | Runtime | Approach |
+    # IFS='|' read includes a leading empty (before the first |), so:
+    #   fields[1]=Rank, fields[2]=Experiment, fields[3]=Commander,
+    #   fields[4]=Metric, fields[5]=Status, fields[6]=Runtime, fields[7]=Approach
     exp_id="${fields[2]//[[:space:]]/}"
-    metric="${fields[3]//[[:space:]]/}"
-    status="${fields[4]//[[:space:]]/}"
+    metric="${fields[4]//[[:space:]]/}"
+    status="${fields[5]//[[:space:]]/}"
     exp_num="${exp_id#exp-}"
     exp_num="${exp_num#0}"; exp_num="${exp_num#0}"
     [[ -z "$exp_num" ]] && exp_num=0
@@ -368,4 +390,269 @@ cw_deep_research_hardware_diff_alert() {
       }
     }
   ' "$current"
+}
+
+# cw_deep_research_trooper_state_read <art-dir> <commander>
+# Print state.txt KV pairs, one per line. rc=2 on bad args, rc=1 if file missing.
+cw_deep_research_trooper_state_read() {
+  local art_dir="${1:-}" commander="${2:-}"
+  [[ -n "$art_dir" && -n "$commander" ]] \
+    || { echo "cw_deep_research_trooper_state_read: art-dir + commander required" >&2; return 2; }
+  [[ -d "$art_dir" ]] \
+    || { echo "cw_deep_research_trooper_state_read: art-dir missing: $art_dir" >&2; return 2; }
+  local f="$art_dir/troopers/$commander/state.txt"
+  [[ -f "$f" ]] || return 1
+  cat "$f"
+}
+
+# cw_deep_research_trooper_state_write <art-dir> <commander> <k>=<v> [<k>=<v>...]
+# Atomic update: preserves untouched keys, replaces touched ones.
+# Creates state.txt + parent dirs if missing. rc=2 on bad args.
+cw_deep_research_trooper_state_write() {
+  local art_dir="${1:-}" commander="${2:-}"
+  shift 2 || true
+  [[ -n "$art_dir" && -n "$commander" ]] \
+    || { echo "cw_deep_research_trooper_state_write: art-dir + commander required" >&2; return 2; }
+  (( $# >= 1 )) \
+    || { echo "cw_deep_research_trooper_state_write: need at least one KEY=VALUE" >&2; return 2; }
+  local trooper_dir="$art_dir/troopers/$commander"
+  mkdir -p "$trooper_dir"
+  local f="$trooper_dir/state.txt" tmp="$trooper_dir/state.txt.tmp"
+  declare -A kv
+  if [[ -f "$f" ]]; then
+    while IFS='=' read -r k v; do
+      [[ -n "$k" ]] && kv["$k"]="$v"
+    done < "$f"
+  fi
+  local pair k v
+  for pair in "$@"; do
+    k="${pair%%=*}"
+    v="${pair#*=}"
+    [[ -n "$k" ]] || continue
+    kv["$k"]="$v"
+  done
+  : > "$tmp"
+  for k in "${!kv[@]}"; do
+    printf '%s=%s\n' "$k" "${kv[$k]}" >> "$tmp"
+  done
+  mv "$tmp" "$f"
+}
+
+# cw_deep_research_check_completion <scoreboard.md> <metric.md>
+# Compute completion signals from scoreboard rows + metric thresholds.
+# Prints TSV-shape KV block on stdout:
+#   floor_met=yes|no
+#   target_met=yes|no
+#   K_so_far=<int>
+#   K_required=<int>
+#   plateau=yes|no
+# rc=2 on missing files. K_so_far is capped at K_required for display.
+cw_deep_research_check_completion() {
+  local sb="${1:-}" m="${2:-}"
+  [[ -f "$sb" ]] || { echo "cw_deep_research_check_completion: scoreboard missing: $sb" >&2; return 2; }
+  [[ -f "$m" ]]  || { echo "cw_deep_research_check_completion: metric missing: $m" >&2; return 2; }
+
+  # Parse metric.md — fields are `**KEY:** VALUE`, so the field separator is `:** `.
+  local min_op min_val tgt_op tgt_val K_req plateau_window plateau_threshold
+  min_op=$(awk -F':\\*\\* ' '/^\*\*min_acceptable:/{print $2}' "$m" | awk '{print $1}')
+  min_val=$(awk -F':\\*\\* ' '/^\*\*min_acceptable:/{print $2}' "$m" | awk '{$1=""; sub(/^ /, ""); print}')
+  tgt_op=$(awk -F':\\*\\* ' '/^\*\*target:/{print $2}' "$m" | awk '{print $1}')
+  tgt_val=$(awk -F':\\*\\* ' '/^\*\*target:/{print $2}' "$m" | awk '{$1=""; sub(/^ /, ""); print}')
+  K_req=$(awk -F':\\*\\* ' '/^\*\*K_corroboration:/{print $2}' "$m" | tr -d ' ')
+  plateau_window=$(awk -F':\\*\\* ' '/^\*\*plateau_window:/{print $2}' "$m" | tr -d ' ')
+  plateau_threshold=$(awk -F':\\*\\* ' '/^\*\*plateau_threshold:/{print $2}' "$m" | tr -d ' ')
+  K_req="${K_req:-1}"
+  plateau_window="${plateau_window:-5}"
+  plateau_threshold="${plateau_threshold:-0.01}"
+
+  # Helper: numeric compare $1 (op) $2 against threshold $3 via awk.
+  # File-scope-prefixed name; defined inside the function for context-locality
+  # but bash hoists it to file scope. Caller uses _cw_deep_research_cmp.
+  _cw_deep_research_cmp() {
+    awk -v a="$1" -v op="$2" -v b="$3" 'BEGIN{
+      a+=0; b+=0;
+      if (op==">=")  exit !(a >= b);
+      if (op=="<=")  exit !(a <= b);
+      if (op==">")   exit !(a > b);
+      if (op=="<")   exit !(a < b);
+      if (op=="==")  exit !(a == b);
+      exit 1;
+    }'
+  }
+
+  # Walk scoreboard.md rows. Production schema (bin/deep-research-score.sh:77):
+  #   | Rank | Experiment | Commander | Metric | Status | Runtime | Approach |
+  # awk -F'|' field indices (1-based, leading empty field at $1):
+  #   $2=Rank  $3=Experiment  $4=Commander  $5=Metric  $6=Status  $7=Runtime  $8=Approach
+  # Data rows match `| <rank-int> | exp-<int> | …`; header + separator rows skipped.
+  local floor_met=no target_met=no K_so_far=0
+  local metrics=()
+  local line metric status
+  while IFS= read -r line; do
+    [[ "$line" =~ ^\|[[:space:]]+[0-9]+[[:space:]]+\|[[:space:]]+exp- ]] || continue
+    metric=$(printf '%s' "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $5); print $5}')
+    status=$(printf '%s' "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $6); print $6}')
+    [[ "$status" == "ok" ]] || continue
+    [[ "$metric" =~ ^[0-9.]+$ ]] || continue
+    metrics+=("$metric")
+    if [[ -n "$min_op" && -n "$min_val" ]] && _cw_deep_research_cmp "$metric" "$min_op" "$min_val"; then
+      floor_met=yes
+    fi
+    if [[ -n "$tgt_op" && -n "$tgt_val" ]] && _cw_deep_research_cmp "$metric" "$tgt_op" "$tgt_val"; then
+      target_met=yes
+      K_so_far=$((K_so_far + 1))
+    fi
+  done < "$sb"
+
+  # Plateau: last plateau_window ok-rows have max-min spread < plateau_threshold.
+  local plateau=no
+  if (( ${#metrics[@]} >= plateau_window )); then
+    local last_n=("${metrics[@]: -$plateau_window}")
+    local mn mx v
+    mn="${last_n[0]}"; mx="${last_n[0]}"
+    for v in "${last_n[@]}"; do
+      awk -v a="$v" -v b="$mn" 'BEGIN{exit !(a+0 < b+0)}' && mn="$v"
+      awk -v a="$v" -v b="$mx" 'BEGIN{exit !(a+0 > b+0)}' && mx="$v"
+    done
+    if awk -v M="$mx" -v m="$mn" -v t="$plateau_threshold" 'BEGIN{exit !((M-m) < t)}'; then
+      plateau=yes
+    fi
+  fi
+
+  # Cap K_so_far at K_required for cleaner display.
+  (( K_so_far > K_req )) && K_so_far="$K_req"
+
+  printf 'floor_met=%s\n' "$floor_met"
+  printf 'target_met=%s\n' "$target_met"
+  printf 'K_so_far=%s\n' "$K_so_far"
+  printf 'K_required=%s\n' "$K_req"
+  printf 'plateau=%s\n' "$plateau"
+}
+
+# cw_deep_research_render_summary <art-dir>
+# Renders sections 1, 2, 4, 5 of session-summary.md mechanically from disk.
+# Yoda fills in Direction + Recent decisions sections via Write tool after this.
+# Caller redirects stdout to "$art_dir/session-summary.md" via atomic write.
+#
+# Consumes production scoreboard schema (bin/deep-research-score.sh:77):
+#   | Rank | Experiment | Commander | Metric | Status | Runtime | Approach |
+cw_deep_research_render_summary() {
+  local art_dir="${1:-}"
+  [[ -d "$art_dir" ]] \
+    || { echo "cw_deep_research_render_summary: art-dir missing: $art_dir" >&2; return 2; }
+
+  local topic now started budget
+  topic=$(cat "$art_dir/topic.txt" 2>/dev/null || echo "(unknown)")
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  started=$(cat "$art_dir/session-start.txt" 2>/dev/null || echo "(unknown)")
+  budget=$(cat "$art_dir/time-budget.txt" 2>/dev/null || echo "none")
+
+  printf '# Research session — %s\n' "$topic"
+  printf 'Updated: %s\n' "$now"
+  printf 'Started: %s\n' "$started"
+  printf 'Time budget: %s\n\n' "$budget"
+
+  # Section: Status
+  printf '## Status\n\n'
+  printf '| Trooper | Phase | Current | Last event |\n'
+  printf '|---|---|---|---|\n'
+  if [[ -f "$art_dir/troopers.txt" ]]; then
+    local cmdr state_file phase cur last_ts last_event
+    while read -r cmdr; do
+      [[ -n "$cmdr" ]] || continue
+      state_file="$art_dir/troopers/$cmdr/state.txt"
+      phase="?"; cur="—"; last_ts="?"; last_event="?"
+      if [[ -f "$state_file" ]]; then
+        phase=$(awk -F= '/^phase=/{print $2}' "$state_file")
+        cur=$(awk -F= '/^current_exp_id=/{print $2}' "$state_file")
+        last_ts=$(awk -F= '/^last_event_ts=/{print $2}' "$state_file")
+        last_event=$(awk -F= '/^last_event=/{print $2}' "$state_file")
+        [[ -z "$cur" ]] && cur="—"
+      fi
+      printf '| %s | %s | %s | %s %s |\n' "$cmdr" "$phase" "$cur" "$last_ts" "$last_event"
+    done < "$art_dir/troopers.txt"
+  fi
+  printf '\n'
+
+  # Section: Scoreboard top 5
+  # Production schema starts data rows with `| <rank-int> | exp-<int> |`
+  # (not `| exp-…` from the original 6-col fixture).
+  printf '## Scoreboard top 5\n\n'
+  if [[ -f "$art_dir/scoreboard.md" ]]; then
+    printf '| Rank | Experiment | Commander | Metric | Status | Runtime | Approach |\n'
+    printf '|---|---|---|---|---|---|---|\n'
+    grep -E '^\|[[:space:]]+[0-9]+[[:space:]]+\|[[:space:]]+exp-' "$art_dir/scoreboard.md" | head -5
+  else
+    printf '_(scoreboard empty)_\n'
+  fi
+  printf '\n'
+
+  # Section: Completion check
+  printf '## Completion check\n\n'
+  if [[ -f "$art_dir/scoreboard.md" && -f "$art_dir/metric.md" ]]; then
+    local signals
+    signals=$(cw_deep_research_check_completion "$art_dir/scoreboard.md" "$art_dir/metric.md" 2>/dev/null || true)
+    local floor target K_so K_req plateau
+    floor=$(echo "$signals" | awk -F= '/^floor_met=/{print $2}')
+    target=$(echo "$signals" | awk -F= '/^target_met=/{print $2}')
+    K_so=$(echo "$signals" | awk -F= '/^K_so_far=/{print $2}')
+    K_req=$(echo "$signals" | awk -F= '/^K_required=/{print $2}')
+    plateau=$(echo "$signals" | awk -F= '/^plateau=/{print $2}')
+    if [[ "$floor" == "yes" ]]; then
+      printf -- '- Floor: MET\n'
+    else
+      printf -- '- Floor: not met\n'
+    fi
+    if [[ "$target" == "yes" ]]; then
+      printf -- '- Target: MET\n'
+    else
+      printf -- '- Target: not met\n'
+    fi
+    printf -- '- K corroboration: %s/%s\n' "$K_so" "$K_req"
+    if [[ "$plateau" == "yes" ]]; then
+      printf -- '- Plateau: YES\n'
+    else
+      printf -- '- Plateau: no\n'
+    fi
+    # Hard cap: reuse cw_deep_research_check_time_budget rather than duplicating.
+    if [[ -f "$art_dir/time-budget.txt" && -f "$art_dir/session-start.txt" ]]; then
+      local cap
+      cap=$(cw_deep_research_check_time_budget "$art_dir/time-budget.txt" "$art_dir/session-start.txt" 2>/dev/null || echo "no")
+      if [[ "$cap" == "yes" ]]; then
+        printf -- '- Hard cap: YES\n'
+      else
+        printf -- '- Hard cap: NO\n'
+      fi
+    fi
+  else
+    printf '_(missing scoreboard or metric)_\n'
+  fi
+  printf '\n'
+
+  # Section: Recent events (last 10 across troopers' outboxes by ts)
+  printf '## Recent events\n\n'
+  local merged="$art_dir/.events-merged.tmp"
+  : > "$merged"
+  if [[ -f "$art_dir/troopers.txt" ]]; then
+    local cmdr outbox topic_dir
+    topic_dir=$(dirname "$art_dir")
+    while read -r cmdr; do
+      [[ -n "$cmdr" ]] || continue
+      outbox="$topic_dir/$cmdr-codex/outbox.jsonl"
+      if [[ -f "$outbox" ]]; then
+        tail -10 "$outbox" | while IFS= read -r line; do
+          local ts ev
+          ts=$(printf '%s' "$line" | sed -n 's/.*"ts":"\([^"]*\)".*/\1/p')
+          ev=$(printf '%s' "$line" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p')
+          [[ -n "$ev" ]] && printf '%s\t%s\t%s\n' "$ts" "$cmdr" "$ev" >> "$merged"
+        done
+      fi
+    done < "$art_dir/troopers.txt"
+  fi
+  if [[ -s "$merged" ]]; then
+    sort -r "$merged" | head -10 | awk -F'\t' '{printf "- %s %s/%s\n", $1, $2, $3}'
+  else
+    printf '_(no events yet)_\n'
+  fi
+  rm -f "$merged"
 }

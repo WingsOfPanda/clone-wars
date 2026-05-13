@@ -23,8 +23,8 @@ EOF
 assert_contains "$got" "# Research goal" "header present"
 assert_contains "$got" "**Primary metric:** accuracy" "primary_metric"
 assert_contains "$got" "**Direction:** maximize" "direction"
-assert_contains "$got" "**Target (good):** >= 0.99" "target"
-assert_contains "$got" "**Acceptable:** >= 0.97" "acceptable"
+assert_contains "$got" "**target:** >= 0.99" "target"
+assert_contains "$got" "**acceptable (legacy):** >= 0.97" "acceptable (legacy)"
 assert_contains "$got" "**Hard constraints:** params < 100k" "hard_constraints"
 assert_contains "$got" "**Notes:** MNIST test set" "notes"
 pass "full K=V set rendered"
@@ -38,7 +38,7 @@ EOF
 
 assert_contains "$got" "**Primary metric:** latency" "min primary_metric"
 assert_contains "$got" "**Direction:** minimize" "min direction"
-[[ "$got" != *"**Target (good):**"* ]] \
+[[ "$got" != *"**target:**"* ]] \
   || { echo "FAIL: target shown for minimal case" >&2; exit 1; }
 pass "minimal K=V omits unset optional fields"
 

@@ -54,6 +54,13 @@ echo '{"pane_id":"%9999","pid":99999,"spawned_at":"2026-05-12T00:00:00Z"}' > "$T
 echo '' > "$TD/rex-codex/outbox.jsonl"
 echo '{"state":"working","updated":"2026-05-12T12:00:00Z","last_event":"ready"}' > "$TD/rex-codex/status.json"
 
+# v0.28.0: seed per-trooper state.txt (normally done by directive Phase 4.a)
+source "$PLUGIN_ROOT/lib/deep-research.sh"
+mkdir -p "$ART/troopers/rex/experiments"
+cw_deep_research_trooper_state_write "$ART" rex \
+  exp_counter=0 phase=idle current_exp_id= \
+  last_event_ts=2026-05-13T08:00:00Z last_event=spawn probe_sent_ts=
+
 export CW_DEEP_RESEARCH_DRY_RUN=1
 PATH="$TMP/bin:$PATH" "$PLUGIN_ROOT/bin/deep-research-experiment-send.sh" \
   "$TOPIC" rex exp-001 "P2 wiring" "Smoke-test approach brief."
@@ -66,7 +73,7 @@ grep -qE "^gpu${TAB}NVIDIA L20${TAB}49140${TAB}12000${TAB}580\.126\.09$" "$ART/h
 pass "hardware-current.txt written by experiment-send.sh"
 
 # Assert prompt.md contains the rendered Hardware section
-PROMPT="$ART/experiments/exp-001-rex/prompt.md"
+PROMPT="$ART/troopers/rex/experiments/exp-001/prompt.md"
 assert_file_exists "$PROMPT" "prompt.md exists"
 grep -q '^Hardware:$' "$PROMPT" \
   || { echo "FAIL: prompt.md missing 'Hardware:' header" >&2; exit 1; }

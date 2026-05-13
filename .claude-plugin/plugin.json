@@ -1,6 +1,6 @@
 {
   "name": "clone-wars",
-  "version": "0.27.3",
+  "version": "0.28.0",
   "description": "Multi-model tmux pane orchestration for Claude Code — spawn codex/gemini/claude TUIs as attachable clone troopers",
   "author": {
     "name": "WingsOfPanda",
@@ -17,5 +17,18 @@
     "tmux",
     "codex",
     "gemini"
-  ]
+  ],
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/user-prompt-submit-active-session.sh"
+          }
+        ]
+      }
+    ]
+  }
 }

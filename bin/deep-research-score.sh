@@ -26,23 +26,24 @@ state_root="${CLONE_WARS_HOME:-$HOME/.clone-wars}"
 repo_hash=$(cw_repo_hash)
 TOPIC_DIR="$state_root/state/$repo_hash/$TOPIC"
 ART_DIR="$TOPIC_DIR/_deep-research"
-EXPS_DIR="$ART_DIR/experiments"
-[[ -d "$EXPS_DIR" ]] || { log_error "experiments dir missing: $EXPS_DIR"; exit 1; }
+TROOPERS_DIR="$ART_DIR/troopers"
+[[ -d "$TROOPERS_DIR" ]] || { log_error "troopers dir missing: $TROOPERS_DIR"; exit 1; }
 
 SB_TMP=$(mktemp)
 OK_ROWS=$(mktemp)
 FAIL_ROWS=$(mktemp)
 trap 'rm -f "$SB_TMP" "$OK_ROWS" "$FAIL_ROWS"' EXIT
 
+# v0.28.0: per-trooper layout. Iterate _deep-research/troopers/<cmdr>/experiments/<exp-id>/.
+# Commander comes from the parent dir; exp-id is the leaf basename.
 shopt -s nullglob
-for branch_dir in "$EXPS_DIR"/*/; do
+for branch_dir in "$TROOPERS_DIR"/*/experiments/*/; do
   branch_dir="${branch_dir%/}"
   result="$branch_dir/result.json"
   [[ -f "$result" ]] || continue
 
-  basename_dir=$(basename "$branch_dir")  # e.g. "exp-007-rex"
-  exp_id="${basename_dir%-*}"             # exp-007
-  cmdr="${basename_dir##*-}"              # rex
+  exp_id=$(basename "$branch_dir")                                # exp-007
+  cmdr=$(basename "$(dirname "$(dirname "$branch_dir")")")        # rex
 
   # Validate schema (sets stderr message on failure)
   (cd "$branch_dir" && cw_deep_research_validate_result_json result.json) 2>/dev/null \
@@ -96,3 +97,22 @@ done
 SB="$ART_DIR/scoreboard.md"
 mv "$SB_TMP" "$SB"
 log_ok "[score] scoreboard at $SB"
+
+# v0.28.0: clear phase=idle on each commander that has at least one ok/fail
+# result.json (i.e. produced a scoreable experiment). Current_exp_id is
+# cleared since the experiment is now complete. The directive (handler 3.b)
+# uses this to know the trooper is ready for the next dispatch.
+shopt -s nullglob
+for cmdr_dir in "$TROOPERS_DIR"/*/; do
+  cmdr=$(basename "${cmdr_dir%/}")
+  state_file="$cmdr_dir/state.txt"
+  [[ -f "$state_file" ]] || continue
+  # Only touch state.txt if there's at least one scored result.json for this trooper
+  if ls "$cmdr_dir/experiments"/*/result.json >/dev/null 2>&1; then
+    cw_deep_research_trooper_state_write "$ART_DIR" "$cmdr" \
+      phase=idle \
+      current_exp_id= \
+      last_event_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      last_event=scored
+  fi
+done

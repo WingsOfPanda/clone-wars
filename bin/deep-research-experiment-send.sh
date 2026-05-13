@@ -50,13 +50,18 @@ METRIC_MD="$ART_DIR/metric.md"
 [[ -f "$METRIC_MD" ]] \
   || { log_error "metric.md missing at $METRIC_MD (directive's Phase 1 must run before dispatch)"; exit 1; }
 
-# State file at consult-shape path (one per commander; cw_consult_wait reads here)
-STATE_FILE="$ART_DIR/experiment-$COMMANDER.txt"
+# v0.28.0: per-trooper state.txt (KV: exp_counter, phase, current_exp_id,
+# last_event_ts, last_event, probe_sent_ts). Refuse to dispatch if the
+# trooper is already working on something (phase != idle).
+STATE_FILE="$ART_DIR/troopers/$COMMANDER/state.txt"
 [[ -f "$STATE_FILE" ]] \
-  && { log_error "state file $STATE_FILE already exists — trooper has an in-flight dispatch. Wait or teardown first."; exit 1; }
+  || { log_error "trooper state.txt missing: $STATE_FILE (directive Phase 4.a must run before first dispatch)"; exit 1; }
+cur_phase=$(awk -F= '/^phase=/{print $2}' "$STATE_FILE")
+[[ "$cur_phase" == "idle" ]] \
+  || { log_error "trooper $COMMANDER not idle (phase=$cur_phase) — wait for completion or finalize first."; exit 1; }
 
-# Branch dir at flat experiments/exp-NNN-<cmdr>/
-BRANCH_DIR="$ART_DIR/experiments/$EXP_ID-$COMMANDER"
+# v0.28.0: per-trooper branch dir at troopers/<cmdr>/experiments/<exp-id>/
+BRANCH_DIR="$ART_DIR/troopers/$COMMANDER/experiments/$EXP_ID"
 mkdir -p "$BRANCH_DIR/code"
 
 # Trooper pane: trooper outbox must exist (means trooper was spawned)
@@ -170,12 +175,18 @@ printf '\nEND_OF_INSTRUCTION\n' >> "$INBOX.tmp"
 mv "$INBOX.tmp" "$INBOX"
 log_info "wrote inbox at $INBOX"
 
-# State file: cw_consult_wait expects OFFSET=
-cat > "$STATE_FILE.tmp" <<EOF
-OFFSET=$offset
-EXP_ID=$EXP_ID
-EOF
-mv "$STATE_FILE.tmp" "$STATE_FILE"
+# v0.28.0: update per-trooper state.txt atomically. exp_counter increments
+# from prior value (init seeded 0; first dispatch → 1). phase=working until
+# score sets phase=idle on done event.
+prev_counter=$(awk -F= '/^exp_counter=/{print $2}' "$STATE_FILE")
+[[ "$prev_counter" =~ ^[0-9]+$ ]] || prev_counter=0
+new_counter=$((prev_counter + 1))
+cw_deep_research_trooper_state_write "$ART_DIR" "$COMMANDER" \
+  phase=working \
+  current_exp_id="$EXP_ID" \
+  exp_counter="$new_counter" \
+  last_event_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  last_event=dispatched
 
 # Nudge the pane unless DRY_RUN
 if [[ "${CW_DEEP_RESEARCH_DRY_RUN:-0}" != "1" ]]; then
