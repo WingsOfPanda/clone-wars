@@ -309,33 +309,145 @@ Set task `2` → `in_progress`.
 
 Set task `2` → `completed`.
 
-### Phase 3 — Spawn roster (parallel Bash calls)
+### Phase 3a — Preflight pane allocation (foreground)
 
 Set task `3` → `in_progress`.
 
-Issue N parallel Bash tool calls (single message). Each call:
+**v0.28.3 architecture.** Phase 3 is split into 3a (preflight, foreground)
+and 3b (parallel dispatch). 3a allocates N panes upfront in a single bash
+process and applies `tmux select-layout main-vertical` so all panes appear
+visually atomic with even heights. 3b then fires N truly-parallel
+`bin/spawn.sh --target-pane` calls that `tmux respawn-pane` into the
+pre-allocated panes — no `.last_pane` race, no chained-split half-sizing.
+
+This mirrors `/clone-wars:meditate` Step 2 (v0.25.0+) and
+`/clone-wars:consult` Step 3a/3b (v0.19.0+). Spec:
+`docs/superpowers/specs/2026-05-13-v0.28.3-deep-research-preflight-port-design.md`.
+
+1. **Write the consult-shaped sidecar.** `bin/preflight-layout.sh` reads a
+   2-col TSV (`<provider>\t<commander>`); deep-research's native
+   `troopers.txt` is 1-col commander-only. The sidecar bridges the schema
+   gap (deploy v0.22.0 precedent):
+
+   ```bash
+   source /home/liupan/CC/clone-wars/lib/log.sh
+   source /home/liupan/CC/clone-wars/lib/state.sh
+   source /home/liupan/CC/clone-wars/lib/consult.sh
+   source /home/liupan/CC/clone-wars/lib/deep-research.sh
+   ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
+   mapfile -t ROSTER < /tmp/cw-deep-research-roster.txt
+   cw_deep_research_write_preflight_sidecar "$ART_DIR" "${ROSTER[@]}"
+   ```
+
+2. **Initialize the retry counter ONCE** (shared between 3a and 3b — same
+   counter governs both preflight-fail retry and spawn-fail retry):
+
+   ```bash
+   SPAWN_RETRY_COUNT=0
+   ```
+
+3. **Invoke preflight-layout.** Foreground; allocates N panes off Yoda's
+   pane, applies main-vertical layout, writes `preflight-panes.txt`:
+
+   ```bash
+   DEEP_TOPIC=$(cat /tmp/cw-deep-research-topic.txt)
+   ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
+   /home/liupan/CC/clone-wars/bin/preflight-layout.sh \
+     --art-dir "$ART_DIR" \
+     --troopers-from "$ART_DIR/troopers-preflight.txt" \
+     "$DEEP_TOPIC" "$N"
+   ```
+
+4. **On preflight rc=0:** load `preflight-panes.txt` into a per-commander
+   pane-id lookup for 3b's parallel dispatch:
+
+   ```bash
+   declare -A PREFLIGHT_PANES
+   while IFS=$'\t' read -r cmdr pane; do
+     PREFLIGHT_PANES["$cmdr"]="$pane"
+   done < "$ART_DIR/preflight-panes.txt"
+   ```
+
+5. **On preflight rc≠0 AND `SPAWN_RETRY_COUNT == 0`:** Stage 1 retry. Tear
+   down any survivors + re-run from step 1 above. Set
+   `SPAWN_RETRY_COUNT=1`.
+
+   ```bash
+   DEEP_TOPIC=$(cat /tmp/cw-deep-research-topic.txt)
+   /home/liupan/CC/clone-wars/bin/deep-research-teardown.sh "$DEEP_TOPIC" 2>/dev/null || true
+   SPAWN_RETRY_COUNT=1
+   log_info "preflight failed (cold start?); retrying preflight + parallel spawn"
+   ```
+
+6. **On preflight rc≠0 AND `SPAWN_RETRY_COUNT == 1`:** retry exhausted.
+   Archive + exit (no Stage 2 prompt for preflight; if preflight fails
+   twice the run is unrecoverable):
+
+   ```bash
+   /home/liupan/CC/clone-wars/bin/deep-research-teardown.sh "$DEEP_TOPIC" 2>/dev/null || true
+   exit 1
+   ```
+
+### Phase 3b — Parallel dispatch (N parallel Bash tool calls)
+
+**Issue N parallel `Bash` tool calls in a single message** — one per
+ROSTER entry. Each call passes `--target-pane` (pre-allocated pane ID
+from `PREFLIGHT_PANES`) and `--preflight-art-dir` (so spawn.sh validates
+the pane ID against the correct preflight-panes.txt):
 
 ```bash
 DEEP_TOPIC=$(cat /tmp/cw-deep-research-topic.txt)
-/home/liupan/CC/clone-wars/bin/spawn.sh <commander> codex "$DEEP_TOPIC"
+ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
+/home/liupan/CC/clone-wars/bin/spawn.sh \
+  <commander> codex "$DEEP_TOPIC" \
+  --target-pane "${PREFLIGHT_PANES[<commander>]}" \
+  --preflight-art-dir "$ART_DIR"
 ```
 
-Capture each rc separately. **Spawn-rollback runbook** (auto-retry-once
-on cold-start failure, identical to v0.26.0):
+(Use the same iteration pattern as Phase 4.a — substitute each
+commander in ROSTER for `<commander>`.)
 
-- All N succeed → continue.
-- ≥1 fails, retry count = 0:
+Capture each rc separately. Evaluate the rc tuple after the parallel
+block:
+
+- **All N succeed** → continue to Phase 4. Set task `3` → `completed`.
+
+- **Any failed AND `SPAWN_RETRY_COUNT == 0`** → Stage 1 retry-once:
+
   ```bash
   DEEP_TOPIC=$(cat /tmp/cw-deep-research-topic.txt)
-  mapfile -t ROSTER < /tmp/cw-deep-research-roster.txt
-  /home/liupan/CC/clone-wars/bin/teardown.sh --pairs "$DEEP_TOPIC" "${ROSTER[@]}" 2>/dev/null || true
+  /home/liupan/CC/clone-wars/bin/deep-research-teardown.sh "$DEEP_TOPIC" 2>/dev/null || true
+  SPAWN_RETRY_COUNT=1
+  log_info "spawn failed (cold start?); retrying preflight + parallel spawn"
   ```
-  Re-issue N parallel spawn calls. Set retry count = 1.
-- ≥1 fails, retry count = 1 → AskUserQuestion:
-  > `Proceed degraded (N-1 troopers)` / `Abort deep-research`
 
-  If degraded: remove the failed commander from ROSTER, continue.
-  If abort: archive via deep-research-teardown.sh, exit.
+  Then jump back to Phase 3a step 1 (re-write sidecar, re-run preflight,
+  re-issue N parallel spawns). The teardown call clears any partially-
+  spawned trooper state AND kills preflight sentinel panes (via the
+  v0.28.3 orphan-cleanup extension in `bin/deep-research-teardown.sh`).
+
+- **Any failed AND `SPAWN_RETRY_COUNT == 1`** → Stage 2 partial-success
+  AskUserQuestion. Determine which troopers succeeded (look for
+  `pane.json` in each `<commander>-codex/` state dir):
+
+  ```bash
+  SUCCESS=(); FAILED=()
+  for cmdr in "${ROSTER[@]}"; do
+    if [[ -f "$TOPIC_DIR/$cmdr-codex/pane.json" ]]; then
+      SUCCESS+=("$cmdr")
+    else
+      FAILED+=("$cmdr")
+    fi
+  done
+  ```
+
+  Then AskUserQuestion with two options:
+  - `Proceed degraded (${#SUCCESS[@]}/$N troopers)` — drop failed commanders
+    from ROSTER + `/tmp/cw-deep-research-roster.txt` + `troopers.txt`, kill
+    their preflight panes via `cw_preflight_kill_orphans`, continue to
+    Phase 4 with the reduced roster. Force abort if `${#SUCCESS[@]} < 2`
+    (deep-research min N=2).
+  - `Abort deep-research` — archive via `deep-research-teardown.sh`, exit 1.
 
 Set task `3` → `completed`.
 
