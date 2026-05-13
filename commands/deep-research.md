@@ -173,10 +173,19 @@ Adaptive dialogue with the user. Length scales with topic clarity:
    the K=V pairs for `cw_deep_research_format_metric_block`:
    - `primary_metric` (required, e.g. `accuracy`)
    - `direction` (required, `maximize` or `minimize`)
-   - `target` (optional, e.g. `>= 0.99`)
-   - `acceptable` (optional, e.g. `>= 0.97`)
+   - `min_acceptable` (**v0.28.0** — floor, e.g. `>= 0.90`): "What's the
+     minimum acceptable result you'd be OK shipping?" Below this we
+     never stop the research loop.
+   - `target` (optional aspirational, e.g. `>= 0.99`)
+   - `K_corroboration` (**v0.28.0** — default 1): "How many experiments
+     at target before we call it done?" Higher K reduces variance risk
+     for reproducible wins.
    - `hard_constraints` (optional, e.g. `params < 100k`)
    - `notes` (optional, e.g. `MNIST test set`)
+
+   Defaults for `plateau_window=5` and `plateau_threshold=0.01` apply
+   automatically; user can edit metric.md directly if they want different
+   values.
 
 5. Format and write `metric.md`:
 
@@ -186,8 +195,9 @@ Adaptive dialogue with the user. Length scales with topic clarity:
    cw_deep_research_format_metric_block <<EOF > "$ART_DIR/metric.md"
    primary_metric=accuracy
    direction=maximize
+   min_acceptable=>= 0.90
    target=>= 0.99
-   acceptable=>= 0.97
+   K_corroboration=1
    hard_constraints=params < 100k
    notes=MNIST test set
    EOF
@@ -251,7 +261,9 @@ Set task `2` → `in_progress`.
    ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
    echo "none" > "$ART_DIR/time-budget.txt"      # or the seconds value
    date -u +%Y-%m-%dT%H:%M:%SZ > "$ART_DIR/session-start.txt"
-   echo "0" > "$ART_DIR/stagnation-cursor.txt"
+   # v0.28.0: stagnation-cursor.txt is gone — completion-check helper
+   # (cw_deep_research_check_completion) uses metric.md's plateau_window
+   # field directly and recomputes plateau each turn from scoreboard.md.
    ```
 
    Encoding:
@@ -301,102 +313,117 @@ on cold-start failure, identical to v0.26.0):
 
 Set task `3` → `completed`.
 
-### Phase 4 — Research loop (advisor-driven)
+### Phase 4 — Per-trooper turn loop (initial entry)
 
 Set task `4` → `in_progress`.
 
-**No fixed structure.** Yoda decides each iteration. Use a per-experiment
-chronological counter `EXP_NUM` (starts at 1; increment on each dispatch
-within the session):
+**v0.28.0 architecture.** Phase 4 has TWO entry modes:
+- **4.a (initial entry, this section)** — runs once when `/clone-wars:deep-research`
+  is invoked. Sets up Monitor tasks per trooper, writes initial session-summary,
+  dispatches first experiments, ends turn.
+- **3.b (re-entry handler)** — fires on every subsequent turn (triggered by a
+  trooper-completion notification OR a user message). Lives in
+  `commands/deep-research-resume.md` (loaded via the UserPromptSubmit hook in
+  `hooks/user-prompt-submit-active-session.sh` when active.txt is present).
 
-```
-LOOP:
-  decide next move (Yoda judgment):
-    - dispatch a new approach to an idle trooper
-    - dispatch a follow-up to a specific trooper that builds on prior turn
-    - stop entirely
+**Architectural principle:** Yoda gives direction, not detailed plans. Each
+per-experiment dispatch is 1-2 sentences of strategic intent (~50 tokens).
+Continuity lives in `session-summary.md` (Recent decisions + Current direction
+sections), not in re-derived per-turn context.
 
-  derive exp-id:  EXP_ID=$(printf "exp-%03d" "$EXP_NUM")
+#### 4.a — Initial entry (this turn only)
 
-  dispatch (parallel Bash calls if multiple troopers in same batch):
-    DEEP_TOPIC=$(cat /tmp/cw-deep-research-topic.txt)
-    /home/liupan/CC/clone-wars/bin/deep-research-experiment-send.sh \
-      "$DEEP_TOPIC" <commander> "$EXP_ID" <approach-label> <approach-brief>
+1. **Seed per-trooper state.** For each commander in `troopers.txt`:
 
-  fire TaskCreate sub-row 4.NNN with rank-prefixed commander name
-  (use cw_cmdr_rank for the rank).
+   ```bash
+   source /home/liupan/CC/clone-wars/lib/log.sh
+   source /home/liupan/CC/clone-wars/lib/state.sh
+   source /home/liupan/CC/clone-wars/lib/deep-research.sh
+   ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
+   mapfile -t ROSTER < /tmp/cw-deep-research-roster.txt
+   for cmdr in "${ROSTER[@]}"; do
+     mkdir -p "$ART_DIR/troopers/$cmdr/experiments"
+     : > "$ART_DIR/troopers/$cmdr/liveness-cursor.txt"
+     cw_deep_research_trooper_state_write "$ART_DIR" "$cmdr" \
+       exp_counter=0 phase=idle current_exp_id= \
+       last_event_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+       last_event=spawn probe_sent_ts=
+   done
+   ```
 
-  wait (foreground, parallel via single message):
-    DEEP_TOPIC=$(cat /tmp/cw-deep-research-topic.txt)
-    CW_DEEP_RESEARCH_EXPERIMENT_TIMEOUT_OVERRIDE=<seconds> \
-    /home/liupan/CC/clone-wars/bin/deep-research-experiment-wait.sh \
-      "$DEEP_TOPIC" <commander> codex
+   (init.sh has already touched `active.txt` at the art-dir root.)
 
-  score (mechanical):
-    DEEP_TOPIC=$(cat /tmp/cw-deep-research-topic.txt)
-    /home/liupan/CC/clone-wars/bin/deep-research-score.sh "$DEEP_TOPIC"
+2. **Start one Monitor task per commander.** Each watches its trooper's outbox
+   for `done/error/question/heartbeat` events AND fires `stale/stuck` events
+   when outbox mtime exceeds `CW_DEEP_RESEARCH_PROBE_S` / `_STUCK_S` thresholds.
 
-  stop check:
-    source /home/liupan/CC/clone-wars/lib/log.sh
-    source /home/liupan/CC/clone-wars/lib/deep-research.sh
-    ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
-    if cw_deep_research_check_time_budget "$ART_DIR/time-budget.txt" "$ART_DIR/session-start.txt"; then
-      AskUserQuestion: Continue / Stop / Extend (+T hours)
-    elif cw_deep_research_check_plateau "$ART_DIR/scoreboard.md" "$ART_DIR/stagnation-cursor.txt"; then
-      AskUserQuestion: Continue / Stop / Adjust direction
-    fi
+   For each commander, use the Monitor tool with config:
+   - `command`: `bash /home/liupan/CC/clone-wars/bin/deep-research-monitor.sh "$ART_DIR" "<cmdr>"`
+   - `persistent`: `true`
+   - `description`: `deep-research monitor for <cmdr>`
 
-  remove state file (post-wait cleanup) — required before re-dispatching
-  the same trooper:
-    ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
-    rm -f "$ART_DIR/experiment-<commander>.txt"
+   Capture each task ID and append to `$ART_DIR/monitor-tasks.txt`, one per line.
 
-  EXP_NUM=$((EXP_NUM + 1))
+3. **Write initial `session-summary.md`:**
 
-GOTO LOOP
-```
+   ```bash
+   ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
+   cw_deep_research_render_summary "$ART_DIR" > "$ART_DIR/session-summary.md"
+   ```
 
-**Follow-up dispatch pattern** — Yoda may send a trooper a prompt that
-references prior results in their codex session naturally:
-> *"Your exp-003 (Modern LeNet + aug) hit 99.03%. For exp-007, try the
-> same arch with weight decay 1e-4. Write the new run to exp-007-rex/code/."*
+   Yoda then appends initial `## Current direction` (1-3 sentence opening
+   strategy note) and `## Recent decisions` (placeholder bullets to be filled
+   on first dispatch) via Write/Edit tool.
 
-The trooper sees this in their inbox.md; their codex session has full
-history of exp-003 (they implemented it).
+4. **First dispatch round.** For each trooper, Yoda composes a 1-2 sentence
+   opening direction informed by `topic.txt`, `metric.md`, and `seed-from.txt`
+   (if present). Dispatch via parallel Bash tool calls (one per commander in
+   a single message):
 
-**On `Stop` answer** at safety-net prompt → break loop, go to Phase 5.
+   ```bash
+   DEEP_TOPIC=$(cat /tmp/cw-deep-research-topic.txt)
+   /home/liupan/CC/clone-wars/bin/deep-research-experiment-send.sh \
+     "$DEEP_TOPIC" "<cmdr>" "exp-001" "<approach-label>" "<short direction>"
+   ```
 
-**On `Adjust direction`** → small AskUserQuestion to capture new
-direction; optionally re-edit metric.md (Write tool, atomic); reset
-stagnation cursor to the latest exp number:
+   Each dispatch:
+   - Creates `troopers/<cmdr>/experiments/exp-001/code/`
+   - Updates `troopers/<cmdr>/state.txt` to `phase=working, current_exp_id=exp-001, exp_counter=1`
+   - Writes `troopers/<cmdr>/experiments/exp-001/prompt.md` from the experiment template
+   - Nudges the trooper pane via `bin/send.sh`
 
-```bash
-ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
-SB="$ART_DIR/scoreboard.md"
-# Grab the highest exp-NNN from the scoreboard (any row).
-last_exp=$(grep -oE 'exp-[0-9]+' "$SB" | sort -u | tail -1 | sed 's/exp-//; s/^0*//')
-echo "${last_exp:-0}" > "$ART_DIR/stagnation-cursor.txt"
-```
+   For each dispatch, also fire a TaskCreate sub-row with subject
+   `4.001 <Rank> <Commander> on <approach-label>` (use `cw_cmdr_rank` for the
+   rank prefix).
 
-**On `Extend (+T hours)`** → update time-budget.txt and refresh
-session-start.txt to "now" so the elapsed counter resets:
+5. **End the turn.** Emit a chat message:
 
-```bash
-ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
-current=$(cat "$ART_DIR/time-budget.txt")
-new=$(( current + T * 3600 ))
-echo "$new" > "$ART_DIR/time-budget.txt"
-date -u +%Y-%m-%dT%H:%M:%SZ > "$ART_DIR/session-start.txt"
-```
+   > N troopers running first experiments (rex on <approach-A>, cody on
+   > <approach-B>). I'll pick up when they report back — you can ask me
+   > anything in the meantime.
 
-When loop exits, set task `4` → `completed`.
+   Leave task `4` in `in_progress`. It transitions to `completed` only when
+   handler 3.b reaches Step 2's exit (halt-flag detected OR completion-check
+   triggers stop). Future turns are triggered by:
+
+   - Monitor notifications (trooper events + liveness signals) — `<task-notification>`
+     arrives natively.
+   - User messages — the UserPromptSubmit hook (`hooks/user-prompt-submit-active-session.sh`)
+     detects `$ART_DIR/active.txt` and injects a context block pointing Yoda
+     at `commands/deep-research-resume.md`.
+
+   Both paths converge on handler 3.b. **Do not loop in this turn.**
 
 ### Phase 5 — Synthesis (landscape doc)
 
 Set task `5` → `in_progress`.
 
 Yoda writes `_deep-research/deep-research-<date>-<slug>.md` via Write
-tool (atomic single-shot).
+tool (atomic single-shot). **v0.28.0:** synthesis consumes
+`session-summary.md` (rolling continuity record updated every turn by
+handler 3.b step 7) as primary input alongside `scoreboard.md`. The
+Recent decisions section is particularly useful for narrating the
+session's research arc in the landscape doc.
 
 **Doc shape** (each section is REQUIRED):
 
@@ -456,8 +483,14 @@ Set task `5` → `completed`.
 
 Set task `6` → `in_progress`.
 
-Single batched teardown via `--pairs` (one 9s graceful banner across N
-panes, not N × 9s):
+**v0.28.0:** before the panes teardown, stop the Monitor tasks. Read
+each task ID from `$ART_DIR/monitor-tasks.txt` and call `TaskStop` on
+it (the TaskStop tool is a Claude Code harness primitive, not a shell
+command — invoke it from this turn for each ID). `bin/deep-research-finalize.sh`
+may have already run this; TaskStop is idempotent.
+
+Then single batched panes teardown via `--pairs` (one 9s graceful banner
+across N panes, not N × 9s):
 
 ```bash
 DEEP_TOPIC=$(cat /tmp/cw-deep-research-topic.txt)
@@ -466,6 +499,10 @@ mapfile -t ROSTER < /tmp/cw-deep-research-roster.txt
 ARCHIVE=$(/home/liupan/CC/clone-wars/bin/deep-research-teardown.sh "$DEEP_TOPIC")
 echo "$ARCHIVE" > /tmp/cw-deep-research-archive.txt
 ```
+
+The teardown's `mv` move preserves the entire `troopers/<cmdr>/` subtree
+plus `session-summary.md`, `monitor-tasks.txt`, and the final scoreboard
+in the archive.
 
 Update the landscape doc inside the archive to bake in the absolute
 archive path under "Suggested next". Use the Edit tool (Read first if
