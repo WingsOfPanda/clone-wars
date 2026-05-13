@@ -155,8 +155,7 @@ awk \
   gsub(/\{\{METRIC_NAME\}\}/,     metric_name)
   gsub(/\{\{TIME_BUDGET_S\}\}/,   time_budget)
   print
-}' "$TEMPLATE" > "$PROMPT_FILE.tmp"
-mv "$PROMPT_FILE.tmp" "$PROMPT_FILE"
+}' "$TEMPLATE" | cw_atomic_write "$PROMPT_FILE"
 
 # v0.27.2 BUG #4 followup: tighten sanity check. Previous grep-only
 # check silently passed a 0-byte file because grep finds no placeholders
@@ -171,9 +170,10 @@ fi
 
 # Write inbox.md (one inbox at a time; trooper reads it on nudge)
 INBOX="$TOPIC_DIR/$COMMANDER-codex/inbox.md"
-cat "$PROMPT_FILE" > "$INBOX.tmp"
-printf '\nEND_OF_INSTRUCTION\n' >> "$INBOX.tmp"
-mv "$INBOX.tmp" "$INBOX"
+{
+  cat "$PROMPT_FILE"
+  printf '\nEND_OF_INSTRUCTION\n'
+} | cw_atomic_write "$INBOX"
 log_info "wrote inbox at $INBOX"
 
 # v0.28.0: update per-trooper state.txt atomically. exp_counter increments

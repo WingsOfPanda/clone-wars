@@ -264,12 +264,12 @@ cw_deep_research_hardware_probe() {
         --query-gpu=name,memory.total,memory.free,driver_version \
         --format=csv,noheader,nounits 2>/dev/null \
         | awk -F', ' '{ printf "gpu\t%s\t%s\t%s\t%s\n", $1, $2, $3, $4 }'
-    } > "$out.tmp" && mv "$out.tmp" "$out"
+    } | cw_atomic_write "$out"
   else
     {
       printf 'detected_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
       printf 'no-gpu\n'
-    } > "$out.tmp" && mv "$out.tmp" "$out"
+    } | cw_atomic_write "$out"
   fi
 }
 
@@ -340,7 +340,7 @@ cw_deep_research_trooper_state_write() {
     || { echo "cw_deep_research_trooper_state_write: need at least one KEY=VALUE" >&2; return 2; }
   local trooper_dir="$art_dir/troopers/$commander"
   mkdir -p "$trooper_dir"
-  local f="$trooper_dir/state.txt" tmp="$trooper_dir/state.txt.tmp"
+  local f="$trooper_dir/state.txt"
   declare -A kv
   if [[ -f "$f" ]]; then
     while IFS='=' read -r k v; do
@@ -354,11 +354,11 @@ cw_deep_research_trooper_state_write() {
     [[ -n "$k" ]] || continue
     kv["$k"]="$v"
   done
-  : > "$tmp"
-  for k in "${!kv[@]}"; do
-    printf '%s=%s\n' "$k" "${kv[$k]}" >> "$tmp"
-  done
-  mv "$tmp" "$f"
+  {
+    for k in "${!kv[@]}"; do
+      printf '%s=%s\n' "$k" "${kv[$k]}"
+    done
+  } | cw_atomic_write "$f"
 }
 
 # cw_deep_research_check_completion <scoreboard.md> <metric.md>
@@ -771,11 +771,10 @@ cw_deep_research_write_preflight_sidecar() {
   local art_dir="$1"; shift
   [[ -d "$art_dir" ]] || { log_error "art-dir not found: $art_dir"; return 1; }
   (( $# >= 1 )) || { log_error "need at least 1 commander"; return 1; }
-  local tmp="$art_dir/troopers-preflight.txt.tmp"
-  : > "$tmp"
   local cmdr
-  for cmdr in "$@"; do
-    printf 'codex\t%s\n' "$cmdr" >> "$tmp"
-  done
-  mv "$tmp" "$art_dir/troopers-preflight.txt"
+  {
+    for cmdr in "$@"; do
+      printf 'codex\t%s\n' "$cmdr"
+    done
+  } | cw_atomic_write "$art_dir/troopers-preflight.txt"
 }

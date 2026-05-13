@@ -7,6 +7,7 @@ source lib/assert.sh
 
 PLUGIN_ROOT="$(cd .. && pwd)"
 source "$PLUGIN_ROOT/lib/log.sh"
+source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/deep-research.sh"
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
@@ -39,8 +40,10 @@ pass "hardware_probe: nvidia-smi present → detected_at + gpu row"
 # --- Case B: nvidia-smi ABSENT (jailed bin dir: symlinks to essentials, NO nvidia-smi) ---
 # Build a sandbox bin dir with the commands cw_deep_research_hardware_probe needs
 # (date, mv, awk, command builtin via /bin/sh) but explicitly NO nvidia-smi.
+# v0.29.0: also include mktemp, cat, rm because cw_deep_research_hardware_probe
+# now pipes through cw_atomic_write (mktemp + cat redirect + mv + rm-via-trap).
 mkdir -p "$TMP/sandbox-bin"
-for cmd in date mv awk; do
+for cmd in date mv awk mktemp cat rm; do
   abs=$(command -v "$cmd")
   ln -sf "$abs" "$TMP/sandbox-bin/$cmd"
 done
