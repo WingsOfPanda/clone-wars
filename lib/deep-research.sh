@@ -466,7 +466,9 @@ cw_deep_research_check_completion() {
   plateau_threshold="${plateau_threshold:-0.01}"
 
   # Helper: numeric compare $1 (op) $2 against threshold $3 via awk.
-  _cw_cmp() {
+  # File-scope-prefixed name; defined inside the function for context-locality
+  # but bash hoists it to file scope. Caller uses _cw_deep_research_cmp.
+  _cw_deep_research_cmp() {
     awk -v a="$1" -v op="$2" -v b="$3" 'BEGIN{
       a+=0; b+=0;
       if (op==">=")  exit !(a >= b);
@@ -493,10 +495,10 @@ cw_deep_research_check_completion() {
     [[ "$status" == "ok" ]] || continue
     [[ "$metric" =~ ^[0-9.]+$ ]] || continue
     metrics+=("$metric")
-    if [[ -n "$min_op" && -n "$min_val" ]] && _cw_cmp "$metric" "$min_op" "$min_val"; then
+    if [[ -n "$min_op" && -n "$min_val" ]] && _cw_deep_research_cmp "$metric" "$min_op" "$min_val"; then
       floor_met=yes
     fi
-    if [[ -n "$tgt_op" && -n "$tgt_val" ]] && _cw_cmp "$metric" "$tgt_op" "$tgt_val"; then
+    if [[ -n "$tgt_op" && -n "$tgt_val" ]] && _cw_deep_research_cmp "$metric" "$tgt_op" "$tgt_val"; then
       target_met=yes
       K_so_far=$((K_so_far + 1))
     fi
