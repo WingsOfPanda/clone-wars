@@ -835,3 +835,24 @@ _cw_dr_approach_from_prompt() {
     exit
   }' "$f"
 }
+
+# cw_deep_research_write_preflight_sidecar <art-dir> <cmdr1> [<cmdr2> ...]
+# Writes consult-shaped 2-col TSV (codex\t<commander>) to <art-dir>/troopers-preflight.txt.
+# Deep-research is codex-only, so the provider column is always "codex". The file
+# exists solely to satisfy bin/preflight-layout.sh --troopers-from, which expects
+# the consult schema. Native deep-research troopers.txt remains 1-col commander-only
+# (locked by test_v0_28_2_static_wiring.sh invariant 5).
+#
+# Atomic (tmp + mv). Idempotent. rc=1 on missing art-dir or zero commanders.
+cw_deep_research_write_preflight_sidecar() {
+  local art_dir="$1"; shift
+  [[ -d "$art_dir" ]] || { log_error "art-dir not found: $art_dir"; return 1; }
+  (( $# >= 1 )) || { log_error "need at least 1 commander"; return 1; }
+  local tmp="$art_dir/troopers-preflight.txt.tmp"
+  : > "$tmp"
+  local cmdr
+  for cmdr in "$@"; do
+    printf 'codex\t%s\n' "$cmdr" >> "$tmp"
+  done
+  mv "$tmp" "$art_dir/troopers-preflight.txt"
+}
