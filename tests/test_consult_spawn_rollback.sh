@@ -19,19 +19,24 @@ claude
 EOF
 
 # === Static wiring: the directive must NOT use the broken $(<repo-hash>) pattern. ===
-grep -q 'spawn-rollback\|rollback'        ../commands/consult.md || { echo "FAIL: directive missing rollback section" >&2; exit 1; }
+# v0.19.0 renamed the spawn-rollback runbook to "Stage 1 retry-once + Stage 2
+# partial-success". Test markers updated to match current terminology; the
+# OLD "rollback" / "auto-retry-once" / "retry exhausted" / "retrying parallel
+# spawn" markers are gone for good (v0.19.0+).
+grep -qE 'Stage 1 retry|Stage 2 partial-success|spawn-rollback|rollback' ../commands/consult.md || { echo "FAIL: directive missing spawn failure-recovery section (Stage 1 retry-once + Stage 2 partial-success)" >&2; exit 1; }
 grep -q 'consult-teardown'                ../commands/consult.md || { echo "FAIL: directive missing teardown call" >&2; exit 1; }
-grep -q 'rm -rf "\$TOPIC_DIR"'            ../commands/consult.md || { echo "FAIL: rollback should rm -rf \$TOPIC_DIR" >&2; exit 1; }
+grep -q 'rm -rf "\$TOPIC_DIR"'            ../commands/consult.md || { echo "FAIL: failure-recovery should rm -rf \$TOPIC_DIR" >&2; exit 1; }
 grep -q 'cw_repo_hash'                    ../commands/consult.md || { echo "FAIL: directive must source lib/state.sh and call cw_repo_hash" >&2; exit 1; }
 ! grep -F '$(<repo-hash>)'                ../commands/consult.md || { echo "FAIL: directive contains broken \$(<repo-hash>) placeholder" >&2; exit 1; }
-pass "directive rollback runbook is well-formed (no broken placeholders)"
+pass "directive failure-recovery runbook is well-formed (no broken placeholders)"
 
-# === Auto-retry-once wiring (v0.11.2: codex cold-start mitigation) ===
-grep -q 'SPAWN_RETRY_COUNT'               ../commands/consult.md || { echo "FAIL: directive missing SPAWN_RETRY_COUNT for auto-retry-once" >&2; exit 1; }
-grep -q 'auto-retry-once'                 ../commands/consult.md || { echo "FAIL: directive missing 'auto-retry-once' marker in spawn-rollback runbook" >&2; exit 1; }
-grep -q 'retrying parallel spawn'         ../commands/consult.md || { echo "FAIL: directive missing log_info for the retry attempt" >&2; exit 1; }
-grep -q 'retry exhausted'                 ../commands/consult.md || { echo "FAIL: directive missing 'retry exhausted' branch (final teardown after second failure)" >&2; exit 1; }
-pass "directive auto-retry-once wiring complete (v0.11.2 spawn cold-start mitigation)"
+# === Retry-once wiring (v0.11.2 cold-start mitigation, renamed in v0.19.0 to
+# "Stage 1 retry-once" + "Stage 2 partial-success offer"). ===
+grep -q 'SPAWN_RETRY_COUNT'               ../commands/consult.md || { echo "FAIL: directive missing SPAWN_RETRY_COUNT for retry-once" >&2; exit 1; }
+grep -qE 'Stage 1 retry-once|auto-retry-once'           ../commands/consult.md || { echo "FAIL: directive missing 'Stage 1 retry-once' marker in failure-recovery runbook" >&2; exit 1; }
+grep -qE 'retrying preflight . parallel spawn|retrying parallel spawn' ../commands/consult.md || { echo "FAIL: directive missing log_info for the retry attempt" >&2; exit 1; }
+grep -qE 'Stage 2 partial-success|retry exhausted'      ../commands/consult.md || { echo "FAIL: directive missing 'Stage 2 partial-success' branch (final teardown after second failure)" >&2; exit 1; }
+pass "directive Stage 1 retry-once + Stage 2 partial-success wiring complete (v0.11.2/v0.19.0 cold-start mitigation)"
 
 # === Functional: mock spawn.sh that fails for cody, succeeds for rex. ===
 MOCK_BIN="$TMP/mock-bin"
