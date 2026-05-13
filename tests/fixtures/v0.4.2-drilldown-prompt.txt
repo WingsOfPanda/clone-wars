@@ -1,7 +1,7 @@
 You are drilling deeper into the **Architecture** section of a design doc derived
 from the consultation you just completed.
 
-Read the synthesis you produced: /path/to/synthesis.md
+Read the design doc you produced: /path/to/synthesis.md
 
 Focus: Add more depth on the IPC contract.
 

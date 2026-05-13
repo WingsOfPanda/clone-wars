@@ -31,13 +31,16 @@ assert_eq "$detected" "claude" "plugin repo -> claude"
 pass "detect: plugin repo -> claude"
 
 # === Case 3: override beats default ===
-detected=$(cw_deploy_detect_provider "$TMP/plain" "opencode")
-assert_eq "$detected" "opencode" "override beats default"
+# v0.20.0 dropped opencode from deploy support (codex + claude only).
+# Test "override beats default" by overriding plain repo (auto=codex) → claude.
+detected=$(cw_deploy_detect_provider "$TMP/plain" "claude")
+assert_eq "$detected" "claude" "override beats default (codex → claude)"
 pass "detect: override beats default"
 
 # === Case 4: override beats plugin-marker too ===
-detected=$(cw_deploy_detect_provider "$TMP/plug" "opencode")
-assert_eq "$detected" "opencode" "override beats plugin-marker"
+# Override plugin repo (auto=claude) → codex.
+detected=$(cw_deploy_detect_provider "$TMP/plug" "codex")
+assert_eq "$detected" "codex" "override beats plugin-marker (claude → codex)"
 pass "detect: override beats plugin-marker"
 
 # === Case 5: empty-string override is no-op (auto-detect runs) ===
@@ -45,10 +48,10 @@ detected=$(cw_deploy_detect_provider "$TMP/plug" "")
 assert_eq "$detected" "claude" "empty override = no override"
 pass "detect: empty-string override is treated as no override"
 
-# === Case 6: end-to-end via bin/deploy-init.sh --provider opencode ===
-# Stage a fake design doc + ephemeral git repo so deploy-init.sh's branch
-# create + state-write succeeds. Then assert auto_provider.txt contains
-# "opencode" (not the codex/claude that auto-detect would pick).
+# === Case 6: end-to-end via bin/deploy-init.sh --provider claude ===
+# v0.20.0: opencode rejected, codex/claude only. Drive end-to-end through
+# deploy-init with --provider claude on a PLAIN repo (auto-detect would
+# pick codex). Assert auto_provider.txt records the override.
 EREPO="$TMP/erepo"
 mkdir -p "$EREPO"
 ( cd "$EREPO" && git init -q \
@@ -70,18 +73,18 @@ N/A.
 This file is the fixture.
 
 ## Success
-auto_provider.txt contains "opencode".
+auto_provider.txt contains "claude".
 EOF
 
 export CLONE_WARS_HOME="$TMP/cw"
 mkdir -p "$CLONE_WARS_HOME"
 
-# Run deploy-init from inside the ephemeral repo.
+# Run deploy-init from inside the ephemeral repo (plain repo → auto=codex).
 ( cd "$EREPO" && \
   "$PLUGIN_ROOT/bin/deploy-init.sh" \
     --no-branch \
     --topic "providertest" \
-    --provider "opencode" \
+    --provider "claude" \
     "$DESIGN" \
 ) >/dev/null 2>&1 || { echo "FAIL: deploy-init.sh exited non-zero" >&2; exit 1; }
 
@@ -90,5 +93,5 @@ REPO_HASH=$(cd "$EREPO" && cw_repo_hash)
 AUTO_FILE="$CLONE_WARS_HOME/state/$REPO_HASH/providertest/_deploy/auto_provider.txt"
 assert_file_exists "$AUTO_FILE" "auto_provider.txt under $REPO_HASH/providertest"
 got=$(cat "$AUTO_FILE")
-assert_eq "$got" "opencode" "auto_provider.txt content matches override"
-pass "deploy-init: --provider opencode lands in auto_provider.txt"
+assert_eq "$got" "claude" "auto_provider.txt content matches override (claude over plain-repo default codex)"
+pass "deploy-init: --provider claude lands in auto_provider.txt"
