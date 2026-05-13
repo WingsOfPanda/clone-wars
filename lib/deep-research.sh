@@ -369,3 +369,49 @@ cw_deep_research_hardware_diff_alert() {
     }
   ' "$current"
 }
+
+# cw_deep_research_trooper_state_read <art-dir> <commander>
+# Print state.txt KV pairs, one per line. rc=2 on bad args, rc=1 if file missing.
+cw_deep_research_trooper_state_read() {
+  local art_dir="${1:-}" commander="${2:-}"
+  [[ -n "$art_dir" && -n "$commander" ]] \
+    || { echo "cw_deep_research_trooper_state_read: art-dir + commander required" >&2; return 2; }
+  [[ -d "$art_dir" ]] \
+    || { echo "cw_deep_research_trooper_state_read: art-dir missing: $art_dir" >&2; return 2; }
+  local f="$art_dir/troopers/$commander/state.txt"
+  [[ -f "$f" ]] || return 1
+  cat "$f"
+}
+
+# cw_deep_research_trooper_state_write <art-dir> <commander> <k>=<v> [<k>=<v>...]
+# Atomic update: preserves untouched keys, replaces touched ones.
+# Creates state.txt + parent dirs if missing. rc=2 on bad args.
+cw_deep_research_trooper_state_write() {
+  local art_dir="${1:-}" commander="${2:-}"
+  shift 2 || true
+  [[ -n "$art_dir" && -n "$commander" ]] \
+    || { echo "cw_deep_research_trooper_state_write: art-dir + commander required" >&2; return 2; }
+  (( $# >= 1 )) \
+    || { echo "cw_deep_research_trooper_state_write: need at least one KEY=VALUE" >&2; return 2; }
+  local trooper_dir="$art_dir/troopers/$commander"
+  mkdir -p "$trooper_dir"
+  local f="$trooper_dir/state.txt" tmp="$trooper_dir/state.txt.tmp"
+  declare -A kv
+  if [[ -f "$f" ]]; then
+    while IFS='=' read -r k v; do
+      [[ -n "$k" ]] && kv["$k"]="$v"
+    done < "$f"
+  fi
+  local pair k v
+  for pair in "$@"; do
+    k="${pair%%=*}"
+    v="${pair#*=}"
+    [[ -n "$k" ]] || continue
+    kv["$k"]="$v"
+  done
+  : > "$tmp"
+  for k in "${!kv[@]}"; do
+    printf '%s=%s\n' "$k" "${kv[$k]}" >> "$tmp"
+  done
+  mv "$tmp" "$f"
+}
