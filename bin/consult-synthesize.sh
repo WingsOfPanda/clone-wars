@@ -13,8 +13,7 @@
 #
 # Refuses if adjudicated.md is missing OR contains any ^- PENDING: line.
 # Does NOT emit the final design-doc — that's walk-assemble's job.
-# Does NOT write the legacy _consult/synthesis.md (removed in v0.12) —
-# emits per-section seed drafts to _consult/design-doc/.draft/ instead.
+# Emits per-section seed drafts to _consult/design-doc/.draft/.
 
 set -uo pipefail
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"

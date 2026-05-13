@@ -364,20 +364,15 @@ collect_timeout_default_s: 600
 | Commander reused across topics | Spawn-time check | Soft warning: "Rex is on auth-review (codex). Spawning second Rex on ui-redesign. Consider: Cody, Wolffe, Bly..." |
 | Provider binary not on PATH | Pre-spawn check (`command -v <binary>`) | Hard error with install hint from contract |
 
-## Acceptance criteria — tracer-bullet validation
+## Acceptance criteria — tracer-bullet validation (HISTORICAL — v0.0.x)
 
-The plugin is "real" when this end-to-end flow works:
-
-1. `/clone-wars:spawn rex codex tracer "Read README.md and reply with a one-line summary"` succeeds.
-2. New tmux pane appears (right-split of conductor); user can `tmux select-pane -t <id>` to attach and watch Codex think.
-3. `outbox.jsonl` shows `ready` → `ack` → at least one `progress` → `done` events in order.
-4. `/clone-wars:collect rex tracer` returns the one-line summary.
-5. `/clone-wars:list` shows `rex-codex-tracer` as `idle` after collect.
-6. Second `/clone-wars:send rex tracer "@/path/to/another/file"` triggers a fresh `ack` → `done` cycle (trooper persists across tasks).
-7. `/clone-wars:teardown tracer` kills the pane and moves state to archive.
-8. Repeat (1)–(7) with `gemini` and `claudecode` provider rows.
-9. `/clone-wars:spawn rex codex auth-review "..."` while Rex still on `tracer` → soft warning, spawn proceeds.
-10. `/clone-wars:spawn rex codex tracer "..."` while a Rex already on tracer → hard error.
+The tracer-bullet validation scripts under `tracer/` were used during v0.0.x
+to prove tmux/IPC mechanics before slash-command surface was authored. They
+were deleted in v0.29.0 (see `docs/superpowers/specs/2026-05-13-v0.29.0-simplification-sweep-design.md`).
+The IPC mechanics they validated are now exercised continuously by
+`tests/test_*.sh` (~170 files) and the slash commands themselves
+(`/clone-wars:medic`, `/clone-wars:consult`, `/clone-wars:meditate`,
+`/clone-wars:deep-research`, `/clone-wars:deploy`).
 
 ## Out-of-scope (explicitly)
 
@@ -425,9 +420,10 @@ spawn panes, route messages, collect results.
 ## Order of operations to build
 
 1. **This design doc** — frozen reference (now).
-2. **Tracer-bullet** — `tracer/tracer-bullet.sh` standalone script that does spawn-1-codex →
-   send-1-inbox → wait-for-1-done → teardown. Validates IPC and `send-keys` mechanics with no
-   plugin packaging. ~50 lines. If this fails or surprises us, the design changes.
+2. **Tracer-bullet** (HISTORICAL — deleted v0.29.0) — was a standalone script under
+   `tracer/` that proved end-to-end spawn → send → collect → teardown on one codex
+   pane. Validated IPC and `send-keys` mechanics before plugin packaging. Now
+   superseded by the v0.x test suite and the slash commands themselves.
 3. **Repo creation** — once tracer works and design feels right, `gh repo create clone-wars --public`
    and commit the design doc + tracer as initial commit.
 4. **Plugin scaffold** — turn tracer into the 5 slash commands + lib/ helpers. ~400 lines total.
