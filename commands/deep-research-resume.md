@@ -42,19 +42,27 @@ If `$ART_DIR/halt.flag` exists OR `cw_deep_research_check_time_budget` returns t
 3. Jump to Phase 5 synthesis (use `bin/deep-research-teardown.sh` to archive after synthesis).
 4. End turn.
 
-### Step 3 — Process queued notifications
+### Step 3.a — Process queued notifications
 
-For each `<task-notification>` in this turn's context, route by event type:
+For each `<task-notification>` in this turn's context, route by event type. Initialize `RAN_SCORE=0` and `LAST_CMDR=`/`LAST_EXP=` accumulators before the loop; Step 3.b reads them.
 
-- **done | error** → run `bin/deep-research-score.sh "$TOPIC"`. This iterates all per-trooper experiments, appends scoreboard rows, and sets state.txt `phase=idle` for each commander that produced a scored result. **v0.28.2:** after the score call, render the status-brief and surface it verbatim to chat so the user sees a structured update on every landed experiment:
-  ```bash
-  cw_deep_research_render_status_brief "$ART_DIR" "<cmdr>" "<exp-id>"
-  ```
-  `<cmdr>` and `<exp-id>` come from the `<task-notification>` event JSON (`trooper` + `summary`-derived `exp-id`). Output is compact markdown — print it as your next chat message before running Step 4 (completion check) or Step 5 (dispatch). If multiple done events queue in one turn, render the brief ONCE after the final score.sh call (single status snapshot, not N×).
+- **done | error** → run `bin/deep-research-score.sh "$TOPIC"`. This iterates all per-trooper experiments, appends scoreboard rows, and sets state.txt `phase=idle` for each commander whose `current_exp_id` has a `result.json` on disk (v0.28.1 fix). If the exit code is 0, set `RAN_SCORE=1`; record `LAST_CMDR=<cmdr>` and `LAST_EXP=<exp-id>` from the `<task-notification>` event JSON (`trooper` field + `summary`-derived `exp-NNN`). Do NOT render the status brief here — Step 3.b handles that once.
 - **question** → surface the trooper's question to user in chat; set `cw_deep_research_trooper_state_write "$ART_DIR" "<cmdr>" phase=blocked`. Do NOT auto-dispatch — wait for user direction.
 - **stale** → send `status?` probe via `bin/send.sh "<cmdr>" "$TOPIC" "status? brief update on current experiment please"`. Set `phase=stale, probe_sent_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)`. Debounce: skip if `probe_sent_ts` was already set within `LIVENESS_STUCK_S` window.
 - **stuck** → use Yoda judgment. Either abort (Ctrl-C trooper pane via tmux, set `phase=failed`) or extend (clear `probe_sent_ts`, give more time).
 - **heartbeat** → just update `last_event_ts` via `cw_deep_research_trooper_state_write`. No further action.
+
+### Step 3.b — Render status brief once (v0.28.2)
+
+If `RAN_SCORE=1` (at least one done/error event was successfully scored in Step 3.a), render the status brief exactly once before continuing to Step 4:
+
+```bash
+cw_deep_research_render_status_brief "$ART_DIR" "$LAST_CMDR" "$LAST_EXP"
+```
+
+Print the helper's output verbatim to chat as your next message. Skip this step if `RAN_SCORE=0` (e.g. only heartbeat/question/stale events fired) — there's no new structured state worth surfacing. If `score.sh` exited non-zero in Step 3.a, `RAN_SCORE` stays 0 and the brief is skipped (no half-baked status).
+
+When multiple done events queue in the same turn, the brief still fires only once — the loop in Step 3.a calls `score.sh` per event, but `LAST_CMDR`/`LAST_EXP` are overwritten by each so the final values name the most-recently-processed event. Single status snapshot per turn, not N×.
 
 ### Step 4 — Completion check
 

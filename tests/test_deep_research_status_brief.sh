@@ -75,7 +75,9 @@ assert_contains "$out" "1. keeli/exp-001 — 0.9971 — compact-resnet-group-con
 assert_contains "$out" "**Completion check:** floor_met=yes  target_met=yes  K_so_far=1/1  plateau=no" "completion line"
 pass "Case 1: both idle + scored renders complete table + scoreboard + completion check"
 
-# --- Case 2: rex working, keeli idle ---
+# --- Case 2 (v0.28.2 F1 lock): rex working with prompt.md present, keeli idle ---
+# Working trooper's approach must be parsed from prompt.md when result.json is
+# not yet on disk. Previous "(see prompt.md)" fallback was user-hostile.
 cat > "$ART/troopers/rex/state.txt" <<'EOF'
 phase=working
 current_exp_id=exp-002
@@ -85,13 +87,39 @@ last_event=dispatched
 probe_sent_ts=
 EOF
 mkdir -p "$ART/troopers/rex/experiments/exp-002"
-# No result.json yet for exp-002 — approach lookup should degrade to "(see prompt.md)"
+# F1 fix: experiment-send.sh writes prompt.md at dispatch with the
+# `Approach label:  <slug>` line; status_brief must parse it.
+cat > "$ART/troopers/rex/experiments/exp-002/prompt.md" <<'EOF'
+You are a codex trooper executing one experiment in /clone-wars:deep-research.
+
+Topic: test topic
+
+Your experiment:
+  Experiment ID:   exp-002
+  Approach label:  squeezenet-style-fire-modules
+  Approach brief:  short brief here
+
+END_OF_INSTRUCTION
+EOF
 
 out=$(cw_deep_research_render_status_brief "$ART" keeli exp-001)
-assert_contains "$out" "| rex | working | exp-002 |" "rex working row"
-assert_contains "$out" "(running)" "working trooper metric=(running)"
+assert_contains "$out" "| rex | working | exp-002 | squeezenet-style-fire-modules | (running) |" "rex working row with approach from prompt.md (F1)"
 assert_contains "$out" "| keeli | idle | exp-001 | compact-resnet-group-conv | 0.9971 ok |" "keeli still idle/scored"
-pass "Case 2: working trooper shows (running); idle trooper shows metric"
+pass "Case 2: working trooper approach parsed from prompt.md (F1 lock); idle trooper shows metric"
+
+# --- Case 6 (NEW v0.28.2 F1 lock): working trooper with prompt.md ABSENT ---
+# Fallback when prompt.md is also missing (e.g. dispatch failed mid-write) —
+# approach column degrades to "—" not the user-hostile "(see prompt.md)".
+rm "$ART/troopers/rex/experiments/exp-002/prompt.md"
+out_nop=$(cw_deep_research_render_status_brief "$ART" keeli exp-001)
+assert_contains "$out_nop" "| rex | working | exp-002 | — | (running) |" "working trooper without prompt.md degrades to em-dash, not '(see prompt.md)'"
+[[ "$out_nop" == *"(see prompt.md)"* ]] \
+  && { echo "FAIL: legacy '(see prompt.md)' fallback should be gone after F1 fix" >&2; exit 1; }
+pass "Case 6: working trooper without prompt.md → approach=— (F1 fallback chain works)"
+# Restore prompt.md for downstream cases that walk this state.
+cat > "$ART/troopers/rex/experiments/exp-002/prompt.md" <<'EOF'
+Approach label:  squeezenet-style-fire-modules
+EOF
 
 # --- Case 3: troopers.txt missing → fallback to filesystem ---
 rm "$ART/troopers.txt"
@@ -114,4 +142,4 @@ err=$(cw_deep_research_render_status_brief /nonexistent/path 2>&1) && {
 assert_contains "$err" "art-dir missing" "error mentions missing art-dir"
 pass "Case 5: missing art-dir rejected"
 
-echo "test_deep_research_status_brief: 14 assertions green"
+echo "test_deep_research_status_brief: 18 assertions green"

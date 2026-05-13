@@ -54,9 +54,46 @@ grep -q "cw_deep_research_render_status_brief" "$RESUME" \
   || { echo "FAIL: resume handler missing status_brief call" >&2; exit 1; }
 pass "4. resume handler done-route calls status_brief"
 
-# Invariant 5: Phase 4.a step 1 writes troopers.txt
-grep -q 'printf .* > "\$ART_DIR/troopers.txt"' "$DIRECTIVE" \
-  || { echo "FAIL: directive Phase 4.a does not write troopers.txt" >&2; exit 1; }
-pass "5. directive Phase 4.a writes troopers.txt (fixes v0.28.0 empty-Status bug)"
+# Invariant 5: Phase 4.a step 1 writes troopers.txt (atomic tmp+mv per F10)
+grep -q '> "\$ART_DIR/troopers.txt.tmp"' "$DIRECTIVE" \
+  || { echo "FAIL: directive Phase 4.a does not use atomic tmp+mv for troopers.txt (F10)" >&2; exit 1; }
+grep -q 'mv "\$ART_DIR/troopers.txt.tmp" "\$ART_DIR/troopers.txt"' "$DIRECTIVE" \
+  || { echo "FAIL: directive Phase 4.a missing mv after tmp write (F10)" >&2; exit 1; }
+pass "5. directive Phase 4.a writes troopers.txt via atomic tmp+mv (F10)"
 
-echo "test_v0_28_2_static_wiring: 5 invariants locked"
+# Invariant 6: Phase 1 steps 3, 4, 6 all stamped UNCONDITIONAL (F2b)
+# Count any header that includes "(UNCONDITIONAL" — step 4's header is
+# "K=V follow-ups (UNCONDITIONAL when fields are missing — v0.28.2):"
+# (no "AskUserQuestion" word). Expect 4 total: P1 step 3, P1 step 4,
+# P1 step 6, P2 step 2.
+phase1_count=$(grep -cE '\(UNCONDITIONAL' "$DIRECTIVE")
+(( phase1_count >= 4 )) \
+  || { echo "FAIL: expected >=4 UNCONDITIONAL stamps (Phase 1 steps 3+4+6 + Phase 2 step 2), got $phase1_count" >&2; exit 1; }
+grep -q "Initial framing AskUserQuestion (UNCONDITIONAL" "$DIRECTIVE" \
+  || { echo "FAIL: Phase 1 step 3 missing UNCONDITIONAL stamp" >&2; exit 1; }
+grep -q "K=V follow-ups (UNCONDITIONAL when fields are missing" "$DIRECTIVE" \
+  || { echo "FAIL: Phase 1 step 4 missing UNCONDITIONAL stamp" >&2; exit 1; }
+grep -q "Final confirmation AskUserQuestion (UNCONDITIONAL" "$DIRECTIVE" \
+  || { echo "FAIL: Phase 1 step 6 missing UNCONDITIONAL stamp" >&2; exit 1; }
+pass "6. Phase 1 steps 3+4+6 all stamped UNCONDITIONAL (F2b)"
+
+# Invariant 7: resume handler Step 3 split into 3.a + 3.b (F8 code-shaped dedup)
+grep -q "### Step 3.a — Process queued notifications" "$RESUME" \
+  || { echo "FAIL: resume handler missing Step 3.a header (F8 split)" >&2; exit 1; }
+grep -q "### Step 3.b — Render status brief once" "$RESUME" \
+  || { echo "FAIL: resume handler missing Step 3.b header (F8 split)" >&2; exit 1; }
+grep -q 'RAN_SCORE' "$RESUME" \
+  || { echo "FAIL: resume handler missing RAN_SCORE accumulator (F8)" >&2; exit 1; }
+pass "7. resume handler Step 3 split into 3.a/3.b with RAN_SCORE accumulator (F8)"
+
+# Invariant 8: Phase 4.a step 5 renders initial brief (F9)
+grep -q "Render initial status brief (v0.28.2)" "$DIRECTIVE" \
+  || { echo "FAIL: Phase 4.a step 5 missing initial status brief render (F9)" >&2; exit 1; }
+pass "8. Phase 4.a step 5 renders initial status brief (F9)"
+
+# Invariant 9: F1 helper present (_cw_dr_approach_from_prompt)
+declare -F _cw_dr_approach_from_prompt >/dev/null \
+  || { echo "FAIL: _cw_dr_approach_from_prompt not exposed from lib/deep-research.sh (F1)" >&2; exit 1; }
+pass "9. _cw_dr_approach_from_prompt helper present (F1 working-trooper approach lookup)"
+
+echo "test_v0_28_2_static_wiring: 9 invariants locked"

@@ -703,7 +703,7 @@ cw_deep_research_render_status_brief() {
   # Per-trooper status table.
   printf '| Trooper | Phase | Current/last | Approach | Metric |\n'
   printf '|---------|-------|--------------|----------|--------|\n'
-  local cmdrs cmdr state_file phase cur last_exp result approach metric status
+  local cmdrs cmdr state_file phase cur last_exp result prompt approach metric
   cmdrs=$(cw_deep_research_list_commanders "$art_dir" 2>/dev/null)
   if [[ -n "$cmdrs" ]]; then
     while IFS= read -r cmdr; do
@@ -728,14 +728,22 @@ cw_deep_research_render_status_brief() {
         shopt -u nullglob
         [[ -n "$newest" ]] && last_exp="$newest"
       fi
-      # Pull approach + metric from the experiment's result.json (post-score)
+      # Pull approach + metric. For working troopers, result.json doesn't
+      # exist yet — fall back to prompt.md, written at dispatch time
+      # (bin/deep-research-experiment-send.sh renders it from
+      # config/prompt-templates/deep-research/experiment.md with the
+      # `Approach label:  <slug>` line).
       result="$art_dir/troopers/$cmdr/experiments/$last_exp/result.json"
+      prompt="$art_dir/troopers/$cmdr/experiments/$last_exp/prompt.md"
       if [[ "$phase" == "working" ]]; then
-        approach=$(_cw_dr_json_field "$result" approach_label 2>/dev/null)
-        [[ -z "$approach" ]] && approach="(see prompt.md)"
+        approach=$(_cw_dr_approach_from_prompt "$prompt" 2>/dev/null)
+        [[ -z "$approach" ]] && approach="—"
         metric="(running)"
       elif [[ -f "$result" ]]; then
         approach=$(_cw_dr_json_field "$result" approach_label)
+        # Result.json missing approach_label is unexpected — fall back to prompt.md.
+        [[ -z "$approach" && -f "$prompt" ]] && approach=$(_cw_dr_approach_from_prompt "$prompt")
+        [[ -z "$approach" ]] && approach="—"
         local m s
         m=$(_cw_dr_json_field "$result" metric_value)
         s=$(_cw_dr_json_field "$result" status)
@@ -744,7 +752,7 @@ cw_deep_research_render_status_brief() {
       printf '| %s | %s | %s | %s | %s |\n' "$cmdr" "$phase" "$last_exp" "$approach" "$metric"
     done <<<"$cmdrs"
   else
-    printf '| _(no troopers)_ | | | | |\n'
+    printf '| _(no troopers)_ | — | — | — | — |\n'
   fi
   printf '\n'
 
@@ -785,6 +793,16 @@ cw_deep_research_render_status_brief() {
 
 # _cw_dr_json_field <result.json> <key>
 # Tiny JSON-field reader for status_brief (no jq dependency).
+#
+# LIMITATIONS (acceptable for our flat result.json schema in
+# bin/deep-research-experiment-send.sh's template):
+#   - Does not handle escaped quotes inside string values
+#     (`"notes": "He said \"hi\""` → returns up to the first `\`).
+#   - Does not handle nested objects or arrays of objects.
+#   - Returns empty string if key is missing (no error).
+# For our flat schema (branch_id / approach_label / metric_name /
+# metric_value / status / runtime_s / log_paths / notes), these are
+# non-issues — notes is short single-line free text per the template.
 _cw_dr_json_field() {
   local f="${1:-}" k="${2:-}"
   [[ -f "$f" && -n "$k" ]] || return 1
@@ -796,4 +814,24 @@ _cw_dr_json_field() {
       | head -1 \
       | sed -E "s/^\"$k\"[[:space:]]*:[[:space:]]*\"?([^\"]*)\"?$/\1/"
   fi
+}
+
+# _cw_dr_approach_from_prompt <prompt.md-path>
+# Extract the `Approach label:` value rendered by
+# bin/deep-research-experiment-send.sh into the experiment's prompt.md
+# (template line: `Approach label:  {{APPROACH_LABEL}}`). Used by
+# cw_deep_research_render_status_brief to show the approach for a
+# working trooper before result.json lands. v0.28.2.
+_cw_dr_approach_from_prompt() {
+  local f="${1:-}"
+  [[ -f "$f" ]] || return 1
+  # Template renders the line with a 2-space leading indent
+  # (`  Approach label:  <slug>`); allow optional leading whitespace and
+  # collapse any amount of trailing whitespace.
+  awk '/^[[:space:]]*Approach label:/ {
+    sub(/^[[:space:]]*Approach label:[[:space:]]+/, "")
+    sub(/[[:space:]]+$/, "")
+    print
+    exit
+  }' "$f"
 }

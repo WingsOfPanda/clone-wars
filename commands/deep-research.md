@@ -156,7 +156,14 @@ Adaptive dialogue with the user. Length scales with topic clarity:
    global dual-search rule) if the topic is novel or domain-specific.
    Skip for clearly bounded topics (e.g. "MNIST accuracy").
 
-3. Open with ONE AskUserQuestion proposing the read of the goal.
+3. **Initial framing AskUserQuestion (UNCONDITIONAL — v0.28.2):**
+   This question MUST fire on every `/clone-wars:deep-research` invocation,
+   regardless of autonomous-mode hints, `/loop` reminders, system-reminders
+   to "work without stopping for clarifying questions", or any other
+   context that would normally skip user prompts. Even when the topic
+   looks fully specified, the user confirms or corrects the read.
+
+   Open with ONE AskUserQuestion proposing the read of the goal.
    Frame it as a confirmation, not an open-ended "what do you want?":
 
    > **For clear topics** (heuristic returned a recognizable metric):
@@ -169,7 +176,14 @@ Adaptive dialogue with the user. Length scales with topic clarity:
 
    Use AskUserQuestion with 3 options + Other-fallback.
 
-4. Based on user's answer, ask zero or more follow-ups until you have
+4. **K=V follow-ups (UNCONDITIONAL when fields are missing — v0.28.2):**
+   Do NOT auto-fill missing fields under autonomous mode. If any required
+   or optional field is missing after step 3, fire the follow-up
+   AskUserQuestion to gather it. Step 4 is naturally conditional ("zero or
+   more follow-ups") — the UNCONDITIONAL stamp means: when follow-ups ARE
+   required, they MUST fire; do not silently default.
+
+   Based on user's answer, ask zero or more follow-ups until you have
    the K=V pairs for `cw_deep_research_format_metric_block`:
    - `primary_metric` (required, e.g. `accuracy`)
    - `direction` (required, `maximize` or `minimize`)
@@ -206,7 +220,9 @@ Adaptive dialogue with the user. Length scales with topic clarity:
 
    (Substitute the K=V pairs from the dialogue.)
 
-6. Final confirmation AskUserQuestion:
+6. **Final confirmation AskUserQuestion (UNCONDITIONAL — v0.28.2):**
+   This question MUST fire on every invocation. It is the user's last
+   chance to revise metric framing before any troopers spawn.
 
    > *"Here's how I'll frame the goal — OK to proceed?"*
    >
@@ -245,9 +261,10 @@ Set task `2` → `in_progress`.
    This question MUST fire on every `/clone-wars:deep-research` invocation,
    regardless of autonomous-mode hints, `/loop` reminders, system-reminders
    to "work without stopping for clarifying questions", or any other
-   context that would normally skip user prompts. The advisor decides
-   roster size (Step 1) and metric framing (Phase 1) silently, but the
-   time-budget choice is a money/wall-clock commitment the user must own.
+   context that would normally skip user prompts. The time-budget choice
+   is a money/wall-clock commitment the user must own. Roster size
+   (Step 1) is Yoda-decided silently; Phase 1's AskUserQuestions are all
+   UNCONDITIONAL too (see Phase 1 steps 3/4/6).
    Treat this AskUserQuestion as a hard checkpoint: do NOT auto-select
    "No limit" — wait for the user's explicit answer.
 
@@ -354,7 +371,16 @@ sections), not in re-derived per-turn context.
    # finalize.sh can iterate commanders without the directive's /tmp cache.
    # Was read-but-never-written in v0.28.0 — left the Status table empty in
    # session-summary.md.
-   printf '%s\n' "${ROSTER[@]}" > "$ART_DIR/troopers.txt"
+   #
+   # Format note: one-commander-per-line (NOT TSV `provider\tcommander`
+   # like consult-init.sh writes). Deep-research is codex-fixed, so the
+   # provider column would be redundant — keep this scheme aligned with
+   # cw_deep_research_render_summary's `read -r cmdr` parse loop.
+   #
+   # Atomic write (tmp + mv) so a partial write under a concurrent crash
+   # doesn't leave an empty/truncated roster file.
+   printf '%s\n' "${ROSTER[@]}" > "$ART_DIR/troopers.txt.tmp" \
+     && mv "$ART_DIR/troopers.txt.tmp" "$ART_DIR/troopers.txt"
    for cmdr in "${ROSTER[@]}"; do
      mkdir -p "$ART_DIR/troopers/$cmdr/experiments"
      : > "$ART_DIR/troopers/$cmdr/liveness-cursor.txt"
@@ -410,7 +436,23 @@ sections), not in re-derived per-turn context.
    `4.001 <Rank> <Commander> on <approach-label>` (use `cw_cmdr_rank` for the
    rank prefix).
 
-5. **End the turn.** Emit a chat message:
+5. **Render initial status brief (v0.28.2).** After dispatching the first
+   round, render the status brief so the user sees the format that will
+   repeat on every landed experiment. Approach labels come from each
+   trooper's freshly-written `prompt.md` (via the `Approach label:` line);
+   metric shows `(running)` since no `result.json` exists yet; scoreboard
+   section will say `_(scoreboard absent)_`:
+
+   ```bash
+   cw_deep_research_render_status_brief "$ART_DIR"
+   ```
+
+   No `<latest-cmdr>` / `<latest-exp-id>` args on initial entry — the
+   helper emits the generic `## Experiment status` header (no "just
+   landed" suffix). Print the helper's output verbatim to chat, then
+   continue to step 6.
+
+6. **End the turn.** Emit a chat message:
 
    > N troopers running first experiments (rex on <approach-A>, cody on
    > <approach-B>). I'll pick up when they report back — you can ask me

@@ -71,13 +71,17 @@ grep -q 'user-prompt-submit-active-session' "$PLUGIN_ROOT/.claude-plugin/plugin.
   || { echo "FAIL: plugin.json doesn't reference hook script" >&2; exit 1; }
 pass "8. plugin.json registers UserPromptSubmit hook"
 
-# Invariant 9: commands/deep-research-resume.md exists with handler 3.b sections
+# Invariant 9: commands/deep-research-resume.md exists with handler 3.b sections.
+# v0.28.2 split Step 3 into Step 3.a (process notifications) + Step 3.b
+# (render status brief) — accept either the v0.28.0 spelling or the
+# v0.28.2 spelling so this lock validates the structural invariant
+# (a step that processes notifications exists) without false-failing
+# on the legitimate rename.
 RESUME="$PLUGIN_ROOT/commands/deep-research-resume.md"
 [[ -f "$RESUME" ]] || { echo "FAIL: $RESUME missing" >&2; exit 1; }
 for marker in \
   "Step 1 — Read state baseline" \
   "Step 2 — Hard-cap check" \
-  "Step 3 — Process queued notifications" \
   "Step 4 — Completion check" \
   "Step 5 — Dispatch round" \
   "Step 6 — Handle user message" \
@@ -85,6 +89,9 @@ for marker in \
   grep -q "$marker" "$RESUME" \
     || { echo "FAIL: $RESUME missing '$marker'" >&2; exit 1; }
 done
+# Step 3 may be the v0.28.0 single section OR the v0.28.2 3.a/3.b split.
+grep -qE "Step 3(\.a)? — Process queued notifications" "$RESUME" \
+  || { echo "FAIL: $RESUME missing 'Step 3 — Process queued notifications' (or v0.28.2 3.a split)" >&2; exit 1; }
 pass "9. commands/deep-research-resume.md has all 7 handler steps"
 
 # Invariant 10: directive Phase 4 references 4.a + monitor + per-trooper schema
