@@ -20,6 +20,7 @@ source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/consult.sh"
 source "$PLUGIN_ROOT/lib/contracts.sh"
+source "$PLUGIN_ROOT/lib/ipc.sh"
 source "$PLUGIN_ROOT/lib/deep-research.sh"
 
 [[ $# -eq 5 ]] || { log_error "Usage: $0 <topic> <commander> <exp-id> <approach-label> <approach-brief>"; exit 2; }

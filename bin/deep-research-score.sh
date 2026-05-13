@@ -98,17 +98,27 @@ SB="$ART_DIR/scoreboard.md"
 mv "$SB_TMP" "$SB"
 log_ok "[score] scoreboard at $SB"
 
-# v0.28.0: clear phase=idle on each commander that has at least one ok/fail
-# result.json (i.e. produced a scoreable experiment). Current_exp_id is
-# cleared since the experiment is now complete. The directive (handler 3.b)
-# uses this to know the trooper is ready for the next dispatch.
+# v0.28.0: clear phase=idle ONLY for troopers whose CURRENT experiment has a
+# result.json on disk. The previous gate used `ls <glob> >/dev/null` which —
+# under `shopt -s nullglob` — silently degrades to `ls` with no args (lists
+# the cwd, returns 0). That race-condition (v0.28.0 dogfood BUG #2) flipped
+# still-working troopers to idle whenever a peer trooper emitted `done`,
+# corrupting the next dispatch.
+#
+# v0.28.1: check `current_exp_id` from state.txt + verify that specific
+# experiment's result.json exists. Skip troopers with empty current_exp_id
+# (already idle) or whose current experiment hasn't finished yet.
 shopt -s nullglob
 for cmdr_dir in "$TROOPERS_DIR"/*/; do
   cmdr=$(basename "${cmdr_dir%/}")
   state_file="$cmdr_dir/state.txt"
   [[ -f "$state_file" ]] || continue
-  # Only touch state.txt if there's at least one scored result.json for this trooper
-  if ls "$cmdr_dir/experiments"/*/result.json >/dev/null 2>&1; then
+
+  current_exp_id=$(awk -F= '/^current_exp_id=/{print $2}' "$state_file")
+  [[ -n "$current_exp_id" ]] || continue
+
+  # Only flip state if the trooper's CURRENT experiment has a result.json.
+  if [[ -f "$cmdr_dir/experiments/$current_exp_id/result.json" ]]; then
     cw_deep_research_trooper_state_write "$ART_DIR" "$cmdr" \
       phase=idle \
       current_exp_id= \
