@@ -656,3 +656,182 @@ cw_deep_research_render_summary() {
   fi
   rm -f "$merged"
 }
+
+# cw_deep_research_list_commanders <art-dir>
+# Returns one commander per line. Prefers $art_dir/troopers.txt; falls back
+# to `troopers/*/` filesystem discovery when troopers.txt is missing
+# (v0.28.0 had read-but-never-written troopers.txt — defensive against that).
+cw_deep_research_list_commanders() {
+  local art_dir="${1:-}"
+  [[ -d "$art_dir" ]] \
+    || { echo "cw_deep_research_list_commanders: art-dir missing: $art_dir" >&2; return 2; }
+  if [[ -f "$art_dir/troopers.txt" ]]; then
+    grep -vE '^[[:space:]]*(#|$)' "$art_dir/troopers.txt"
+    return 0
+  fi
+  if [[ -d "$art_dir/troopers" ]]; then
+    local d
+    shopt -s nullglob
+    for d in "$art_dir/troopers"/*/; do
+      basename "${d%/}"
+    done
+    shopt -u nullglob
+  fi
+}
+
+# cw_deep_research_render_status_brief <art-dir> [<latest-cmdr>] [<latest-exp-id>]
+# Emits a compact chat-shaped status form to stdout:
+#   - Title (optionally naming the just-landed exp)
+#   - Per-trooper status table (Phase / Current-or-last / Approach / Metric)
+#   - Scoreboard top 3
+#   - Completion-check signal line
+#
+# Trigger: resume handler Step 3 calls this after deep-research-score.sh
+# returns, so the user sees a structured update after every done/error.
+# v0.28.2.
+cw_deep_research_render_status_brief() {
+  local art_dir="${1:-}" latest_cmdr="${2:-}" latest_exp="${3:-}"
+  [[ -d "$art_dir" ]] \
+    || { echo "cw_deep_research_render_status_brief: art-dir missing: $art_dir" >&2; return 2; }
+
+  if [[ -n "$latest_cmdr" && -n "$latest_exp" ]]; then
+    printf '## Experiment status — %s (%s) just landed\n\n' "$latest_exp" "$latest_cmdr"
+  else
+    printf '## Experiment status\n\n'
+  fi
+
+  # Per-trooper status table.
+  printf '| Trooper | Phase | Current/last | Approach | Metric |\n'
+  printf '|---------|-------|--------------|----------|--------|\n'
+  local cmdrs cmdr state_file phase cur last_exp result prompt approach metric
+  cmdrs=$(cw_deep_research_list_commanders "$art_dir" 2>/dev/null)
+  if [[ -n "$cmdrs" ]]; then
+    while IFS= read -r cmdr; do
+      [[ -n "$cmdr" ]] || continue
+      state_file="$art_dir/troopers/$cmdr/state.txt"
+      phase="?"; cur=""; last_exp="—"; approach="—"; metric="—"
+      if [[ -f "$state_file" ]]; then
+        phase=$(awk -F= '/^phase=/{print $2}' "$state_file")
+        cur=$(awk -F= '/^current_exp_id=/{print $2}' "$state_file")
+      fi
+      if [[ -n "$cur" ]]; then
+        last_exp="$cur"
+      else
+        # Most-recent scored experiment from filesystem (lexical sort works on exp-NNN)
+        local newest="" exp_dir base
+        shopt -s nullglob
+        for exp_dir in "$art_dir/troopers/$cmdr/experiments"/exp-[0-9]*/; do
+          base=$(basename "${exp_dir%/}")
+          [[ "$base" =~ ^exp-[0-9]+$ ]] || continue
+          [[ "$base" > "$newest" ]] && newest="$base"
+        done
+        shopt -u nullglob
+        [[ -n "$newest" ]] && last_exp="$newest"
+      fi
+      # Pull approach + metric. For working troopers, result.json doesn't
+      # exist yet — fall back to prompt.md, written at dispatch time
+      # (bin/deep-research-experiment-send.sh renders it from
+      # config/prompt-templates/deep-research/experiment.md with the
+      # `Approach label:  <slug>` line).
+      result="$art_dir/troopers/$cmdr/experiments/$last_exp/result.json"
+      prompt="$art_dir/troopers/$cmdr/experiments/$last_exp/prompt.md"
+      if [[ "$phase" == "working" ]]; then
+        approach=$(_cw_dr_approach_from_prompt "$prompt" 2>/dev/null)
+        [[ -z "$approach" ]] && approach="—"
+        metric="(running)"
+      elif [[ -f "$result" ]]; then
+        approach=$(_cw_dr_json_field "$result" approach_label)
+        # Result.json missing approach_label is unexpected — fall back to prompt.md.
+        [[ -z "$approach" && -f "$prompt" ]] && approach=$(_cw_dr_approach_from_prompt "$prompt")
+        [[ -z "$approach" ]] && approach="—"
+        local m s
+        m=$(_cw_dr_json_field "$result" metric_value)
+        s=$(_cw_dr_json_field "$result" status)
+        metric="$m $s"
+      fi
+      printf '| %s | %s | %s | %s | %s |\n' "$cmdr" "$phase" "$last_exp" "$approach" "$metric"
+    done <<<"$cmdrs"
+  else
+    printf '| _(no troopers)_ | — | — | — | — |\n'
+  fi
+  printf '\n'
+
+  # Scoreboard top 3.
+  printf '**Scoreboard top 3:**\n'
+  if [[ -f "$art_dir/scoreboard.md" ]]; then
+    local rows
+    rows=$(grep -E '^\|[[:space:]]+[0-9]+[[:space:]]+\|[[:space:]]+exp-' "$art_dir/scoreboard.md" | head -3)
+    if [[ -n "$rows" ]]; then
+      printf '%s\n' "$rows" | awk -F'|' '{
+        for (i=1;i<=NF;i++) gsub(/^[ \t]+|[ \t]+$/,"",$i)
+        printf "%s. %s/%s — %s — %s\n", $2, $4, $3, $5, $8
+      }'
+    else
+      printf '_(no scored experiments yet)_\n'
+    fi
+  else
+    printf '_(scoreboard absent)_\n'
+  fi
+  printf '\n'
+
+  # Completion-check signal line (single row).
+  printf '**Completion check:** '
+  if [[ -f "$art_dir/scoreboard.md" && -f "$art_dir/metric.md" ]]; then
+    local sig f t Kn Kr p
+    sig=$(cw_deep_research_check_completion "$art_dir/scoreboard.md" "$art_dir/metric.md" 2>/dev/null || true)
+    f=$(awk -F= '/^floor_met=/{print $2}' <<<"$sig")
+    t=$(awk -F= '/^target_met=/{print $2}' <<<"$sig")
+    Kn=$(awk -F= '/^K_so_far=/{print $2}' <<<"$sig")
+    Kr=$(awk -F= '/^K_required=/{print $2}' <<<"$sig")
+    p=$(awk -F= '/^plateau=/{print $2}' <<<"$sig")
+    printf 'floor_met=%s  target_met=%s  K_so_far=%s/%s  plateau=%s\n' \
+      "${f:-?}" "${t:-?}" "${Kn:-?}" "${Kr:-?}" "${p:-?}"
+  else
+    printf '_(scoreboard or metric absent)_\n'
+  fi
+}
+
+# _cw_dr_json_field <result.json> <key>
+# Tiny JSON-field reader for status_brief (no jq dependency).
+#
+# LIMITATIONS (acceptable for our flat result.json schema in
+# bin/deep-research-experiment-send.sh's template):
+#   - Does not handle escaped quotes inside string values
+#     (`"notes": "He said \"hi\""` → returns up to the first `\`).
+#   - Does not handle nested objects or arrays of objects.
+#   - Returns empty string if key is missing (no error).
+# For our flat schema (branch_id / approach_label / metric_name /
+# metric_value / status / runtime_s / log_paths / notes), these are
+# non-issues — notes is short single-line free text per the template.
+_cw_dr_json_field() {
+  local f="${1:-}" k="${2:-}"
+  [[ -f "$f" && -n "$k" ]] || return 1
+  if command -v jq >/dev/null 2>&1; then
+    jq -r --arg k "$k" '.[$k] // empty' "$f"
+  else
+    # Match "key": <value> where <value> is either "string", number, true/false, or null.
+    grep -oE "\"$k\"[[:space:]]*:[[:space:]]*(\"[^\"]*\"|[0-9.eE+-]+|true|false|null)" "$f" \
+      | head -1 \
+      | sed -E "s/^\"$k\"[[:space:]]*:[[:space:]]*\"?([^\"]*)\"?$/\1/"
+  fi
+}
+
+# _cw_dr_approach_from_prompt <prompt.md-path>
+# Extract the `Approach label:` value rendered by
+# bin/deep-research-experiment-send.sh into the experiment's prompt.md
+# (template line: `Approach label:  {{APPROACH_LABEL}}`). Used by
+# cw_deep_research_render_status_brief to show the approach for a
+# working trooper before result.json lands. v0.28.2.
+_cw_dr_approach_from_prompt() {
+  local f="${1:-}"
+  [[ -f "$f" ]] || return 1
+  # Template renders the line with a 2-space leading indent
+  # (`  Approach label:  <slug>`); allow optional leading whitespace and
+  # collapse any amount of trailing whitespace.
+  awk '/^[[:space:]]*Approach label:/ {
+    sub(/^[[:space:]]*Approach label:[[:space:]]+/, "")
+    sub(/[[:space:]]+$/, "")
+    print
+    exit
+  }' "$f"
+}
