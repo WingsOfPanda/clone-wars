@@ -57,7 +57,7 @@ METRIC_MD="$ART_DIR/metric.md"
 STATE_FILE="$ART_DIR/troopers/$COMMANDER/state.txt"
 [[ -f "$STATE_FILE" ]] \
   || { log_error "trooper state.txt missing: $STATE_FILE (directive Phase 4.a must run before first dispatch)"; exit 1; }
-cur_phase=$(awk -F= '/^phase=/{print $2}' "$STATE_FILE")
+cur_phase=$(cw_deep_research_trooper_state_field "$ART_DIR" "$COMMANDER" phase)
 [[ "$cur_phase" == "idle" ]] \
   || { log_error "trooper $COMMANDER not idle (phase=$cur_phase) — wait for completion or finalize first."; exit 1; }
 
@@ -179,7 +179,7 @@ log_info "wrote inbox at $INBOX"
 # v0.28.0: update per-trooper state.txt atomically. exp_counter increments
 # from prior value (init seeded 0; first dispatch → 1). phase=working until
 # score sets phase=idle on done event.
-prev_counter=$(awk -F= '/^exp_counter=/{print $2}' "$STATE_FILE")
+prev_counter=$(cw_deep_research_trooper_state_field "$ART_DIR" "$COMMANDER" exp_counter)
 [[ "$prev_counter" =~ ^[0-9]+$ ]] || prev_counter=0
 new_counter=$((prev_counter + 1))
 cw_deep_research_trooper_state_write "$ART_DIR" "$COMMANDER" \

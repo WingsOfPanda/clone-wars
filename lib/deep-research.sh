@@ -12,6 +12,8 @@
 #       — first N codex-eligible commanders (N=2 or N=3); deterministic
 #   cw_deep_research_format_metric_block
 #       — render metric.md from K=V pairs on stdin
+#   cw_deep_research_trooper_state_field <art-dir> <cmdr> <key>
+#       — single-field read; preserves embedded '='; rc=1 on missing state.txt
 #   cw_deep_research_check_time_budget <budget-path> <session-start-path>
 #       — rc=0 if elapsed >= budget seconds; rc=1 on 'none' or not yet hit
 
@@ -311,6 +313,21 @@ cw_deep_research_trooper_state_read() {
   cat "$f"
 }
 
+# cw_deep_research_trooper_state_field <art-dir> <commander> <key>
+#
+# Single-field reader for hot-path callers. Preserves embedded '=' in values
+# (returns everything after the first '='). Returns rc=1 if state.txt is
+# missing; returns empty string for missing field or empty value.
+#
+# Use this for hot-path single-field reads. For multi-field reads, prefer
+# cw_deep_research_trooper_state_read (one awk pass over the whole block).
+cw_deep_research_trooper_state_field() {
+  local art_dir="$1" cmdr="$2" key="$3"
+  local f="$art_dir/troopers/$cmdr/state.txt"
+  [[ -f "$f" ]] || { log_error "state.txt missing: $f"; return 1; }
+  awk -F= -v k="$key" '$1==k{print substr($0, index($0,"=")+1); exit}' "$f"
+}
+
 # cw_deep_research_trooper_state_write <art-dir> <commander> <k>=<v> [<k>=<v>...]
 # Atomic update: preserves untouched keys, replaces touched ones.
 # Creates state.txt + parent dirs if missing. rc=2 on bad args.
@@ -469,10 +486,10 @@ cw_deep_research_render_summary() {
       state_file="$art_dir/troopers/$cmdr/state.txt"
       phase="?"; cur="—"; last_ts="?"; last_event="?"
       if [[ -f "$state_file" ]]; then
-        phase=$(awk -F= '/^phase=/{print $2}' "$state_file")
-        cur=$(awk -F= '/^current_exp_id=/{print $2}' "$state_file")
-        last_ts=$(awk -F= '/^last_event_ts=/{print $2}' "$state_file")
-        last_event=$(awk -F= '/^last_event=/{print $2}' "$state_file")
+        phase=$(cw_deep_research_trooper_state_field "$art_dir" "$cmdr" phase)
+        cur=$(cw_deep_research_trooper_state_field "$art_dir" "$cmdr" current_exp_id)
+        last_ts=$(cw_deep_research_trooper_state_field "$art_dir" "$cmdr" last_event_ts)
+        last_event=$(cw_deep_research_trooper_state_field "$art_dir" "$cmdr" last_event)
         [[ -z "$cur" ]] && cur="—"
       fi
       printf '| %s | %s | %s | %s %s |\n' "$cmdr" "$phase" "$cur" "$last_ts" "$last_event"
@@ -617,8 +634,8 @@ cw_deep_research_render_status_brief() {
       state_file="$art_dir/troopers/$cmdr/state.txt"
       phase="?"; cur=""; last_exp="—"; approach="—"; metric="—"
       if [[ -f "$state_file" ]]; then
-        phase=$(awk -F= '/^phase=/{print $2}' "$state_file")
-        cur=$(awk -F= '/^current_exp_id=/{print $2}' "$state_file")
+        phase=$(cw_deep_research_trooper_state_field "$art_dir" "$cmdr" phase)
+        cur=$(cw_deep_research_trooper_state_field "$art_dir" "$cmdr" current_exp_id)
       fi
       if [[ -n "$cur" ]]; then
         last_exp="$cur"
