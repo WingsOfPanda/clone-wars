@@ -106,8 +106,12 @@ pass "11. directive doesn't reference deleted experiment-wait"
 # Invariant 12: CLAUDE.md has v0.28.0 status + release-gate rows
 grep -q "v0.28.0:" "$PLUGIN_ROOT/CLAUDE.md" \
   || { echo "FAIL: CLAUDE.md missing v0.28.0 status row" >&2; exit 1; }
-grep -q "v0.28.0 strict-dogfood" "$PLUGIN_ROOT/CLAUDE.md" \
-  || { echo "FAIL: CLAUDE.md missing v0.28.0 release-gate row" >&2; exit 1; }
+# Accept either the original release-gate row ("v0.28.0 strict-dogfood")
+# or the dogfood-completion entry that records partial-pass results
+# ("v0.28.0 partial strict-dogfood"). v0.28.1+ flips the gate to a recap
+# without removing the v0.28.0 context.
+grep -qE "v0\.28\.0( partial)? strict-dogfood" "$PLUGIN_ROOT/CLAUDE.md" \
+  || { echo "FAIL: CLAUDE.md missing v0.28.0 release-gate row (or dogfood recap)" >&2; exit 1; }
 pass "12. CLAUDE.md has v0.28.0 status + release-gate rows"
 
 # Invariant 13: metric.md schema supports new fields (test format helper)
