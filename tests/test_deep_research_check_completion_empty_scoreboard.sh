@@ -12,8 +12,10 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 SB="$TMP/sb.md"
 M="$TMP/m.md"
 cat > "$SB" <<'EOF'
-| Exp | Commander | Metric | Status | Runtime | Notes |
-|---|---|---|---|---|---|
+# Scoreboard
+
+| Rank | Experiment | Commander | Metric | Status | Runtime | Approach |
+|---|---|---|---|---|---|---|
 EOF
 cat > "$M" <<'EOF'
 **Primary metric:** accuracy

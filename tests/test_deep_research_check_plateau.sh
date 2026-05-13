@@ -16,11 +16,13 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 # based on exp-NNN).
 write_sb() {
   local path="$1"; shift
-  printf '# Scoreboard\n\n| Rank | Experiment | Metric | Status |\n|---|---|---|---|\n' > "$path"
+  # Production schema (bin/deep-research-score.sh:77):
+  #   | Rank | Experiment | Commander | Metric | Status | Runtime | Approach |
+  printf '# Scoreboard\n\n| Rank | Experiment | Commander | Metric | Status | Runtime | Approach |\n|---|---|---|---|---|---|---|\n' > "$path"
   local rank=1
   for row in "$@"; do
     IFS=: read -r e m s <<<"$row"
-    printf '| %d | %s | %s | %s |\n' "$rank" "$e" "$m" "$s" >> "$path"
+    printf '| %d | %s | rex | %s | %s | 100 | approach |\n' "$rank" "$e" "$m" "$s" >> "$path"
     rank=$((rank + 1))
   done
 }

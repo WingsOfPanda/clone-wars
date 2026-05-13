@@ -195,9 +195,14 @@ cw_deep_research_check_plateau() {
   while IFS= read -r line; do
     [[ "$line" =~ ^\|[[:space:]]+[0-9]+[[:space:]]+\| ]] || continue
     IFS='|' read -r -a fields <<<"$line"
+    # Production scoreboard schema (bin/deep-research-score.sh:77):
+    #   | Rank | Experiment | Commander | Metric | Status | Runtime | Approach |
+    # IFS='|' read includes a leading empty (before the first |), so:
+    #   fields[1]=Rank, fields[2]=Experiment, fields[3]=Commander,
+    #   fields[4]=Metric, fields[5]=Status, fields[6]=Runtime, fields[7]=Approach
     exp_id="${fields[2]//[[:space:]]/}"
-    metric="${fields[3]//[[:space:]]/}"
-    status="${fields[4]//[[:space:]]/}"
+    metric="${fields[4]//[[:space:]]/}"
+    status="${fields[5]//[[:space:]]/}"
     exp_num="${exp_id#exp-}"
     exp_num="${exp_num#0}"; exp_num="${exp_num#0}"
     [[ -z "$exp_num" ]] && exp_num=0
@@ -473,15 +478,18 @@ cw_deep_research_check_completion() {
     }'
   }
 
-  # Walk scoreboard.md rows. Only `| exp-…` data rows participate.
+  # Walk scoreboard.md rows. Production schema (bin/deep-research-score.sh:77):
+  #   | Rank | Experiment | Commander | Metric | Status | Runtime | Approach |
+  # awk -F'|' field indices (1-based, leading empty field at $1):
+  #   $2=Rank  $3=Experiment  $4=Commander  $5=Metric  $6=Status  $7=Runtime  $8=Approach
+  # Data rows match `| <rank-int> | exp-<int> | …`; header + separator rows skipped.
   local floor_met=no target_met=no K_so_far=0
   local metrics=()
   local line metric status
   while IFS= read -r line; do
-    [[ "$line" == "| exp-"* ]] || continue
-    # Extract pipe-delimited cols: | Exp | Cmdr | Metric | Status | Runtime | Notes |
-    metric=$(printf '%s' "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $4); print $4}')
-    status=$(printf '%s' "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $5); print $5}')
+    [[ "$line" =~ ^\|[[:space:]]+[0-9]+[[:space:]]+\|[[:space:]]+exp- ]] || continue
+    metric=$(printf '%s' "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $5); print $5}')
+    status=$(printf '%s' "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $6); print $6}')
     [[ "$status" == "ok" ]] || continue
     [[ "$metric" =~ ^[0-9.]+$ ]] || continue
     metrics+=("$metric")

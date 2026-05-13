@@ -10,16 +10,21 @@ source "$PLUGIN_ROOT/lib/deep-research.sh"
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 
-# Helper to build scoreboard.md
+# Helper to build scoreboard.md in production schema (bin/deep-research-score.sh:77).
+# Args: <out-path> <exp-id> <commander> <metric> <status> [<exp-id> <cmdr> <metric> <status>...]
 build_sb() {
   local out="$1"; shift
   cat > "$out" <<'EOF'
-| Exp | Commander | Metric | Status | Runtime | Notes |
-|---|---|---|---|---|---|
+# Scoreboard
+
+| Rank | Experiment | Commander | Metric | Status | Runtime | Approach |
+|---|---|---|---|---|---|---|
 EOF
+  local rank=1
   while (( $# >= 4 )); do
-    printf '| %s | %s | %s | %s | 100 | |\n' "$1" "$2" "$3" "$4" >> "$out"
+    printf '| %d | %s | %s | %s | %s | 100 | approach |\n' "$rank" "$1" "$2" "$3" "$4" >> "$out"
     shift 4
+    rank=$((rank + 1))
   done
 }
 
