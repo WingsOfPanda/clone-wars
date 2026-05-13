@@ -8,6 +8,19 @@ source lib/assert.sh
 PLUGIN_ROOT="$(cd .. && pwd)"
 export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
 
+# v0.28.0+ guard: this lock is the v0.27.x release-line snapshot. Once
+# plugin moves to v0.28.0+, the lock is historical — skip all invariants
+# with a single pass line. The new release ships its own static-wiring
+# lock (test_v0_28_0_static_wiring.sh).
+plug_ver=$(awk -F'"' '/"version"/{print $4}' "$PLUGIN_ROOT/.claude-plugin/plugin.json")
+case "$plug_ver" in
+  0.27.*) ;;
+  *)
+    pass "v0.27.0 lock skipped — plugin on $plug_ver (see test_v0_28_0_static_wiring.sh)"
+    exit 0
+    ;;
+esac
+
 # Invariant 1: plugin.json version on 0.27.x line (any patch — v0.25.0 precedent)
 grep -qE '"version"[[:space:]]*:[[:space:]]*"0\.27\.[0-9]+"' "$PLUGIN_ROOT/.claude-plugin/plugin.json" \
   || { echo "FAIL: plugin.json version not on 0.27.x line" >&2; exit 1; }
@@ -19,12 +32,23 @@ count=$(grep -cE '"version"[[:space:]]*:[[:space:]]*"0\.27\.[0-9]+"' "$PLUGIN_RO
   || { echo "FAIL: marketplace.json expected 2 v0.27.x fields, got $count" >&2; exit 1; }
 pass "2. marketplace.json has 2 v0.27.x version fields"
 
-# Invariant 3: 5 deep-research bin scripts present + executable
-for s in deep-research-init deep-research-experiment-send deep-research-experiment-wait deep-research-score deep-research-teardown; do
+# Invariant 3: deep-research bin scripts present + executable.
+# v0.27.x: 5 scripts (init, experiment-send, experiment-wait, score, teardown).
+# v0.28.0+: experiment-wait removed (Monitor replaces it); added monitor + finalize.
+PLUGIN_VER=$(awk -F'"' '/"version"/{print $4}' "$PLUGIN_ROOT/.claude-plugin/plugin.json")
+case "$PLUGIN_VER" in
+  0.27.*)
+    expected=(deep-research-init deep-research-experiment-send deep-research-experiment-wait deep-research-score deep-research-teardown)
+    ;;
+  *)
+    expected=(deep-research-init deep-research-experiment-send deep-research-score deep-research-teardown deep-research-monitor deep-research-finalize)
+    ;;
+esac
+for s in "${expected[@]}"; do
   [[ -x "$PLUGIN_ROOT/bin/$s.sh" ]] \
-    || { echo "FAIL: bin/$s.sh missing or not executable" >&2; exit 1; }
+    || { echo "FAIL: bin/$s.sh missing or not executable (version $PLUGIN_VER)" >&2; exit 1; }
 done
-pass "3. 5 deep-research bin scripts present + executable"
+pass "3. deep-research bin scripts present + executable (version $PLUGIN_VER)"
 
 # Invariant 4: lib/deep-research.sh sources cleanly + exposes v0.27.0 helpers
 source "$PLUGIN_ROOT/lib/log.sh"
@@ -100,12 +124,17 @@ if [[ "$arg_hint" == *"--allow-net"* ]]; then
 fi
 pass "7. directive argument-hint free of removed flags"
 
-# Invariant 8: directive references all 5 bin scripts
-for s in deep-research-init deep-research-experiment-send deep-research-experiment-wait deep-research-score deep-research-teardown; do
+# Invariant 8: directive references the bin scripts (set varies by version).
+# v0.27.x: 5 scripts. v0.28.0+: 6 (monitor + finalize, minus experiment-wait).
+case "$PLUGIN_VER" in
+  0.27.*) expected_ref=(deep-research-init deep-research-experiment-send deep-research-experiment-wait deep-research-score deep-research-teardown) ;;
+  *)      expected_ref=(deep-research-init deep-research-experiment-send deep-research-score deep-research-teardown deep-research-monitor deep-research-finalize) ;;
+esac
+for s in "${expected_ref[@]}"; do
   grep -q "$s.sh" "$DIRECTIVE" \
-    || { echo "FAIL: directive doesn't reference $s.sh" >&2; exit 1; }
+    || { echo "FAIL: directive doesn't reference $s.sh (version $PLUGIN_VER)" >&2; exit 1; }
 done
-pass "8. directive references all 5 deep-research bin scripts"
+pass "8. directive references expected deep-research bin scripts (version $PLUGIN_VER)"
 
 # Invariant 9: cw_consult_art_dir routes deep-research-* → _deep-research/
 got=$(cw_consult_art_dir "deep-research-foo")
