@@ -119,10 +119,14 @@ cw_deep_research_pick_roster() {
 # cw_deep_research_format_metric_block
 # Reads K=V pairs on stdin, renders the structured metric.md body to stdout.
 # Required keys: primary_metric, direction (maximize|minimize).
-# Optional keys: target, acceptable, hard_constraints, notes.
+# v0.28.0+ fields: min_acceptable (floor), K_corroboration (default 1),
+#   plateau_window (default 5), plateau_threshold (default 0.01).
+# Optional keys: target, acceptable (v0.27.x — preserved for back-compat),
+#   hard_constraints, notes.
 # rc=2 if a required key is missing or direction is invalid.
 cw_deep_research_format_metric_block() {
   local primary_metric="" direction="" target="" acceptable="" hard_constraints="" notes=""
+  local min_acceptable="" K_corroboration="" plateau_window="" plateau_threshold=""
   local line key val
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
@@ -133,6 +137,10 @@ cw_deep_research_format_metric_block() {
       direction)         direction="$val" ;;
       target)            target="$val" ;;
       acceptable)        acceptable="$val" ;;
+      min_acceptable)    min_acceptable="$val" ;;
+      K_corroboration)   K_corroboration="$val" ;;
+      plateau_window)    plateau_window="$val" ;;
+      plateau_threshold) plateau_threshold="$val" ;;
       hard_constraints)  hard_constraints="$val" ;;
       notes)             notes="$val" ;;
     esac
@@ -143,11 +151,20 @@ cw_deep_research_format_metric_block() {
   [[ "$direction" == "maximize" || "$direction" == "minimize" ]] \
     || { echo "direction must be 'maximize' or 'minimize'; got '$direction'" >&2; return 2; }
 
+  : "${min_acceptable:=(not set)}"
+  : "${K_corroboration:=1}"
+  : "${plateau_window:=5}"
+  : "${plateau_threshold:=0.01}"
+
   printf '# Research goal\n\n'
   printf '**Primary metric:** %s\n' "$primary_metric"
   printf '**Direction:** %s\n' "$direction"
-  [[ -n "$target" ]]           && printf '**Target (good):** %s\n' "$target"
-  [[ -n "$acceptable" ]]       && printf '**Acceptable:** %s\n' "$acceptable"
+  printf '**min_acceptable:** %s\n' "$min_acceptable"
+  [[ -n "$target" ]]           && printf '**target:** %s\n' "$target"
+  printf '**K_corroboration:** %s\n' "$K_corroboration"
+  printf '**plateau_window:** %s\n' "$plateau_window"
+  printf '**plateau_threshold:** %s\n' "$plateau_threshold"
+  [[ -n "$acceptable" ]]       && printf '**acceptable (legacy):** %s\n' "$acceptable"
   [[ -n "$hard_constraints" ]] && printf '**Hard constraints:** %s\n' "$hard_constraints"
   [[ -n "$notes" ]]            && printf '\n**Notes:** %s\n' "$notes"
   return 0
