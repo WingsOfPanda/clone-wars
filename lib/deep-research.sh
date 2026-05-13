@@ -432,3 +432,89 @@ cw_deep_research_trooper_state_write() {
   done
   mv "$tmp" "$f"
 }
+
+# cw_deep_research_check_completion <scoreboard.md> <metric.md>
+# Compute completion signals from scoreboard rows + metric thresholds.
+# Prints TSV-shape KV block on stdout:
+#   floor_met=yes|no
+#   target_met=yes|no
+#   K_so_far=<int>
+#   K_required=<int>
+#   plateau=yes|no
+# rc=2 on missing files. K_so_far is capped at K_required for display.
+cw_deep_research_check_completion() {
+  local sb="${1:-}" m="${2:-}"
+  [[ -f "$sb" ]] || { echo "cw_deep_research_check_completion: scoreboard missing: $sb" >&2; return 2; }
+  [[ -f "$m" ]]  || { echo "cw_deep_research_check_completion: metric missing: $m" >&2; return 2; }
+
+  # Parse metric.md — fields are `**KEY:** VALUE`, so the field separator is `:** `.
+  local min_op min_val tgt_op tgt_val K_req plateau_window plateau_threshold
+  min_op=$(awk -F':\\*\\* ' '/^\*\*min_acceptable:/{print $2}' "$m" | awk '{print $1}')
+  min_val=$(awk -F':\\*\\* ' '/^\*\*min_acceptable:/{print $2}' "$m" | awk '{$1=""; sub(/^ /, ""); print}')
+  tgt_op=$(awk -F':\\*\\* ' '/^\*\*target:/{print $2}' "$m" | awk '{print $1}')
+  tgt_val=$(awk -F':\\*\\* ' '/^\*\*target:/{print $2}' "$m" | awk '{$1=""; sub(/^ /, ""); print}')
+  K_req=$(awk -F':\\*\\* ' '/^\*\*K_corroboration:/{print $2}' "$m" | tr -d ' ')
+  plateau_window=$(awk -F':\\*\\* ' '/^\*\*plateau_window:/{print $2}' "$m" | tr -d ' ')
+  plateau_threshold=$(awk -F':\\*\\* ' '/^\*\*plateau_threshold:/{print $2}' "$m" | tr -d ' ')
+  K_req="${K_req:-1}"
+  plateau_window="${plateau_window:-5}"
+  plateau_threshold="${plateau_threshold:-0.01}"
+
+  # Helper: numeric compare $1 (op) $2 against threshold $3 via awk.
+  _cw_cmp() {
+    awk -v a="$1" -v op="$2" -v b="$3" 'BEGIN{
+      a+=0; b+=0;
+      if (op==">=")  exit !(a >= b);
+      if (op=="<=")  exit !(a <= b);
+      if (op==">")   exit !(a > b);
+      if (op=="<")   exit !(a < b);
+      if (op=="==")  exit !(a == b);
+      exit 1;
+    }'
+  }
+
+  # Walk scoreboard.md rows. Only `| exp-…` data rows participate.
+  local floor_met=no target_met=no K_so_far=0
+  local metrics=()
+  local line metric status
+  while IFS= read -r line; do
+    [[ "$line" == "| exp-"* ]] || continue
+    # Extract pipe-delimited cols: | Exp | Cmdr | Metric | Status | Runtime | Notes |
+    metric=$(printf '%s' "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $4); print $4}')
+    status=$(printf '%s' "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $5); print $5}')
+    [[ "$status" == "ok" ]] || continue
+    [[ "$metric" =~ ^[0-9.]+$ ]] || continue
+    metrics+=("$metric")
+    if [[ -n "$min_op" && -n "$min_val" ]] && _cw_cmp "$metric" "$min_op" "$min_val"; then
+      floor_met=yes
+    fi
+    if [[ -n "$tgt_op" && -n "$tgt_val" ]] && _cw_cmp "$metric" "$tgt_op" "$tgt_val"; then
+      target_met=yes
+      K_so_far=$((K_so_far + 1))
+    fi
+  done < "$sb"
+
+  # Plateau: last plateau_window ok-rows have max-min spread < plateau_threshold.
+  local plateau=no
+  if (( ${#metrics[@]} >= plateau_window )); then
+    local last_n=("${metrics[@]: -$plateau_window}")
+    local mn mx v
+    mn="${last_n[0]}"; mx="${last_n[0]}"
+    for v in "${last_n[@]}"; do
+      awk -v a="$v" -v b="$mn" 'BEGIN{exit !(a+0 < b+0)}' && mn="$v"
+      awk -v a="$v" -v b="$mx" 'BEGIN{exit !(a+0 > b+0)}' && mx="$v"
+    done
+    if awk -v M="$mx" -v m="$mn" -v t="$plateau_threshold" 'BEGIN{exit !((M-m) < t)}'; then
+      plateau=yes
+    fi
+  fi
+
+  # Cap K_so_far at K_required for cleaner display.
+  (( K_so_far > K_req )) && K_so_far="$K_req"
+
+  printf 'floor_met=%s\n' "$floor_met"
+  printf 'target_met=%s\n' "$target_met"
+  printf 'K_so_far=%s\n' "$K_so_far"
+  printf 'K_required=%s\n' "$K_req"
+  printf 'plateau=%s\n' "$plateau"
+}
