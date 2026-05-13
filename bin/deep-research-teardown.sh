@@ -13,6 +13,7 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && p
 source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/consult.sh"
+source "$PLUGIN_ROOT/lib/tmux.sh"
 
 [[ $# -eq 1 ]] || { echo "Usage: $0 <topic>" >&2; exit 2; }
 TOPIC="$1"
@@ -25,6 +26,22 @@ state_root="${CLONE_WARS_HOME:-$HOME/.clone-wars}"
 repo_hash=$(cw_repo_hash)
 state_dir="$state_root/state/$repo_hash/$TOPIC"
 [[ -d "$state_dir" ]] || { log_error "$state_dir not found"; exit 1; }
+
+# v0.28.3: kill preflight orphan panes (sentinels that never got respawned)
+# before the archive mv. Reads <state_dir>/_deep-research/preflight-panes.txt;
+# kills panes whose commander is NOT in the 1-col troopers.txt. No-op if
+# preflight-panes.txt is absent (pre-v0.28.3 archives + happy-path runs where
+# the file was already removed elsewhere).
+ART_DIR="$state_dir/_deep-research"
+PREFLIGHT_FILE="$ART_DIR/preflight-panes.txt"
+TROOPERS_FILE="$ART_DIR/troopers.txt"
+LIVE_CMDRS=()
+if [[ -f "$TROOPERS_FILE" ]]; then
+  while IFS= read -r cmdr; do
+    [[ -n "$cmdr" && "${cmdr:0:1}" != "#" ]] && LIVE_CMDRS+=("$cmdr")
+  done < "$TROOPERS_FILE"
+fi
+cw_preflight_kill_orphans "$PREFLIGHT_FILE" "${LIVE_CMDRS[@]}"
 
 ts=$(date -u +%Y%m%dT%H%M%SZ)
 archive_dir="$state_root/archive/$repo_hash/${TOPIC}-${ts}"
