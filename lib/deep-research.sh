@@ -12,7 +12,7 @@
 #       — first N codex-eligible commanders (N=2 or N=3); deterministic
 #   cw_deep_research_format_metric_block
 #       — render metric.md from K=V pairs on stdin
-#   cw_deep_research_check_stagnation <scoreboard> <cursor-path>
+#   cw_deep_research_check_plateau <scoreboard> <cursor-path>
 #       — rc=0 if last 5 post-cursor exps all <1% of running best AND
 #         exp_count >= 5; rc!=0 otherwise
 #   cw_deep_research_check_time_budget <budget-path> <session-start-path>
@@ -153,7 +153,7 @@ cw_deep_research_format_metric_block() {
   return 0
 }
 
-# cw_deep_research_check_stagnation <scoreboard-path> <cursor-path>
+# cw_deep_research_check_plateau <scoreboard-path> <cursor-path>
 # Reads scoreboard.md (any sort order; we re-sort by exp-NNN chronologically)
 # + stagnation-cursor.txt. Returns rc=0 if last 5 experiments after cursor
 # all <1% over running best AND total post-cursor exp count >= 5. Returns
@@ -163,7 +163,7 @@ cw_deep_research_format_metric_block() {
 #   - Direction: max-direction only (higher metric = better). Future
 #     parameterization deferred to v0.28+.
 #   - Cursor file format: single integer line. Missing file treated as '0'.
-cw_deep_research_check_stagnation() {
+cw_deep_research_check_plateau() {
   local sb="${1:-}" cursor_path="${2:-}"
   [[ -f "$sb" ]] || { echo "scoreboard missing: $sb" >&2; return 2; }
 

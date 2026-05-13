@@ -342,7 +342,7 @@ LOOP:
     ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
     if cw_deep_research_check_time_budget "$ART_DIR/time-budget.txt" "$ART_DIR/session-start.txt"; then
       AskUserQuestion: Continue / Stop / Extend (+T hours)
-    elif cw_deep_research_check_stagnation "$ART_DIR/scoreboard.md" "$ART_DIR/stagnation-cursor.txt"; then
+    elif cw_deep_research_check_plateau "$ART_DIR/scoreboard.md" "$ART_DIR/stagnation-cursor.txt"; then
       AskUserQuestion: Continue / Stop / Adjust direction
     fi
 

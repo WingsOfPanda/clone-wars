@@ -36,7 +36,7 @@ source "$PLUGIN_ROOT/lib/deep-research.sh"
 for fn in \
   cw_deep_research_pick_roster \
   cw_deep_research_format_metric_block \
-  cw_deep_research_check_stagnation \
+  cw_deep_research_check_plateau \
   cw_deep_research_check_time_budget \
   cw_deep_research_extract_metric \
   cw_deep_research_extract_approaches \
