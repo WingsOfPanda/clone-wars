@@ -27,6 +27,17 @@ Branch sandbox: {{BRANCH_DIR}}
 Net access: permitted; use it only as needed (dependencies, datasets,
 docs). The advisor will flag if a follow-up should be air-gapped.
 
+Heartbeat (optional but helpful): if your run will exceed ~5 minutes
+wall-clock, emit a heartbeat event every 2-3 minutes during training so
+the advisor's liveness monitor can distinguish "training quietly" from
+"stuck" and avoid spurious status? probes:
+
+  printf '%s\n' '{"event":"heartbeat","summary":"epoch <N>/<total>","ts":"<iso>"}' \
+    >> {{OUTBOX_PATH}}
+
+Single-quote the format string (same safety rule as the done event in
+step 5). Heartbeats are advisory — skip if the run is short.
+
 In ONE turn, do all of the following:
 
 1. Implement the approach in code under {{BRANCH_DIR}}/code/.
