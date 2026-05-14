@@ -75,7 +75,6 @@ cw_identity_write() {
   identity="$dir/identity.md"
   outbox="$dir/outbox.jsonl"
   tmpl="$PLUGIN_ROOT/config/prompt-templates/identity.md"
-  [[ -f "$tmpl" ]] || tmpl="$PLUGIN_ROOT/config/identity-template.md"
 
   sed \
     -e "s|{{commander}}|$commander|g" \

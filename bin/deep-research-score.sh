@@ -114,7 +114,7 @@ for cmdr_dir in "$TROOPERS_DIR"/*/; do
   state_file="$cmdr_dir/state.txt"
   [[ -f "$state_file" ]] || continue
 
-  current_exp_id=$(awk -F= '/^current_exp_id=/{print $2}' "$state_file")
+  current_exp_id=$(cw_deep_research_trooper_state_field "$ART_DIR" "$cmdr" current_exp_id)
   [[ -n "$current_exp_id" ]] || continue
 
   # Only flip state if the trooper's CURRENT experiment has a result.json.

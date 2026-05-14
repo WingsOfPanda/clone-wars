@@ -36,13 +36,15 @@ declare -F cw_deep_research_write_preflight_sidecar >/dev/null \
   || { echo "FAIL: cw_deep_research_write_preflight_sidecar not defined" >&2; exit 1; }
 pass "2. cw_deep_research_write_preflight_sidecar helper exists"
 
-# Invariant 3: deep-research-teardown sources tmux.sh + calls orphan helper
+# Invariant 3: deep-research-teardown sources tmux.sh + invokes orphan cleanup.
+# v0.29.0: the call is wrapped through cw_teardown_with_preflight_orphans;
+# accept either the original helper name or the v0.29.0 wrapper.
 TEARDOWN="$PLUGIN_ROOT/bin/deep-research-teardown.sh"
 grep -q 'source.*lib/tmux\.sh' "$TEARDOWN" \
   || { echo "FAIL: deep-research-teardown doesn't source lib/tmux.sh" >&2; exit 1; }
-grep -q 'cw_preflight_kill_orphans' "$TEARDOWN" \
-  || { echo "FAIL: deep-research-teardown doesn't call cw_preflight_kill_orphans" >&2; exit 1; }
-pass "3. deep-research-teardown sources tmux.sh + calls cw_preflight_kill_orphans"
+grep -qE 'cw_preflight_kill_orphans|cw_teardown_with_preflight_orphans' "$TEARDOWN" \
+  || { echo "FAIL: deep-research-teardown doesn't invoke preflight-orphan cleanup" >&2; exit 1; }
+pass "3. deep-research-teardown sources tmux.sh + invokes preflight-orphan cleanup"
 
 # Invariant 4: directive has Phase 3a + 3b
 grep -qE '^### Phase 3a — Preflight' "$PLUGIN_ROOT/commands/deep-research.md" \

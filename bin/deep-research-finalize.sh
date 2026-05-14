@@ -39,7 +39,7 @@ if [[ -f "$ART/troopers.txt" ]]; then
     [[ -n "$cmdr" ]] || continue
     state_file="$ART/troopers/$cmdr/state.txt"
     [[ -f "$state_file" ]] || continue
-    cur_phase=$(awk -F= '/^phase=/{print $2}' "$state_file")
+    cur_phase=$(cw_deep_research_trooper_state_field "$ART" "$cmdr" phase)
     case "$cur_phase" in
       working|stale|stuck|blocked)
         cw_deep_research_trooper_state_write "$ART" "$cmdr" phase=incomplete

@@ -8,6 +8,19 @@ source lib/assert.sh
 PLUGIN_ROOT="$(cd .. && pwd)"
 export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
 
+# v0.29.0+ guard: this lock is the v0.28.x release-line snapshot. Once
+# plugin moves to v0.29.0+, the lock is historical — skip all invariants
+# with a single pass line. The new release ships its own static-wiring
+# lock (test_v0_29_0_static_wiring.sh).
+plug_ver=$(awk -F'"' '/"version"/{print $4}' "$PLUGIN_ROOT/.claude-plugin/plugin.json")
+case "$plug_ver" in
+  0.28.*) ;;
+  *)
+    pass "v0.28.0 lock skipped — plugin on $plug_ver (cw_deep_research_check_plateau removed in v0.29.0)"
+    exit 0
+    ;;
+esac
+
 # Invariant 1: plugin.json on 0.28.x
 grep -qE '"version"[[:space:]]*:[[:space:]]*"0\.28\.[0-9]+"' "$PLUGIN_ROOT/.claude-plugin/plugin.json" \
   || { echo "FAIL: plugin.json not on 0.28.x" >&2; exit 1; }
@@ -40,12 +53,14 @@ for fn in \
   cw_deep_research_trooper_state_read \
   cw_deep_research_trooper_state_write \
   cw_deep_research_check_completion \
-  cw_deep_research_render_summary \
-  cw_deep_research_check_plateau; do
+  cw_deep_research_render_summary; do
   declare -F "$fn" >/dev/null \
     || { echo "FAIL: $fn not defined" >&2; exit 1; }
 done
-pass "4. lib/deep-research.sh exposes v0.28.0 helpers"
+# v0.29.0: cw_deep_research_check_plateau intentionally removed (subsumed by
+# check_completion). Skipped from the assertion list; the skip-and-pass guard
+# above also handles the case where plugin moves to v0.29.0+.
+pass "4. lib/deep-research.sh exposes v0.28.0 helpers (plateau removed in v0.29.0)"
 
 # Invariant 5: old name check_stagnation removed (renamed to check_plateau in T2)
 if declare -F cw_deep_research_check_stagnation >/dev/null; then

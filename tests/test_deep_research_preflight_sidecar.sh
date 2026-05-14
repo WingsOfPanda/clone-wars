@@ -10,6 +10,7 @@ source lib/assert.sh
 PLUGIN_ROOT="$(cd .. && pwd)"
 export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
 source "$PLUGIN_ROOT/lib/log.sh"
+source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/deep-research.sh"
 
 declare -F cw_deep_research_write_preflight_sidecar >/dev/null \

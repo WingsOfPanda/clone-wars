@@ -12,9 +12,8 @@
 #       — first N codex-eligible commanders (N=2 or N=3); deterministic
 #   cw_deep_research_format_metric_block
 #       — render metric.md from K=V pairs on stdin
-#   cw_deep_research_check_plateau <scoreboard> <cursor-path>
-#       — rc=0 if last 5 post-cursor exps all <1% of running best AND
-#         exp_count >= 5; rc!=0 otherwise
+#   cw_deep_research_trooper_state_field <art-dir> <cmdr> <key>
+#       — single-field read; preserves embedded '='; rc=1 on missing state.txt
 #   cw_deep_research_check_time_budget <budget-path> <session-start-path>
 #       — rc=0 if elapsed >= budget seconds; rc=1 on 'none' or not yet hit
 
@@ -170,97 +169,6 @@ cw_deep_research_format_metric_block() {
   return 0
 }
 
-# cw_deep_research_check_plateau <scoreboard-path> <cursor-path>
-# Reads scoreboard.md (any sort order; we re-sort by exp-NNN chronologically)
-# + stagnation-cursor.txt. Returns rc=0 if last 5 experiments after cursor
-# all <1% over running best AND total post-cursor exp count >= 5. Returns
-# rc=1 otherwise.
-# Notes:
-#   - Floor: never rc=0 when post-cursor exp count < 5.
-#   - Direction: max-direction only (higher metric = better). Future
-#     parameterization deferred to v0.28+.
-#   - Cursor file format: single integer line. Missing file treated as '0'.
-cw_deep_research_check_plateau() {
-  local sb="${1:-}" cursor_path="${2:-}"
-  [[ -f "$sb" ]] || { echo "scoreboard missing: $sb" >&2; return 2; }
-
-  local cursor=0
-  [[ -f "$cursor_path" ]] && cursor=$(<"$cursor_path")
-  [[ "$cursor" =~ ^[0-9]+$ ]] || cursor=0
-
-  # Parse scoreboard rows. Each table row: "| rank | exp-id | metric | status |"
-  local -a exp_nums=() metrics=() statuses=()
-  local line exp_num metric status exp_id
-  local -a fields=()
-  while IFS= read -r line; do
-    [[ "$line" =~ ^\|[[:space:]]+[0-9]+[[:space:]]+\| ]] || continue
-    IFS='|' read -r -a fields <<<"$line"
-    # Production scoreboard schema (bin/deep-research-score.sh:77):
-    #   | Rank | Experiment | Commander | Metric | Status | Runtime | Approach |
-    # IFS='|' read includes a leading empty (before the first |), so:
-    #   fields[1]=Rank, fields[2]=Experiment, fields[3]=Commander,
-    #   fields[4]=Metric, fields[5]=Status, fields[6]=Runtime, fields[7]=Approach
-    exp_id="${fields[2]//[[:space:]]/}"
-    metric="${fields[4]//[[:space:]]/}"
-    status="${fields[5]//[[:space:]]/}"
-    exp_num="${exp_id#exp-}"
-    exp_num="${exp_num#0}"; exp_num="${exp_num#0}"
-    [[ -z "$exp_num" ]] && exp_num=0
-    [[ "$exp_num" =~ ^[0-9]+$ ]] || continue
-    exp_nums+=("$exp_num")
-    metrics+=("$metric")
-    statuses+=("$status")
-  done < "$sb"
-
-  # Build chronologically-ordered post-cursor list (only ok rows)
-  local -a chron_nums=() chron_metrics=()
-  local i n m s idx
-  local -a sorted_idx=()
-  while IFS=$'\t' read -r idx _; do
-    sorted_idx+=("$idx")
-  done < <(
-    for i in "${!exp_nums[@]}"; do
-      printf '%d\t%d\n' "$i" "${exp_nums[$i]}"
-    done | sort -k2,2n
-  )
-
-  for idx in "${sorted_idx[@]}"; do
-    n="${exp_nums[$idx]}"
-    m="${metrics[$idx]}"
-    s="${statuses[$idx]}"
-    (( n > cursor )) || continue
-    [[ "$s" == "ok" ]] || continue
-    chron_nums+=("$n")
-    chron_metrics+=("$m")
-  done
-
-  local post_count="${#chron_nums[@]}"
-  (( post_count >= 5 )) || return 1
-
-  # Find running-best across all post-cursor exps
-  local best="${chron_metrics[0]}"
-  for m in "${chron_metrics[@]}"; do
-    awk -v a="$m" -v b="$best" 'BEGIN { exit !(a > b) }' && best="$m"
-  done
-
-  # Check the last 5 post-cursor exps: all must be <1% of best
-  local start=$(( post_count - 5 ))
-  for (( i = start; i < post_count; i++ )); do
-    m="${chron_metrics[$i]}"
-    if awk -v a="$m" -v b="$best" 'BEGIN {
-      if (b == 0) exit 0;
-      d = (a > b ? a - b : b - a);
-      exit !(d / b * 100 < 1.0);
-    }'; then
-      continue
-    else
-      return 1
-    fi
-  done
-
-  return 0
-}
-
 # cw_deep_research_check_time_budget <budget-path> <session-start-path>
 # Reads time-budget.txt ('none' or integer seconds) + session-start.txt
 # (ISO-8601 UTC). rc=0 if elapsed >= budget; rc=1 otherwise. rc=1 when
@@ -356,12 +264,12 @@ cw_deep_research_hardware_probe() {
         --query-gpu=name,memory.total,memory.free,driver_version \
         --format=csv,noheader,nounits 2>/dev/null \
         | awk -F', ' '{ printf "gpu\t%s\t%s\t%s\t%s\n", $1, $2, $3, $4 }'
-    } > "$out.tmp" && mv "$out.tmp" "$out"
+    } | cw_atomic_write "$out"
   else
     {
       printf 'detected_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
       printf 'no-gpu\n'
-    } > "$out.tmp" && mv "$out.tmp" "$out"
+    } | cw_atomic_write "$out"
   fi
 }
 
@@ -405,6 +313,21 @@ cw_deep_research_trooper_state_read() {
   cat "$f"
 }
 
+# cw_deep_research_trooper_state_field <art-dir> <commander> <key>
+#
+# Single-field reader for hot-path callers. Preserves embedded '=' in values
+# (returns everything after the first '='). Returns rc=1 if state.txt is
+# missing; returns empty string for missing field or empty value.
+#
+# Use this for hot-path single-field reads. For multi-field reads, prefer
+# cw_deep_research_trooper_state_read (one awk pass over the whole block).
+cw_deep_research_trooper_state_field() {
+  local art_dir="$1" cmdr="$2" key="$3"
+  local f="$art_dir/troopers/$cmdr/state.txt"
+  [[ -f "$f" ]] || { log_error "state.txt missing: $f"; return 1; }
+  awk -F= -v k="$key" '$1==k{print substr($0, index($0,"=")+1); exit}' "$f"
+}
+
 # cw_deep_research_trooper_state_write <art-dir> <commander> <k>=<v> [<k>=<v>...]
 # Atomic update: preserves untouched keys, replaces touched ones.
 # Creates state.txt + parent dirs if missing. rc=2 on bad args.
@@ -417,7 +340,7 @@ cw_deep_research_trooper_state_write() {
     || { echo "cw_deep_research_trooper_state_write: need at least one KEY=VALUE" >&2; return 2; }
   local trooper_dir="$art_dir/troopers/$commander"
   mkdir -p "$trooper_dir"
-  local f="$trooper_dir/state.txt" tmp="$trooper_dir/state.txt.tmp"
+  local f="$trooper_dir/state.txt"
   declare -A kv
   if [[ -f "$f" ]]; then
     while IFS='=' read -r k v; do
@@ -431,11 +354,11 @@ cw_deep_research_trooper_state_write() {
     [[ -n "$k" ]] || continue
     kv["$k"]="$v"
   done
-  : > "$tmp"
-  for k in "${!kv[@]}"; do
-    printf '%s=%s\n' "$k" "${kv[$k]}" >> "$tmp"
-  done
-  mv "$tmp" "$f"
+  {
+    for k in "${!kv[@]}"; do
+      printf '%s=%s\n' "$k" "${kv[$k]}"
+    done
+  } | cw_atomic_write "$f"
 }
 
 # cw_deep_research_check_completion <scoreboard.md> <metric.md>
@@ -563,10 +486,10 @@ cw_deep_research_render_summary() {
       state_file="$art_dir/troopers/$cmdr/state.txt"
       phase="?"; cur="—"; last_ts="?"; last_event="?"
       if [[ -f "$state_file" ]]; then
-        phase=$(awk -F= '/^phase=/{print $2}' "$state_file")
-        cur=$(awk -F= '/^current_exp_id=/{print $2}' "$state_file")
-        last_ts=$(awk -F= '/^last_event_ts=/{print $2}' "$state_file")
-        last_event=$(awk -F= '/^last_event=/{print $2}' "$state_file")
+        phase=$(cw_deep_research_trooper_state_field "$art_dir" "$cmdr" phase)
+        cur=$(cw_deep_research_trooper_state_field "$art_dir" "$cmdr" current_exp_id)
+        last_ts=$(cw_deep_research_trooper_state_field "$art_dir" "$cmdr" last_event_ts)
+        last_event=$(cw_deep_research_trooper_state_field "$art_dir" "$cmdr" last_event)
         [[ -z "$cur" ]] && cur="—"
       fi
       printf '| %s | %s | %s | %s %s |\n' "$cmdr" "$phase" "$cur" "$last_ts" "$last_event"
@@ -711,8 +634,8 @@ cw_deep_research_render_status_brief() {
       state_file="$art_dir/troopers/$cmdr/state.txt"
       phase="?"; cur=""; last_exp="—"; approach="—"; metric="—"
       if [[ -f "$state_file" ]]; then
-        phase=$(awk -F= '/^phase=/{print $2}' "$state_file")
-        cur=$(awk -F= '/^current_exp_id=/{print $2}' "$state_file")
+        phase=$(cw_deep_research_trooper_state_field "$art_dir" "$cmdr" phase)
+        cur=$(cw_deep_research_trooper_state_field "$art_dir" "$cmdr" current_exp_id)
       fi
       if [[ -n "$cur" ]]; then
         last_exp="$cur"
@@ -848,11 +771,10 @@ cw_deep_research_write_preflight_sidecar() {
   local art_dir="$1"; shift
   [[ -d "$art_dir" ]] || { log_error "art-dir not found: $art_dir"; return 1; }
   (( $# >= 1 )) || { log_error "need at least 1 commander"; return 1; }
-  local tmp="$art_dir/troopers-preflight.txt.tmp"
-  : > "$tmp"
   local cmdr
-  for cmdr in "$@"; do
-    printf 'codex\t%s\n' "$cmdr" >> "$tmp"
-  done
-  mv "$tmp" "$art_dir/troopers-preflight.txt"
+  {
+    for cmdr in "$@"; do
+      printf 'codex\t%s\n' "$cmdr"
+    done
+  } | cw_atomic_write "$art_dir/troopers-preflight.txt"
 }

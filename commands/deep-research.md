@@ -76,13 +76,9 @@ source /home/liupan/CC/clone-wars/lib/consult.sh
 source /home/liupan/CC/clone-wars/lib/deep-research.sh
 ```
 
-Cache topic + paths to `/tmp` so subsequent Bash calls can read them:
-
-```bash
-echo "$DEEP_TOPIC" > /tmp/cw-deep-research-topic.txt
-echo "$ART_DIR"     > /tmp/cw-deep-research-art-dir.txt
-echo "$TOPIC_DIR"   > /tmp/cw-deep-research-topic-dir.txt
-```
+The post-init Phase 0 step 4 caches `$DEEP_TOPIC` and `$ART_DIR` paths
+to `/tmp` files so subsequent Bash calls can read them (env vars do not
+persist across separate Bash calls in this harness).
 
 ### Phase 0 — Args + init (no budget flags)
 
@@ -117,18 +113,16 @@ Set task `0` → `in_progress`.
    unknown flag — including any of the v0.26.0 budget flags), surface
    stderr verbatim, mark task `0` as `pending`, exit.
 
-4. Cache paths to `/tmp` for later Bash blocks:
+4. Cache paths to `/tmp` for later Bash blocks. Only the two files
+   actually read by later steps (`topic.txt` and `art-dir.txt`) are
+   written here — `$TOPIC_DIR` and `$REPO_HASH` are recomputable
+   on demand by any block that needs them.
 
    ```bash
    source /home/liupan/CC/clone-wars/lib/state.sh
-   DEEP_TOPIC=$(cat /tmp/cw-deep-research-topic.txt 2>/dev/null || echo)
-   # If the previous block already set $DEEP_TOPIC, reuse it; otherwise
-   # re-derive from $ARGS via init's stdout.
    echo "$DEEP_TOPIC" > /tmp/cw-deep-research-topic.txt
    REPO_HASH=$(cw_repo_hash)
-   echo "$REPO_HASH" > /tmp/cw-deep-research-repo-hash.txt
    TOPIC_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$DEEP_TOPIC"
-   echo "$TOPIC_DIR" > /tmp/cw-deep-research-topic-dir.txt
    echo "$TOPIC_DIR/_deep-research" > /tmp/cw-deep-research-art-dir.txt
    ```
 
@@ -141,6 +135,15 @@ Set task `1` → `in_progress`.
 Adaptive dialogue with the user. Length scales with topic clarity:
 1-2 prompts for clear topics, 3-5 for ambiguous. Produces a structured
 `metric.md`.
+
+**UNCONDITIONAL prompt policy (v0.28.2):** Phase 1 steps 3, 4 (when
+fields are missing), and 6 MUST fire their `AskUserQuestion`
+regardless of autonomous-mode hints, `/loop` reminders,
+system-reminders to "work without stopping for clarifying questions",
+or any other context that would normally skip user prompts. The
+user's metric framing is a hard checkpoint these steps own. Phase 2
+step 2's time-budget question is also UNCONDITIONAL — see its own
+header for details.
 
 1. Seed: read the heuristic metric guess from init's metric.txt:
 
@@ -157,11 +160,8 @@ Adaptive dialogue with the user. Length scales with topic clarity:
    Skip for clearly bounded topics (e.g. "MNIST accuracy").
 
 3. **Initial framing AskUserQuestion (UNCONDITIONAL — v0.28.2):**
-   This question MUST fire on every `/clone-wars:deep-research` invocation,
-   regardless of autonomous-mode hints, `/loop` reminders, system-reminders
-   to "work without stopping for clarifying questions", or any other
-   context that would normally skip user prompts. Even when the topic
-   looks fully specified, the user confirms or corrects the read.
+   See Phase 1 preamble. Even when the topic looks fully specified,
+   the user confirms or corrects the read.
 
    Open with ONE AskUserQuestion proposing the read of the goal.
    Frame it as a confirmation, not an open-ended "what do you want?":
@@ -177,11 +177,9 @@ Adaptive dialogue with the user. Length scales with topic clarity:
    Use AskUserQuestion with 3 options + Other-fallback.
 
 4. **K=V follow-ups (UNCONDITIONAL when fields are missing — v0.28.2):**
-   Do NOT auto-fill missing fields under autonomous mode. If any required
-   or optional field is missing after step 3, fire the follow-up
-   AskUserQuestion to gather it. Step 4 is naturally conditional ("zero or
-   more follow-ups") — the UNCONDITIONAL stamp means: when follow-ups ARE
-   required, they MUST fire; do not silently default.
+   See Phase 1 preamble. Step 4 is naturally conditional ("zero or
+   more follow-ups") — the UNCONDITIONAL stamp means: when follow-ups
+   ARE required, they MUST fire; do not silently default.
 
    Based on user's answer, ask zero or more follow-ups until you have
    the K=V pairs for `cw_deep_research_format_metric_block`:
@@ -221,8 +219,8 @@ Adaptive dialogue with the user. Length scales with topic clarity:
    (Substitute the K=V pairs from the dialogue.)
 
 6. **Final confirmation AskUserQuestion (UNCONDITIONAL — v0.28.2):**
-   This question MUST fire on every invocation. It is the user's last
-   chance to revise metric framing before any troopers spawn.
+   See Phase 1 preamble. Last chance to revise metric framing before
+   any troopers spawn.
 
    > *"Here's how I'll frame the goal — OK to proceed?"*
    >
@@ -664,9 +662,11 @@ across N panes, not N × 9s):
 DEEP_TOPIC=$(cat /tmp/cw-deep-research-topic.txt)
 mapfile -t ROSTER < /tmp/cw-deep-research-roster.txt
 /home/liupan/CC/clone-wars/bin/teardown.sh --pairs "$DEEP_TOPIC" "${ROSTER[@]}"
-ARCHIVE=$(/home/liupan/CC/clone-wars/bin/deep-research-teardown.sh "$DEEP_TOPIC")
-echo "$ARCHIVE" > /tmp/cw-deep-research-archive.txt
+/home/liupan/CC/clone-wars/bin/deep-research-teardown.sh "$DEEP_TOPIC"
 ```
+
+(`deep-research-teardown.sh` prints the absolute archive path to stdout; use it
+for the bake-in step below.)
 
 The teardown's `mv` move preserves the entire `troopers/<cmdr>/` subtree
 plus `session-summary.md`, `monitor-tasks.txt`, and the final scoreboard

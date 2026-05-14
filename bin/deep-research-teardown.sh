@@ -27,21 +27,12 @@ repo_hash=$(cw_repo_hash)
 state_dir="$state_root/state/$repo_hash/$TOPIC"
 [[ -d "$state_dir" ]] || { log_error "$state_dir not found"; exit 1; }
 
-# v0.28.3: kill preflight orphan panes (sentinels that never got respawned)
-# before the archive mv. Reads <state_dir>/_deep-research/preflight-panes.txt;
-# kills panes whose commander is NOT in the 1-col troopers.txt. No-op if
-# preflight-panes.txt is absent (pre-v0.28.3 archives + happy-path runs where
-# the file was already removed elsewhere).
+# v0.29.0: shared helper handles 1-col troopers.txt parse + orphan kill +
+# cleanup. No-op if preflight-panes.txt is absent (pre-v0.28.3 archives +
+# happy-path runs where the file was already removed elsewhere).
 ART_DIR="$state_dir/_deep-research"
-PREFLIGHT_FILE="$ART_DIR/preflight-panes.txt"
 TROOPERS_FILE="$ART_DIR/troopers.txt"
-LIVE_CMDRS=()
-if [[ -f "$TROOPERS_FILE" ]]; then
-  while IFS= read -r cmdr; do
-    [[ -n "$cmdr" && "${cmdr:0:1}" != "#" ]] && LIVE_CMDRS+=("$cmdr")
-  done < "$TROOPERS_FILE"
-fi
-cw_preflight_kill_orphans "$PREFLIGHT_FILE" "${LIVE_CMDRS[@]}"
+cw_teardown_with_preflight_orphans "$ART_DIR" "$TROOPERS_FILE" 1col
 
 ts=$(date -u +%Y%m%dT%H%M%SZ)
 archive_dir="$state_root/archive/$repo_hash/${TOPIC}-${ts}"

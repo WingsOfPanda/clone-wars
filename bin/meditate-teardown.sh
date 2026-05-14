@@ -38,11 +38,5 @@ else
     || log_warn "teardown failed for $TOPIC (continuing)"
 fi
 
-# Preflight orphan cleanup
-LIVE_CMDRS=()
-if [[ -f "$TROOPERS_FILE" ]]; then
-  while IFS=$'\t' read -r prov cmdr; do
-    [[ -n "$cmdr" ]] && LIVE_CMDRS+=("$cmdr")
-  done < <(cw_consult_load_troopers "$TROOPERS_FILE")
-fi
-cw_preflight_kill_orphans "$ART_DIR/preflight-panes.txt" "${LIVE_CMDRS[@]}"
+# v0.29.0: shared helper handles troopers.txt parse + orphan kill + cleanup.
+cw_teardown_with_preflight_orphans "$ART_DIR" "$TROOPERS_FILE" 2col
