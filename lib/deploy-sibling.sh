@@ -40,3 +40,54 @@ cw_deploy_enumerate_siblings() {
     printf '%s\n' "$slug"
   done | sort
 }
+
+# cw_deploy_capture_sibling_baseline <sibling-cwd>
+#
+# Captures the current default branch and its HEAD SHA. Emits TSV
+# "<slug>\t<sha>\t<branch>" on stdout. Slug = basename of $sibling-cwd.
+# Branch = result of `git symbolic-ref --short HEAD`.
+#
+# rc=0 on success.
+# rc=1 if not a git repo OR if HEAD is detached (no symbolic-ref).
+# rc=2 on missing arg.
+cw_deploy_capture_sibling_baseline() {
+  if (( $# < 1 )); then
+    echo "cw_deploy_capture_sibling_baseline: usage: <sibling-cwd>" >&2
+    return 2
+  fi
+  local sib="$1"
+  git -C "$sib" rev-parse --git-dir >/dev/null 2>&1 \
+    || { echo "cw_deploy_capture_sibling_baseline: not a git repo: $sib" >&2; return 1; }
+  local branch sha slug
+  branch=$(git -C "$sib" symbolic-ref --short HEAD 2>/dev/null) \
+    || { echo "cw_deploy_capture_sibling_baseline: HEAD detached in $sib" >&2; return 1; }
+  sha=$(git -C "$sib" rev-parse HEAD)
+  slug=$(basename "$sib")
+  printf '%s\t%s\t%s\n' "$slug" "$sha" "$branch"
+}
+
+# cw_deploy_diff_sibling_against_baseline <sibling-cwd> <baseline-sha> <branch>
+#
+# Lists commits on $branch since $baseline-sha, oneline format. Empty stdout
+# when no new commits. The branch arg is consumed verbatim — caller is
+# expected to pass the value previously captured by capture_sibling_baseline
+# (so detached-HEAD or branch-rename mid-deploy don't silently produce
+# wrong results).
+#
+# rc=0 on success (including empty diff).
+# rc=1 if not a git repo OR baseline SHA missing OR branch missing.
+# rc=2 on missing arg.
+cw_deploy_diff_sibling_against_baseline() {
+  if (( $# < 3 )); then
+    echo "cw_deploy_diff_sibling_against_baseline: usage: <sibling-cwd> <baseline-sha> <branch>" >&2
+    return 2
+  fi
+  local sib="$1" base="$2" branch="$3"
+  git -C "$sib" rev-parse --git-dir >/dev/null 2>&1 \
+    || { echo "cw_deploy_diff_sibling_against_baseline: not a git repo: $sib" >&2; return 1; }
+  git -C "$sib" rev-parse --verify -q "$base" >/dev/null \
+    || { echo "cw_deploy_diff_sibling_against_baseline: baseline SHA $base unknown to $sib" >&2; return 1; }
+  git -C "$sib" rev-parse --verify -q "refs/heads/$branch" >/dev/null \
+    || { echo "cw_deploy_diff_sibling_against_baseline: branch $branch missing in $sib" >&2; return 1; }
+  git -C "$sib" log "$base..refs/heads/$branch" --oneline
+}
