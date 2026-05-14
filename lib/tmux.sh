@@ -130,3 +130,45 @@ cw_preflight_kill_orphans() {
   done < "$pfp"
   rm -f "$pfp"
 }
+
+# cw_teardown_with_preflight_orphans <art-dir> <troopers-file> <mode>
+#
+# Read live commanders from <troopers-file> and invoke
+# cw_preflight_kill_orphans against <art-dir>/preflight-panes.txt. <mode>
+# selects the troopers.txt parse:
+#   2col  — TSV `<provider>\t<commander>` (consult, meditate)
+#   1col  — single-column `<commander>` (deep-research)
+# Both modes skip blank lines and comment lines starting with '#'.
+#
+# Missing troopers.txt = zero live commanders (kills all preflight panes —
+# matches existing per-script behavior). Missing preflight-panes.txt is
+# handled by cw_preflight_kill_orphans itself (silent no-op).
+#
+# v0.29.0: extracted from bin/{consult,meditate,deep-research}-teardown.sh.
+cw_teardown_with_preflight_orphans() {
+  local art_dir="$1" troopers_file="$2" mode="$3"
+  local -a live=()
+  if [[ -f "$troopers_file" ]]; then
+    case "$mode" in
+      2col)
+        local _prov cmdr
+        while IFS=$'\t' read -r _prov cmdr; do
+          [[ -z "$cmdr" || "${_prov:0:1}" == "#" ]] && continue
+          live+=("$cmdr")
+        done < "$troopers_file"
+        ;;
+      1col)
+        local cmdr
+        while IFS= read -r cmdr; do
+          [[ -z "$cmdr" || "${cmdr:0:1}" == "#" ]] && continue
+          live+=("$cmdr")
+        done < "$troopers_file"
+        ;;
+      *)
+        log_error "cw_teardown_with_preflight_orphans: unknown mode '$mode' (want 2col|1col)"
+        return 2
+        ;;
+    esac
+  fi
+  cw_preflight_kill_orphans "$art_dir/preflight-panes.txt" "${live[@]}"
+}
