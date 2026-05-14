@@ -110,6 +110,33 @@ cw_atomic_write() {
   trap - RETURN
 }
 
+# cw_state_archive_dir <art-dir> <archive-base> <slug>
+#
+# Move <art-dir> into <archive-base>/<slug>-<ts>/, with same-second collision
+# suffixing (-2, -3, ... up to -99). Creates <archive-base> if missing.
+# Prints the destination path to stdout on success.
+#
+# Returns:
+#   0 — moved successfully (stdout = dest path)
+#   1 — source missing OR mkdir failed OR collision counter > 99 OR mv failed
+#
+# Used by bin/consult-archive.sh + bin/deploy-archive.sh.
+cw_state_archive_dir() {
+  local art_dir="$1" archive_base="$2" slug="$3"
+  [[ -d "$art_dir" ]] || { log_error "$art_dir missing — already archived?"; return 1; }
+  mkdir -p "$archive_base" || { log_error "mkdir failed: $archive_base"; return 1; }
+  local ts dest n=2
+  ts=$(date -u +'%Y%m%dT%H%M%SZ')
+  dest="$archive_base/${slug}-$ts"
+  while [[ -e "$dest" ]]; do
+    dest="$archive_base/${slug}-$ts-$n"
+    n=$((n + 1))
+    (( n > 99 )) && { log_error "too many same-second archive collisions; aborting"; return 1; }
+  done
+  mv "$art_dir" "$dest" || { log_error "mv failed: $art_dir -> $dest"; return 1; }
+  printf '%s\n' "$dest"
+}
+
 # cw_repo_root — resolve trooper's working directory.
 # Uses git toplevel when inside a repo (so the trooper sees the whole project,
 # not just the subdir the conductor happens to be in). Falls back to $PWD for
