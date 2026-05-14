@@ -88,12 +88,12 @@ cw_deploy_branch_create() {
   # Dirty-tree check
   if ! git diff --quiet || ! git diff --cached --quiet; then
     log_error "working tree is dirty (uncommitted changes); commit/stash or pass --no-branch"
-    return 1
+    return 7   # v0.30.0: dirty-tree gets dedicated rc for Yoda-side intercept
   fi
   # Untracked-files check (ls-files -o exit code is unreliable; count instead)
   if [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
     log_error "working tree is dirty (untracked files); commit/stash or pass --no-branch"
-    return 1
+    return 7   # v0.30.0: dirty-tree gets dedicated rc for Yoda-side intercept
   fi
   # Pre-existing branch check
   if git show-ref --verify --quiet "refs/heads/$branch"; then

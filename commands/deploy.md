@@ -108,8 +108,77 @@ Set task `0` → `in_progress`.
               && INIT_RC=0 || INIT_RC=$?
    ```
    When `INIT_RC=0`, jump straight to the post-init block below (TOPIC_DIR /
-   ART_DIR / TARGET_CWD lines). When `INIT_RC != 0`, run sub-step 5b
-   (DAG rescue intercept) before continuing.
+   ART_DIR / TARGET_CWD lines).
+
+   When `INIT_RC == 7`, run sub-step 5a (dirty-tree intercept, v0.30.0
+   item 3) before re-invoking init.sh.
+
+   When `INIT_RC != 0` and `INIT_RC != 7`, run sub-step 5b (DAG rescue
+   intercept) before continuing.
+
+5a. **Dirty-tree intercept (v0.30.0).** `bin/deploy-init.sh` exits 7
+    when the working tree is dirty (uncommitted changes or untracked
+    files in `$TARGET_CWD`). Don't auto-clean — the user's WIP may be
+    intentional and unrelated. Fire AskUserQuestion to let them choose:
+
+    ```
+    AskUserQuestion:
+      Question: "Working tree in <TARGET_CWD> is dirty. Pick a path forward."
+      Header:   "Dirty tree"
+      Options:
+        - "Stash and continue" (Recommended) — git stash push -u; deploy
+          proceeds; Step 4 attempts stash pop on success
+        - "Commit first as chore: WIP" — git commit -am with chore: WIP
+          message; commit lives on feat branch alongside deploy work
+        - "Abort" — exit deploy, leave working tree as-is
+    ```
+
+    On `Stash and continue`:
+
+    ```
+    TARGET_CWD=$(pwd)
+    git -C "$TARGET_CWD" stash push -u -m "deploy ${TOPIC:-pending} WIP"
+    STASH_SHA=$(git -C "$TARGET_CWD" stash list -1 --format=%H)
+    [[ -n "$STASH_SHA" ]] || { log_error "stash push reported success but no stash on list"; exit 1; }
+    TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/deploy-init.sh" \
+               --args-file "$ARGS_DIR/deploy.txt" 2>/tmp/cw-init-err) || {
+      log_error "init.sh failed on second attempt after stash; popping stash and aborting"
+      git -C "$TARGET_CWD" stash pop "$STASH_SHA" 2>/dev/null || \
+        log_warn "stash pop failed; SHA $STASH_SHA still in stash list"
+      exit 1
+    }
+    REPO_HASH=$(cw_repo_hash)
+    ART_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$TOPIC/_deploy"
+    printf 'sha=%s\nmessage=%s\n' "$STASH_SHA" "deploy $TOPIC WIP" \
+      | cw_atomic_write "$ART_DIR/pre-deploy-stash.txt"
+    log_ok "stashed pre-deploy WIP as $STASH_SHA; will attempt pop in Step 4"
+    ```
+
+    On `Commit first as chore: WIP`:
+
+    ```
+    TARGET_CWD=$(pwd)
+    git -C "$TARGET_CWD" add -A
+    git -C "$TARGET_CWD" commit -m "chore: WIP before deploy ${TOPIC:-pending}"
+    COMMIT_SHA=$(git -C "$TARGET_CWD" rev-parse HEAD)
+    TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/deploy-init.sh" \
+               --args-file "$ARGS_DIR/deploy.txt" 2>/tmp/cw-init-err) || {
+      log_error "init.sh failed on second attempt after WIP commit"
+      exit 1
+    }
+    REPO_HASH=$(cw_repo_hash)
+    ART_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$TOPIC/_deploy"
+    printf 'sha=%s\n' "$COMMIT_SHA" \
+      | cw_atomic_write "$ART_DIR/pre-deploy-commit.txt"
+    log_ok "committed pre-deploy WIP as $COMMIT_SHA; commit lives on feat branch"
+    ```
+
+    On `Abort`:
+
+    ```
+    log_error "deploy aborted by user; working tree left dirty"
+    exit 0
+    ```
 
 5b. **DAG auto-extract (multi-repo, hand-authored docs).** v0.21.0
     introduced this feature; v0.23.0 made it auto-proceed silently when
@@ -1069,6 +1138,36 @@ After all bugs resolved (or given up on), set task `3d` → `completed`.
 ### Step 4 — Teardown + archive
 
 Set task `4` → `in_progress`.
+
+**Sub-step 4.0 — Pre-deploy stash unwind (v0.30.0 item 3).**
+
+If a `pre-deploy-stash.txt` exists from Step 0's intercept, attempt to
+restore the stashed WIP onto the user's working tree:
+
+```
+TARGET_CWD=$(cat "$ART_DIR/target_cwd.txt")
+if [[ -f "$ART_DIR/pre-deploy-stash.txt" ]]; then
+  STASH_SHA=$(awk -F= '/^sha=/{print $2; exit}' "$ART_DIR/pre-deploy-stash.txt")
+  if [[ -n "$STASH_SHA" ]]; then
+    if git -C "$TARGET_CWD" stash pop "$STASH_SHA" 2>/tmp/cw-stashpop-err; then
+      log_ok "popped pre-deploy stash $STASH_SHA back onto working tree"
+      printf 'status=popped\nsha=%s\n' "$STASH_SHA" \
+        | cw_atomic_write "$ART_DIR/post-deploy-stash-pop.txt"
+    else
+      log_warn "stash pop conflict; stash $STASH_SHA preserved for manual recovery"
+      log_warn "  recovery: cd $TARGET_CWD && git stash apply $STASH_SHA"
+      log_warn "  conflict detail in /tmp/cw-stashpop-err"
+      printf 'status=conflict\nsha=%s\n' "$STASH_SHA" \
+        | cw_atomic_write "$ART_DIR/post-deploy-stash-pop.txt"
+    fi
+  fi
+fi
+
+# Note: pre-deploy-commit.txt has no special unwind — the WIP commit lives
+# on the feature branch alongside deploy work. User can `git rebase -i`
+# post-merge.
+```
+
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/deploy-teardown.sh" "$TOPIC"
 "$CLAUDE_PLUGIN_ROOT/bin/deploy-archive.sh" "$TOPIC"
