@@ -1278,6 +1278,95 @@ log_info "rogue commits added as fix-loop bug; re-entering Step 2"
 # Directive jumps back to Step 2 (fix round) — no more code in this branch.
 ```
 
+**Sub-step 4.2 — Scope conformance check (v0.30.0 item 4).**
+
+Compare the trooper's git diff against the design doc's Components
+table. Surface any files the trooper added/modified that aren't covered
+by a listed path (or its prefix).
+
+```
+source "$CLAUDE_PLUGIN_ROOT/lib/deploy-scope.sh"
+TARGET_CWD=$(cat "$ART_DIR/target_cwd.txt")
+BASE=$(cat "$ART_DIR/branch-base.sha")
+
+DIFF_PATHS="$ART_DIR/diff-paths.txt"
+: > "$DIFF_PATHS"
+git -C "$TARGET_CWD" diff --name-only "$BASE..HEAD" >> "$DIFF_PATHS"
+
+# Multi-repo: also collect diffs from each declared sub-repo.
+if [[ -f "$ART_DIR/multi-repo-targets.txt" ]]; then
+  while IFS= read -r slug; do
+    [[ -n "$slug" ]] || continue
+    sub_base=$(awk -F$'\t' -v s="$slug" '$1==s{print $2; exit}' "$ART_DIR/cmdr-branch-base.sha" 2>/dev/null)
+    [[ -n "$sub_base" ]] || continue
+    git -C "$TARGET_CWD/$slug" diff --name-only "$sub_base..HEAD" 2>/dev/null \
+      | while IFS= read -r p; do echo "$slug/$p"; done >> "$DIFF_PATHS"
+  done < "$ART_DIR/multi-repo-targets.txt"
+fi
+
+COMP_PATHS="$ART_DIR/components-paths.txt"
+cw_deploy_extract_components_paths "$ART_DIR/design.md" > "$COMP_PATHS"
+
+OOS="$ART_DIR/scope-out-of-scope.txt"
+cw_deploy_match_diff_against_components "$DIFF_PATHS" "$COMP_PATHS" > "$OOS"
+
+if [[ -s "$OOS" ]]; then
+  log_warn "scope conformance: $(wc -l < "$OOS") out-of-scope path(s) detected"
+fi
+```
+
+If `$OOS` is non-empty, fire AskUserQuestion offering one of three
+paths.
+
+```
+AskUserQuestion (Yoda renders inline body from $OOS as a bulleted list):
+  Question: "Out-of-scope files in trooper's diff. Pick a path."
+  Header:   "Scope drift"
+  Options:
+    - "Accept and amend design retroactively" — Yoda offers a draft
+      amendment to the Components table; user reviews via Edit tool;
+      design.md updated in place; recorded to
+      _deploy/scope-amended.txt for audit
+    - "Send back to trooper to remove" — append entries to
+      _deploy/bugs.txt; re-enter Step 2 fix round
+    - "Force-keep without amending" — append $OOS contents to
+      _deploy/scope-overrides.txt for audit; deploy proceeds unchanged
+```
+
+On `Accept and amend design retroactively`:
+
+```
+printf 'amended-rows=%s\nat-time=%s\n' \
+  "$(wc -l < "$OOS")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  | cw_atomic_write "$ART_DIR/scope-amended.txt"
+# Yoda reads $OOS, drafts new Components rows, presents them in chat
+# for user review, uses Edit tool on $ART_DIR/design.md to insert the
+# new rows into the Components table.
+```
+
+On `Send back to trooper to remove`:
+
+```
+{
+  echo "## Out-of-scope files"
+  echo ""
+  echo "These files are in your diff but not declared in the design's"
+  echo "Components/Files-edited table:"
+  echo ""
+  awk '{print "- `" $0 "`"}' "$OOS"
+  echo ""
+  echo "Either remove them OR raise an amendment request via Yoda."
+} >> "$ART_DIR/bugs.txt"
+log_info "scope drift added as fix-loop bug; re-entering Step 2"
+```
+
+On `Force-keep without amending`:
+
+```
+cat "$OOS" >> "$ART_DIR/scope-overrides.txt"
+log_warn "scope drift accepted without amendment: see $ART_DIR/scope-overrides.txt"
+```
+
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/deploy-teardown.sh" "$TOPIC"
 "$CLAUDE_PLUGIN_ROOT/bin/deploy-archive.sh" "$TOPIC"
