@@ -5,6 +5,15 @@
 #
 # Usage:
 #   bin/deploy-init.sh [--no-branch] [--branch <name>] [--topic <slug>] <design-path>
+#
+# Exit codes (v0.30.0):
+#   0 — success (topic slug printed to stdout)
+#   1 — generic failure (bad args, missing design doc, branch_create non-dirty
+#       failure, multi-init failure, etc.)
+#   2 — usage error (unknown flag, missing arg)
+#   7 — branch creation refused: working tree is dirty (commands/deploy.md
+#       Step 0 intercepts this rc to fire its Stash/Commit/Abort
+#       AskUserQuestion before re-invoking init.sh)
 
 set -uo pipefail
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -112,7 +121,9 @@ printf '%s\n' "$TARGET_CWD" | cw_atomic_write "$ART_DIR/target_cwd.txt" \
 # `cd` is fine because branch-create is a one-shot git operation, not a
 # long-lived process; the conductor never inherits the cd.
 if (( NO_BRANCH == 0 )); then
-  if branch=$( cd "$TARGET_CWD" && cw_deploy_branch_create "$TOPIC" "$BRANCH_OVERRIDE" ); then
+  branch=$( cd "$TARGET_CWD" && cw_deploy_branch_create "$TOPIC" "$BRANCH_OVERRIDE" )
+  branch_rc=$?
+  if (( branch_rc == 0 )); then
     if [[ "$TARGET_CWD" != "$(pwd)" ]]; then
       log_info "branch: $branch (in $TARGET_CWD)"
     else
@@ -125,8 +136,16 @@ if (( NO_BRANCH == 0 )); then
       "$(cw_state_root)/state/"*) rm -rf "$ART_DIR" ;;
       *) log_warn "auto-rollback skipped: $ART_DIR not under state root" ;;
     esac
-    log_error "branch creation failed; _deploy/ rolled back. Stash/commit your changes (or pass --no-branch) and retry."
-    exit 1
+    # v0.30.0: propagate rc=7 verbatim so commands/deploy.md Step 0 can
+    # intercept dirty-tree as Stash/Commit/Abort AskUserQuestion. All other
+    # branch_create failures (rc=1) keep their existing exit semantics.
+    if (( branch_rc == 7 )); then
+      log_error "branch creation refused: working tree is dirty; _deploy/ rolled back."
+      exit 7
+    else
+      log_error "branch creation failed (rc=$branch_rc); _deploy/ rolled back. Pass --no-branch to skip."
+      exit 1
+    fi
   fi
 fi
 

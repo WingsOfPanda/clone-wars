@@ -88,12 +88,12 @@ cw_deploy_branch_create() {
   # Dirty-tree check
   if ! git diff --quiet || ! git diff --cached --quiet; then
     log_error "working tree is dirty (uncommitted changes); commit/stash or pass --no-branch"
-    return 1
+    return 7   # v0.30.0: dirty-tree gets dedicated rc for Yoda-side intercept
   fi
   # Untracked-files check (ls-files -o exit code is unreliable; count instead)
   if [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
     log_error "working tree is dirty (untracked files); commit/stash or pass --no-branch"
-    return 1
+    return 7   # v0.30.0: dirty-tree gets dedicated rc for Yoda-side intercept
   fi
   # Pre-existing branch check
   if git show-ref --verify --quiet "refs/heads/$branch"; then
@@ -368,5 +368,24 @@ cw_deploy_resolve_target() {
     return 1
   fi
   printf '%s\n' "$sub"
+}
+
+# cw_deploy_resolve_hub <design-doc-path> <repo-root>
+#
+# Returns the "hub directory" — the parent of all sub-repo targets for a
+# multi-repo deploy, OR the repo-root for single-repo. In v0.30.0 both modes
+# resolve to repo-root (multi-repo deploys are invoked from the hub dir per
+# the directive). The function exists to pin the contract: callers of the
+# adjacent-tree commit guard (Step 0 baseline, Step 4 verify) ask for the
+# hub directory by intent, not by computing it ad-hoc. v0.31.0's
+# project-local state relocation may distinguish hub-cwd from repo-root.
+#
+# rc=0 always (no error path in v0.30.0).
+# rc=2 on missing args.
+cw_deploy_resolve_hub() {
+  local doc="${1:-}" repo_root="${2:-}"
+  [[ -n "$doc"       ]] || { log_error "cw_deploy_resolve_hub: missing design-doc-path arg"; return 2; }
+  [[ -n "$repo_root" ]] || { log_error "cw_deploy_resolve_hub: missing repo-root arg"; return 2; }
+  printf '%s\n' "$repo_root"
 }
 

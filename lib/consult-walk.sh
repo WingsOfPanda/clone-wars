@@ -54,10 +54,19 @@ cw_consult_emit_soft_dag() {
   done < "$tsv"
 }
 
-# cw_consult_detect_multi_repo <cwd> <topic-prose>
+# cw_consult_detect_multi_repo <cwd> <corpus>
 # Walks $cwd's first-level subdirs (skipping dotfiles), keeps those that
 # contain a CLAUDE.md or AGENTS.md, and filters them by case-insensitive
-# substring match against $topic-prose.
+# substring match against $corpus.
+#
+# CORPUS EXPECTATION (v0.30.0): callers should pass the troopers' adjudicated
+# findings (adjudicated.md content) as the corpus, NOT the user's raw topic
+# prose (topic.txt). The adjudicated content captures cross-repo dependencies
+# that emerged during research; the topic prose only captures what the user
+# named at invocation time. Step 10 of /clone-wars:consult enforces this; the
+# topic.txt fallback is defensive (kept for edge cases when adjudicated.md
+# hasn't been written yet).
+#
 # Emits TSV "<slug>\t<absolute-path>" to stdout, one match per line.
 # rc=0 always on valid args (zero hits prints nothing).
 # rc=1 if $cwd doesn't exist; rc=2 if either arg empty.

@@ -108,8 +108,77 @@ Set task `0` → `in_progress`.
               && INIT_RC=0 || INIT_RC=$?
    ```
    When `INIT_RC=0`, jump straight to the post-init block below (TOPIC_DIR /
-   ART_DIR / TARGET_CWD lines). When `INIT_RC != 0`, run sub-step 5b
-   (DAG rescue intercept) before continuing.
+   ART_DIR / TARGET_CWD lines).
+
+   When `INIT_RC == 7`, run sub-step 5a (dirty-tree intercept, v0.30.0
+   item 3) before re-invoking init.sh.
+
+   When `INIT_RC != 0` and `INIT_RC != 7`, run sub-step 5b (DAG rescue
+   intercept) before continuing.
+
+5a. **Dirty-tree intercept (v0.30.0).** `bin/deploy-init.sh` exits 7
+    when the working tree is dirty (uncommitted changes or untracked
+    files in `$TARGET_CWD`). Don't auto-clean — the user's WIP may be
+    intentional and unrelated. Fire AskUserQuestion to let them choose:
+
+    ```
+    AskUserQuestion:
+      Question: "Working tree in <TARGET_CWD> is dirty. Pick a path forward."
+      Header:   "Dirty tree"
+      Options:
+        - "Stash and continue" (Recommended) — git stash push -u; deploy
+          proceeds; Step 4 attempts stash pop on success
+        - "Commit first as chore: WIP" — git commit -am with chore: WIP
+          message; commit lives on feat branch alongside deploy work
+        - "Abort" — exit deploy, leave working tree as-is
+    ```
+
+    On `Stash and continue`:
+
+    ```
+    TARGET_CWD=$(pwd)
+    git -C "$TARGET_CWD" stash push -u -m "deploy ${TOPIC:-pending} WIP"
+    STASH_SHA=$(git -C "$TARGET_CWD" stash list -1 --format=%H)
+    [[ -n "$STASH_SHA" ]] || { log_error "stash push reported success but no stash on list"; exit 1; }
+    TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/deploy-init.sh" \
+               --args-file "$ARGS_DIR/deploy.txt" 2>/tmp/cw-init-err) || {
+      log_error "init.sh failed on second attempt after stash; popping stash and aborting"
+      git -C "$TARGET_CWD" stash pop "$STASH_SHA" 2>/dev/null || \
+        log_warn "stash pop failed; SHA $STASH_SHA still in stash list"
+      exit 1
+    }
+    REPO_HASH=$(cw_repo_hash)
+    ART_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$TOPIC/_deploy"
+    printf 'sha=%s\nmessage=%s\n' "$STASH_SHA" "deploy $TOPIC WIP" \
+      | cw_atomic_write "$ART_DIR/pre-deploy-stash.txt"
+    log_ok "stashed pre-deploy WIP as $STASH_SHA; will attempt pop in Step 4"
+    ```
+
+    On `Commit first as chore: WIP`:
+
+    ```
+    TARGET_CWD=$(pwd)
+    git -C "$TARGET_CWD" add -A
+    git -C "$TARGET_CWD" commit -m "chore: WIP before deploy ${TOPIC:-pending}"
+    COMMIT_SHA=$(git -C "$TARGET_CWD" rev-parse HEAD)
+    TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/deploy-init.sh" \
+               --args-file "$ARGS_DIR/deploy.txt" 2>/tmp/cw-init-err) || {
+      log_error "init.sh failed on second attempt after WIP commit"
+      exit 1
+    }
+    REPO_HASH=$(cw_repo_hash)
+    ART_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$TOPIC/_deploy"
+    printf 'sha=%s\n' "$COMMIT_SHA" \
+      | cw_atomic_write "$ART_DIR/pre-deploy-commit.txt"
+    log_ok "committed pre-deploy WIP as $COMMIT_SHA; commit lives on feat branch"
+    ```
+
+    On `Abort`:
+
+    ```
+    log_error "deploy aborted by user; working tree left dirty"
+    exit 0
+    ```
 
 5b. **DAG auto-extract (multi-repo, hand-authored docs).** v0.21.0
     introduced this feature; v0.23.0 made it auto-proceed silently when
@@ -443,6 +512,33 @@ Set task `0` → `in_progress`.
    with a header, `$TARGET_CWD` is the absolute path to the named sub-repo.
    Step 1.1 passes this to `spawn.sh --cwd`, and Step 2's cross-verify uses
    it as the `git -C` working tree.
+
+**Sub-step 0.X — Capture sibling baseline (v0.30.0 item 2).**
+
+Capture HEAD SHAs of every sibling git repo of the hub that isn't a
+declared deploy target. Step 4 will re-read these and surface any
+commits that landed on those siblings' main branches during the
+deploy (rogue commits — the trooper edited a sub-repo we didn't
+create a feature branch in).
+
+```
+source "$CLAUDE_PLUGIN_ROOT/lib/deploy.sh"
+HUB_CWD=$(cw_deploy_resolve_hub "$ART_DIR/design.md" "$(cw_repo_root)")
+TARGETS_CSV=""
+if [[ -f "$ART_DIR/multi-repo-targets.txt" ]]; then
+  TARGETS_CSV=$(tr '\n' ',' < "$ART_DIR/multi-repo-targets.txt" | sed 's/,$//')
+fi
+"$CLAUDE_PLUGIN_ROOT/bin/deploy-sibling-baseline.sh" "$ART_DIR" "$HUB_CWD" "$TARGETS_CSV" \
+  || log_warn "sibling-baseline.sh failed; Step 4 verify will be skipped"
+```
+
+`cw_deploy_resolve_hub` returns the parent dir of all sub-repo targets
+for multi-repo OR the repo-root for single-repo (in v0.30.0 both
+resolve to repo-root — see lib/deploy.sh). `multi-repo-targets.txt` is
+only written by `bin/deploy-multi-init.sh` in the multi-repo path;
+single-repo deploys pass an empty CSV. Sibling enumeration produces an
+empty baseline file when the hub has no qualifying siblings, in which
+case Step 4's verify is a cheap no-op.
 
 Set task `0` → `completed`.
 
@@ -1069,6 +1165,208 @@ After all bugs resolved (or given up on), set task `3d` → `completed`.
 ### Step 4 — Teardown + archive
 
 Set task `4` → `in_progress`.
+
+**Sub-step 4.0 — Pre-deploy stash unwind (v0.30.0 item 3).**
+
+If a `pre-deploy-stash.txt` exists from Step 0's intercept, attempt to
+restore the stashed WIP onto the user's working tree:
+
+```
+TARGET_CWD=$(cat "$ART_DIR/target_cwd.txt")
+if [[ -f "$ART_DIR/pre-deploy-stash.txt" ]]; then
+  STASH_SHA=$(awk -F= '/^sha=/{print $2; exit}' "$ART_DIR/pre-deploy-stash.txt")
+  if [[ -n "$STASH_SHA" ]]; then
+    if git -C "$TARGET_CWD" stash pop "$STASH_SHA" 2>/tmp/cw-stashpop-err; then
+      log_ok "popped pre-deploy stash $STASH_SHA back onto working tree"
+      printf 'status=popped\nsha=%s\n' "$STASH_SHA" \
+        | cw_atomic_write "$ART_DIR/post-deploy-stash-pop.txt"
+    else
+      log_warn "stash pop conflict; stash $STASH_SHA preserved for manual recovery"
+      log_warn "  recovery: cd $TARGET_CWD && git stash apply $STASH_SHA"
+      log_warn "  conflict detail in /tmp/cw-stashpop-err"
+      printf 'status=conflict\nsha=%s\n' "$STASH_SHA" \
+        | cw_atomic_write "$ART_DIR/post-deploy-stash-pop.txt"
+    fi
+  fi
+fi
+
+# Note: pre-deploy-commit.txt has no special unwind — the WIP commit lives
+# on the feature branch alongside deploy work. User can `git rebase -i`
+# post-merge.
+```
+
+**Sub-step 4.1 — Verify sibling baseline (v0.30.0 item 2).**
+
+Re-read each sibling's HEAD vs the baseline captured in Step 0.
+Surfaces any rogue commits on undeclared siblings' main branches.
+
+```
+source "$CLAUDE_PLUGIN_ROOT/lib/deploy.sh"
+HUB_CWD=$(cw_deploy_resolve_hub "$ART_DIR/design.md" "$(cw_repo_root)")
+if [[ -f "$ART_DIR/sibling-baseline.txt" ]]; then
+  "$CLAUDE_PLUGIN_ROOT/bin/deploy-sibling-verify.sh" "$ART_DIR" "$HUB_CWD" \
+    || log_warn "sibling-verify.sh failed; skipping rogue-commit intercept"
+fi
+```
+
+If `_deploy/sibling-rogue.txt` exists and is non-empty, fire
+AskUserQuestion offering one of three recovery paths.
+
+```
+AskUserQuestion (Yoda formats sibling-rogue.txt as inline markdown table):
+  Question: "Rogue commits detected on undeclared sibling main branches. Pick a recovery path."
+  Header:   "Rogue commits"
+  Options:
+    - "Revert + replay on feat branch" (Recommended) — calls
+      cw_deploy_revert_and_replay per affected sibling; leaves
+      feat/deploy-<topic>-rescue branch in each rescued sibling
+    - "Keep on main (accept the data)" — appends the entire
+      sibling-rogue.txt contents to _deploy/sibling-rogue-accepted.txt
+      for audit; no git action
+    - "Send back to trooper as fix-loop bug" — appends entries to
+      _deploy/bugs.txt and triggers fix-round (re-enters Step 2 with
+      the bug list)
+```
+
+On `Revert + replay on feat branch`:
+
+```
+source "$CLAUDE_PLUGIN_ROOT/lib/deploy-sibling.sh"
+TOPIC=$(cat "$ART_DIR/topic.txt")
+declare -A ROGUE_BY_SLUG=()
+while IFS=$'\t' read -r slug sha subject; do
+  [[ -n "$slug" ]] || continue
+  ROGUE_BY_SLUG["$slug"]+="$sha "
+done < "$ART_DIR/sibling-rogue.txt"
+for slug in "${!ROGUE_BY_SLUG[@]}"; do
+  base_sha=$(awk -F$'\t' -v s="$slug" '$1==s{print $2; exit}' "$ART_DIR/sibling-baseline.txt")
+  branch=$(awk -F$'\t' -v s="$slug" '$1==s{print $3; exit}' "$ART_DIR/sibling-baseline.txt")
+  ordered_shas="${ROGUE_BY_SLUG["$slug"]% }"   # trim trailing space; oldest-first as captured
+  if cw_deploy_revert_and_replay "$HUB_CWD/$slug" "$TOPIC" "$base_sha" "$branch" "$ordered_shas"; then
+    log_ok "rescued $slug: feat/deploy-${TOPIC}-rescue created with replayed work"
+    printf '%s\trescued\n' "$slug" >> "$ART_DIR/sibling-rescue.txt"
+  else
+    log_warn "rescue failed for $slug — manual intervention needed (see git status in $HUB_CWD/$slug)"
+    printf '%s\trescue-failed\n' "$slug" >> "$ART_DIR/sibling-rescue.txt"
+  fi
+done
+```
+
+On `Keep on main (accept the data)`:
+
+```
+cat "$ART_DIR/sibling-rogue.txt" >> "$ART_DIR/sibling-rogue-accepted.txt"
+log_info "rogue commits accepted: see $ART_DIR/sibling-rogue-accepted.txt"
+```
+
+On `Send back to trooper as fix-loop bug`:
+
+```
+{
+  echo "## Rogue commits on undeclared siblings"
+  echo ""
+  echo "The following commits landed on sibling sub-repo main branches"
+  echo "that weren't declared in the design's Target Sub-Project(s):"
+  echo ""
+  awk -F$'\t' '{ printf "- %s: %s — %s\n", $1, $2, $3 }' "$ART_DIR/sibling-rogue.txt"
+  echo ""
+  echo "Action required: revert these commits and either redeclare the"
+  echo "design as multi-repo OR confine the implementation to declared"
+  echo "targets only."
+} >> "$ART_DIR/bugs.txt"
+log_info "rogue commits added as fix-loop bug; re-entering Step 2"
+# Directive jumps back to Step 2 (fix round) — no more code in this branch.
+```
+
+**Sub-step 4.2 — Scope conformance check (v0.30.0 item 4).**
+
+Compare the trooper's git diff against the design doc's Components
+table. Surface any files the trooper added/modified that aren't covered
+by a listed path (or its prefix).
+
+```
+source "$CLAUDE_PLUGIN_ROOT/lib/deploy-scope.sh"
+TARGET_CWD=$(cat "$ART_DIR/target_cwd.txt")
+BASE=$(cat "$ART_DIR/branch-base.sha")
+
+DIFF_PATHS="$ART_DIR/diff-paths.txt"
+: > "$DIFF_PATHS"
+git -C "$TARGET_CWD" diff --name-only "$BASE..HEAD" >> "$DIFF_PATHS"
+
+# Multi-repo: also collect diffs from each declared sub-repo.
+if [[ -f "$ART_DIR/multi-repo-targets.txt" ]]; then
+  while IFS= read -r slug; do
+    [[ -n "$slug" ]] || continue
+    sub_base=$(awk -F$'\t' -v s="$slug" '$1==s{print $2; exit}' "$ART_DIR/cmdr-branch-base.sha" 2>/dev/null)
+    [[ -n "$sub_base" ]] || continue
+    git -C "$TARGET_CWD/$slug" diff --name-only "$sub_base..HEAD" 2>/dev/null \
+      | while IFS= read -r p; do echo "$slug/$p"; done >> "$DIFF_PATHS"
+  done < "$ART_DIR/multi-repo-targets.txt"
+fi
+
+COMP_PATHS="$ART_DIR/components-paths.txt"
+cw_deploy_extract_components_paths "$ART_DIR/design.md" > "$COMP_PATHS"
+
+OOS="$ART_DIR/scope-out-of-scope.txt"
+cw_deploy_match_diff_against_components "$DIFF_PATHS" "$COMP_PATHS" > "$OOS"
+
+if [[ -s "$OOS" ]]; then
+  log_warn "scope conformance: $(wc -l < "$OOS") out-of-scope path(s) detected"
+fi
+```
+
+If `$OOS` is non-empty, fire AskUserQuestion offering one of three
+paths.
+
+```
+AskUserQuestion (Yoda renders inline body from $OOS as a bulleted list):
+  Question: "Out-of-scope files in trooper's diff. Pick a path."
+  Header:   "Scope drift"
+  Options:
+    - "Accept and amend design retroactively" — Yoda offers a draft
+      amendment to the Components table; user reviews via Edit tool;
+      design.md updated in place; recorded to
+      _deploy/scope-amended.txt for audit
+    - "Send back to trooper to remove" — append entries to
+      _deploy/bugs.txt; re-enter Step 2 fix round
+    - "Force-keep without amending" — append $OOS contents to
+      _deploy/scope-overrides.txt for audit; deploy proceeds unchanged
+```
+
+On `Accept and amend design retroactively`:
+
+```
+printf 'amended-rows=%s\nat-time=%s\n' \
+  "$(wc -l < "$OOS")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  | cw_atomic_write "$ART_DIR/scope-amended.txt"
+# Yoda reads $OOS, drafts new Components rows, presents them in chat
+# for user review, uses Edit tool on $ART_DIR/design.md to insert the
+# new rows into the Components table.
+```
+
+On `Send back to trooper to remove`:
+
+```
+{
+  echo "## Out-of-scope files"
+  echo ""
+  echo "These files are in your diff but not declared in the design's"
+  echo "Components/Files-edited table:"
+  echo ""
+  awk '{print "- `" $0 "`"}' "$OOS"
+  echo ""
+  echo "Either remove them OR raise an amendment request via Yoda."
+} >> "$ART_DIR/bugs.txt"
+log_info "scope drift added as fix-loop bug; re-entering Step 2"
+```
+
+On `Force-keep without amending`:
+
+```
+cat "$OOS" >> "$ART_DIR/scope-overrides.txt"
+log_warn "scope drift accepted without amendment: see $ART_DIR/scope-overrides.txt"
+```
+
 ```
 "$CLAUDE_PLUGIN_ROOT/bin/deploy-teardown.sh" "$TOPIC"
 "$CLAUDE_PLUGIN_ROOT/bin/deploy-archive.sh" "$TOPIC"
