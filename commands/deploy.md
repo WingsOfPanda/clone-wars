@@ -513,6 +513,33 @@ Set task `0` → `in_progress`.
    Step 1.1 passes this to `spawn.sh --cwd`, and Step 2's cross-verify uses
    it as the `git -C` working tree.
 
+**Sub-step 0.X — Capture sibling baseline (v0.30.0 item 2).**
+
+Capture HEAD SHAs of every sibling git repo of the hub that isn't a
+declared deploy target. Step 4 will re-read these and surface any
+commits that landed on those siblings' main branches during the
+deploy (rogue commits — the trooper edited a sub-repo we didn't
+create a feature branch in).
+
+```
+source "$CLAUDE_PLUGIN_ROOT/lib/deploy.sh"
+HUB_CWD=$(cw_deploy_resolve_hub "$ART_DIR/design.md" "$(cw_repo_root)")
+TARGETS_CSV=""
+if [[ -f "$ART_DIR/multi-repo-targets.txt" ]]; then
+  TARGETS_CSV=$(tr '\n' ',' < "$ART_DIR/multi-repo-targets.txt" | sed 's/,$//')
+fi
+"$CLAUDE_PLUGIN_ROOT/bin/deploy-sibling-baseline.sh" "$ART_DIR" "$HUB_CWD" "$TARGETS_CSV" \
+  || log_warn "sibling-baseline.sh failed; Step 4 verify will be skipped"
+```
+
+`cw_deploy_resolve_hub` returns the parent dir of all sub-repo targets
+for multi-repo OR the repo-root for single-repo (in v0.30.0 both
+resolve to repo-root — see lib/deploy.sh). `multi-repo-targets.txt` is
+only written by `bin/deploy-multi-init.sh` in the multi-repo path;
+single-repo deploys pass an empty CSV. Sibling enumeration produces an
+empty baseline file when the hub has no qualifying siblings, in which
+case Step 4's verify is a cheap no-op.
+
 Set task `0` → `completed`.
 
 **Routing branch (v0.20.0).** After audit PASS + provider resolution,
@@ -1166,6 +1193,89 @@ fi
 # Note: pre-deploy-commit.txt has no special unwind — the WIP commit lives
 # on the feature branch alongside deploy work. User can `git rebase -i`
 # post-merge.
+```
+
+**Sub-step 4.1 — Verify sibling baseline (v0.30.0 item 2).**
+
+Re-read each sibling's HEAD vs the baseline captured in Step 0.
+Surfaces any rogue commits on undeclared siblings' main branches.
+
+```
+source "$CLAUDE_PLUGIN_ROOT/lib/deploy.sh"
+HUB_CWD=$(cw_deploy_resolve_hub "$ART_DIR/design.md" "$(cw_repo_root)")
+if [[ -f "$ART_DIR/sibling-baseline.txt" ]]; then
+  "$CLAUDE_PLUGIN_ROOT/bin/deploy-sibling-verify.sh" "$ART_DIR" "$HUB_CWD" \
+    || log_warn "sibling-verify.sh failed; skipping rogue-commit intercept"
+fi
+```
+
+If `_deploy/sibling-rogue.txt` exists and is non-empty, fire
+AskUserQuestion offering one of three recovery paths.
+
+```
+AskUserQuestion (Yoda formats sibling-rogue.txt as inline markdown table):
+  Question: "Rogue commits detected on undeclared sibling main branches. Pick a recovery path."
+  Header:   "Rogue commits"
+  Options:
+    - "Revert + replay on feat branch" (Recommended) — calls
+      cw_deploy_revert_and_replay per affected sibling; leaves
+      feat/deploy-<topic>-rescue branch in each rescued sibling
+    - "Keep on main (accept the data)" — appends the entire
+      sibling-rogue.txt contents to _deploy/sibling-rogue-accepted.txt
+      for audit; no git action
+    - "Send back to trooper as fix-loop bug" — appends entries to
+      _deploy/bugs.txt and triggers fix-round (re-enters Step 2 with
+      the bug list)
+```
+
+On `Revert + replay on feat branch`:
+
+```
+source "$CLAUDE_PLUGIN_ROOT/lib/deploy-sibling.sh"
+TOPIC=$(cat "$ART_DIR/topic.txt")
+declare -A ROGUE_BY_SLUG=()
+while IFS=$'\t' read -r slug sha subject; do
+  [[ -n "$slug" ]] || continue
+  ROGUE_BY_SLUG["$slug"]+="$sha "
+done < "$ART_DIR/sibling-rogue.txt"
+for slug in "${!ROGUE_BY_SLUG[@]}"; do
+  base_sha=$(awk -F$'\t' -v s="$slug" '$1==s{print $2; exit}' "$ART_DIR/sibling-baseline.txt")
+  branch=$(awk -F$'\t' -v s="$slug" '$1==s{print $3; exit}' "$ART_DIR/sibling-baseline.txt")
+  ordered_shas="${ROGUE_BY_SLUG["$slug"]% }"   # trim trailing space; oldest-first as captured
+  if cw_deploy_revert_and_replay "$HUB_CWD/$slug" "$TOPIC" "$base_sha" "$branch" "$ordered_shas"; then
+    log_ok "rescued $slug: feat/deploy-${TOPIC}-rescue created with replayed work"
+    printf '%s\trescued\n' "$slug" >> "$ART_DIR/sibling-rescue.txt"
+  else
+    log_warn "rescue failed for $slug — manual intervention needed (see git status in $HUB_CWD/$slug)"
+    printf '%s\trescue-failed\n' "$slug" >> "$ART_DIR/sibling-rescue.txt"
+  fi
+done
+```
+
+On `Keep on main (accept the data)`:
+
+```
+cat "$ART_DIR/sibling-rogue.txt" >> "$ART_DIR/sibling-rogue-accepted.txt"
+log_info "rogue commits accepted: see $ART_DIR/sibling-rogue-accepted.txt"
+```
+
+On `Send back to trooper as fix-loop bug`:
+
+```
+{
+  echo "## Rogue commits on undeclared siblings"
+  echo ""
+  echo "The following commits landed on sibling sub-repo main branches"
+  echo "that weren't declared in the design's Target Sub-Project(s):"
+  echo ""
+  awk -F$'\t' '{ printf "- %s: %s — %s\n", $1, $2, $3 }' "$ART_DIR/sibling-rogue.txt"
+  echo ""
+  echo "Action required: revert these commits and either redeclare the"
+  echo "design as multi-repo OR confine the implementation to declared"
+  echo "targets only."
+} >> "$ART_DIR/bugs.txt"
+log_info "rogue commits added as fix-loop bug; re-entering Step 2"
+# Directive jumps back to Step 2 (fix round) — no more code in this branch.
 ```
 
 ```
