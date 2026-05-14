@@ -742,7 +742,16 @@ if [[ -f "$TOPIC_DIR/_consult/multi-repo.txt" && -f "$TOPIC_DIR/_consult/targets
   log_info "[step 10] multi-repo set by --targets; skipping auto-detect"
 else
   source "$CLAUDE_PLUGIN_ROOT/lib/consult-walk.sh"
-  HITS=$(cw_consult_detect_multi_repo "$PWD" "$(cat "$TOPIC_DIR/_consult/topic.txt")")
+  # v0.30.0: corpus swap — use adjudicated.md (cross-verified findings) instead of
+  # topic.txt (raw user input). Catches sub-repos that emerged during research.
+  # Falls back to topic.txt if adjudicated.md is missing (defensive only; should
+  # not happen in normal Step 9 → Step 10 sequencing).
+  if [[ -f "$TOPIC_DIR/_consult/adjudicated.md" ]]; then
+    HITS=$(cw_consult_detect_multi_repo "$PWD" "$(cat "$TOPIC_DIR/_consult/adjudicated.md")")
+  else
+    log_warn "[step 10] adjudicated.md missing; falling back to topic.txt"
+    HITS=$(cw_consult_detect_multi_repo "$PWD" "$(cat "$TOPIC_DIR/_consult/topic.txt")")
+  fi
 fi
 ```
 
