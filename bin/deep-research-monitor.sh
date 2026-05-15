@@ -28,6 +28,9 @@ ART_DIR="$1"; COMMANDER="$2"
 
 PROBE_S="${CW_DEEP_RESEARCH_PROBE_S:-900}"
 STUCK_S="${CW_DEEP_RESEARCH_STUCK_S:-1800}"
+# v0.32.0 #2: periodic rescan safety net — re-read outbox every N
+# seconds and emit any done/error/question we haven't already rescanned.
+RESCAN_EVERY_S="${CW_DEEP_RESEARCH_RESCAN_EVERY_S:-30}"
 
 TOPIC_DIR=$(dirname "$ART_DIR")
 OUTBOX="$TOPIC_DIR/$COMMANDER-codex/outbox.jsonl"
@@ -52,6 +55,35 @@ printf '%d' "$OFFSET" > "$CURSOR_FILE"
 
 LAST_STALE_TS=0
 LAST_STUCK_TS=0
+
+# v0.32.0 #2: rescan dedup set keyed by "<line-num>\t<event>". Touch the
+# file so grep -q operates on an existing file even on first run.
+RESCAN_CURSOR_FILE="$ART_DIR/troopers/$COMMANDER/liveness-rescan-emitted.txt"
+touch "$RESCAN_CURSOR_FILE"
+LAST_RESCAN=0
+
+# v0.32.0 #2+#3 interaction: on cursor-restore, pre-seed the rescan
+# dedup set with all <line-num>\t<event> pairs that fall below the
+# restored byte-cursor — those have already been seen by a prior byte-tail
+# pass, so the rescan loop must not re-emit them.
+if (( OFFSET > 0 )) && [[ -f "$OUTBOX" ]]; then
+  bytes_seen=0
+  pre_ln=0
+  while IFS= read -r pre_line; do
+    pre_ln=$((pre_ln + 1))
+    # +1 byte accounts for the trailing newline that `read` consumes.
+    bytes_seen=$((bytes_seen + ${#pre_line} + 1))
+    pre_ev=$(printf '%s' "$pre_line" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p')
+    case "$pre_ev" in
+      done|error|question)
+        if ! grep -qE "^${pre_ln}	${pre_ev}\$" "$RESCAN_CURSOR_FILE" 2>/dev/null; then
+          printf '%d\t%s\n' "$pre_ln" "$pre_ev" >> "$RESCAN_CURSOR_FILE"
+        fi
+        ;;
+    esac
+    (( bytes_seen >= OFFSET )) && break
+  done < "$OUTBOX"
+fi
 
 emit() {
   # $1 = event-type, $2 = optional summary
@@ -98,5 +130,28 @@ while true; do
       fi
     fi
   fi
+
+  # v0.32.0 #2: periodic rescan safety net
+  now_rescan=$(date +%s)
+  if (( now_rescan - LAST_RESCAN >= RESCAN_EVERY_S )) && [[ -f "$OUTBOX" ]]; then
+    line_num=0
+    while IFS= read -r rline; do
+      line_num=$((line_num + 1))
+      rev=$(printf '%s' "$rline" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p')
+      case "$rev" in
+        done|error|question)
+          # Dedup against liveness-rescan-emitted.txt — TAB-separated
+          # <line-num><TAB><event>.
+          if ! grep -qE "^${line_num}	${rev}\$" "$RESCAN_CURSOR_FILE" 2>/dev/null; then
+            rsum=$(printf '%s' "$rline" | sed -n 's/.*"summary":"\([^"]*\)".*/\1/p')
+            emit "$rev" "${rsum} (rescan)"
+            printf '%d\t%s\n' "$line_num" "$rev" >> "$RESCAN_CURSOR_FILE"
+          fi
+          ;;
+      esac
+    done < "$OUTBOX"
+    LAST_RESCAN=$now_rescan
+  fi
+
   sleep 2
 done
