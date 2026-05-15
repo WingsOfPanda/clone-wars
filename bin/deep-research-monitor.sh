@@ -33,9 +33,23 @@ TOPIC_DIR=$(dirname "$ART_DIR")
 OUTBOX="$TOPIC_DIR/$COMMANDER-codex/outbox.jsonl"
 CURSOR_FILE="$ART_DIR/troopers/$COMMANDER/liveness-cursor.txt"
 mkdir -p "$(dirname "$CURSOR_FILE")"
-: > "$CURSOR_FILE"
 
-OFFSET=0
+# v0.32.0 #3: cursor persists across restarts. Honor previous offset if
+# valid; otherwise initialize to current outbox size (skip prior events).
+cur_size=$(wc -c < "$OUTBOX" 2>/dev/null || echo 0)
+if [[ -s "$CURSOR_FILE" ]]; then
+  prev=$(<"$CURSOR_FILE")
+  prev="${prev//[[:space:]]/}"
+  if [[ "$prev" =~ ^[0-9]+$ ]] && (( prev <= cur_size )); then
+    OFFSET=$prev
+  else
+    OFFSET=$cur_size
+  fi
+else
+  OFFSET=$cur_size
+fi
+printf '%d' "$OFFSET" > "$CURSOR_FILE"
+
 LAST_STALE_TS=0
 LAST_STUCK_TS=0
 
@@ -60,6 +74,9 @@ while true; do
         esac
       done
       OFFSET=$local_size
+      # v0.32.0 #3: writeback cursor after each tail pass so a restart
+      # doesn't replay events we just emitted.
+      printf '%d' "$OFFSET" > "$CURSOR_FILE"
     fi
 
     # v0.32.0 #1: phase-aware liveness — only emit stale/stuck when
