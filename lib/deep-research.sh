@@ -410,6 +410,16 @@ cw_deep_research_check_completion() {
   plateau_window="${plateau_window:-5}"
   plateau_threshold="${plateau_threshold:-0.01}"
 
+  # v0.33.0 D1: read primary_metric to filter scoreboard rows by metric_name.
+  # When the scoreboard lacks the metric_name column (legacy / test fixtures
+  # using the 7-col shape), row_metric is empty and the filter is a no-op.
+  local primary_metric
+  primary_metric=$(awk '
+    /^\*\*Primary metric:\*\*/ {
+      sub(/^\*\*Primary metric:\*\*[[:space:]]+/, ""); print; exit
+    }
+  ' "$m")
+
   # Helper: numeric compare $1 (op) $2 against threshold $3 via awk.
   # File-scope-prefixed name; defined inside the function for context-locality
   # but bash hoists it to file scope. Caller uses _cw_deep_research_cmp.
@@ -437,8 +447,15 @@ cw_deep_research_check_completion() {
     [[ "$line" =~ ^\|[[:space:]]+[0-9]+[[:space:]]+\|[[:space:]]+exp- ]] || continue
     metric=$(printf '%s' "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $5); print $5}')
     status=$(printf '%s' "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $6); print $6}')
+    row_metric=$(printf '%s' "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $9); print $9}')
     [[ "$status" == "ok" ]] || continue
     [[ "$metric" =~ ^[0-9.]+$ ]] || continue
+    # v0.33.0 D1: drop rows whose metric_name disagrees with metric.md's
+    # primary_metric. row_metric is empty when the scoreboard lacks the
+    # metric_name column → filter is a no-op (back-compat).
+    if [[ -n "$primary_metric" && -n "$row_metric" && "$row_metric" != "$primary_metric" ]]; then
+      continue
+    fi
     metrics+=("$metric")
     if [[ -n "$min_op" && -n "$min_val" ]] && _cw_deep_research_cmp "$metric" "$min_op" "$min_val"; then
       floor_met=yes

@@ -85,6 +85,7 @@ for branch_dir in "$TROOPERS_DIR"/*/experiments/*/; do
     status=$(jq -r '.status' "$result")
     runtime=$(jq -r '.runtime_s' "$result")
     label=$(jq -r '.approach_label' "$result")
+    metric_name=$(jq -r '.metric_name' "$result")
   else
     metric=$(grep -oE '"metric_value"[[:space:]]*:[[:space:]]*[^,}]+' "$result" \
       | sed 's/.*:[[:space:]]*//' | tr -d ' "')
@@ -94,31 +95,34 @@ for branch_dir in "$TROOPERS_DIR"/*/experiments/*/; do
       | sed 's/.*:[[:space:]]*//')
     label=$(grep -oE '"approach_label"[[:space:]]*:[[:space:]]*"[^"]*"' "$result" \
       | sed 's/.*"\([^"]*\)"/\1/')
+    metric_name=$(grep -oE '"metric_name"[[:space:]]*:[[:space:]]*"[^"]*"' "$result" \
+      | sed 's/.*"\([^"]*\)"/\1/')
   fi
 
+  # v0.33.0 D1: scoreboard.md gains metric_name column (8th).
   if [[ "$status" == "ok" ]]; then
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$metric" "$exp_id" "$cmdr" "$status" "$runtime" "$label" >> "$OK_ROWS"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$metric" "$exp_id" "$cmdr" "$status" "$runtime" "$label" "$metric_name" >> "$OK_ROWS"
   else
-    printf '%s\t%s\t%s\t%s\t%s\n' "$exp_id" "$cmdr" "$status" "$runtime" "$label" >> "$FAIL_ROWS"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$exp_id" "$cmdr" "$status" "$runtime" "$label" "$metric_name" >> "$FAIL_ROWS"
   fi
 done
 
 {
   printf '# Scoreboard\n\n'
-  printf '| Rank | Experiment | Commander | Metric | Status | Runtime | Approach |\n'
-  printf '|---|---|---|---|---|---|---|\n'
+  printf '| Rank | Experiment | Commander | Metric | Status | Runtime | Approach | metric_name |\n'
+  printf '|---|---|---|---|---|---|---|---|\n'
   rank=1
   if [[ -s "$OK_ROWS" ]]; then
-    while IFS=$'\t' read -r metric exp cmdr status runtime label; do
-      printf '| %d | %s | %s | %s | %s | %ss | %s |\n' \
-        "$rank" "$exp" "$cmdr" "$metric" "$status" "$runtime" "$label"
+    while IFS=$'\t' read -r metric exp cmdr status runtime label metric_name; do
+      printf '| %d | %s | %s | %s | %s | %ss | %s | %s |\n' \
+        "$rank" "$exp" "$cmdr" "$metric" "$status" "$runtime" "$label" "$metric_name"
       rank=$((rank + 1))
     done < <(sort -t$'\t' -k1,1 -rn "$OK_ROWS")
   fi
   if [[ -s "$FAIL_ROWS" ]]; then
-    while IFS=$'\t' read -r exp cmdr status runtime label; do
-      printf '| %d | %s | %s | n/a | %s | %ss | %s |\n' \
-        "$rank" "$exp" "$cmdr" "$status" "$runtime" "$label"
+    while IFS=$'\t' read -r exp cmdr status runtime label metric_name; do
+      printf '| %d | %s | %s | n/a | %s | %ss | %s | %s |\n' \
+        "$rank" "$exp" "$cmdr" "$status" "$runtime" "$label" "$metric_name"
       rank=$((rank + 1))
     done < <(sort -t$'\t' -k1,1 "$FAIL_ROWS")
   fi
