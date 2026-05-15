@@ -173,8 +173,10 @@ header for details.
    global dual-search rule) if the topic is novel or domain-specific.
    Skip for clearly bounded topics (e.g. "MNIST accuracy").
 
-3. **Initial framing AskUserQuestion (UNCONDITIONAL — v0.28.2):**
-   See Phase 1 preamble. Even when the topic looks fully specified,
+3. **Initial framing AskUserQuestion (UNCONDITIONAL when `$ART_DIR/metric.md` absent — v0.28.2 + v0.32.0 #23):**
+   **Skip this AskUserQuestion if `$ART_DIR/metric.md` already exists**
+   (pre-written by `bin/deep-research-init.sh --metric=…`). Otherwise:
+   see Phase 1 preamble. Even when the topic looks fully specified,
    the user confirms or corrects the read.
 
    Open with ONE AskUserQuestion proposing the read of the goal.
@@ -190,10 +192,12 @@ header for details.
 
    Use AskUserQuestion with 3 options + Other-fallback.
 
-4. **K=V follow-ups (UNCONDITIONAL when fields are missing — v0.28.2):**
-   See Phase 1 preamble. Step 4 is naturally conditional ("zero or
-   more follow-ups") — the UNCONDITIONAL stamp means: when follow-ups
-   ARE required, they MUST fire; do not silently default.
+4. **K=V follow-ups (UNCONDITIONAL when fields are missing AND `$ART_DIR/metric.md` absent — v0.28.2 + v0.32.0 #23):**
+   **Skip entirely if `$ART_DIR/metric.md` already exists** (pre-written
+   by `--metric` flag). Otherwise: see Phase 1 preamble. Step 4 is
+   naturally conditional ("zero or more follow-ups") — the UNCONDITIONAL
+   stamp means: when follow-ups ARE required, they MUST fire; do not
+   silently default.
 
    Based on user's answer, ask zero or more follow-ups until you have
    the K=V pairs for `cw_deep_research_format_metric_block`:
@@ -232,9 +236,11 @@ header for details.
 
    (Substitute the K=V pairs from the dialogue.)
 
-6. **Final confirmation AskUserQuestion (UNCONDITIONAL — v0.28.2):**
-   See Phase 1 preamble. Last chance to revise metric framing before
-   any troopers spawn.
+6. **Final confirmation AskUserQuestion (UNCONDITIONAL when `$ART_DIR/metric.md` was just authored — v0.28.2 + v0.32.0 #23):**
+   **Skip this AskUserQuestion if metric.md was pre-written by the
+   `--metric` flag at init time** (user already committed to the
+   framing on the command line). Otherwise: see Phase 1 preamble.
+   Last chance to revise metric framing before any troopers spawn.
 
    > *"Here's how I'll frame the goal — OK to proceed?"*
    >
