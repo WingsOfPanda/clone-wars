@@ -85,10 +85,12 @@ This file.
 - [ ] Each pane gets a tmux nudge after dispatch.
 EOF
 
-# 3. Run deploy-init from $HUB (the conductor's cwd in real flow)
+# 3. Run deploy-init from $HUB (the conductor's cwd in real flow). v0.31.0:
+# CW_TOPIC_REPO_CWD env var is dead; cw_topic_repo_hash uses $PWD verbatim,
+# so the cd into $HUB is sufficient.
 TOPIC="e2e$$"
-( cd "$HUB" && CW_TOPIC_REPO_CWD="$HUB" \
-  "$PLUGIN_ROOT/bin/deploy-init.sh" --no-branch --topic "$TOPIC" "$DESIGN" >/dev/null )
+( cd "$HUB" \
+  && "$PLUGIN_ROOT/bin/deploy-init.sh" --no-branch --topic "$TOPIC" "$DESIGN" >/dev/null )
 
 REPO_HASH=$(cd "$HUB" && cw_repo_hash)
 ART_DIR="$CLONE_WARS_HOME/state/$REPO_HASH/$TOPIC/_deploy"
@@ -209,11 +211,13 @@ DIRECT_PROBE=$(tmux capture-pane -p -t "$FIRST_PANE" 2>/dev/null | grep -c "DIRE
   || { echo "FAIL: direct send-keys probe didn't appear in capture-pane (cat respawn issue?)" >&2; tmux capture-pane -p -t "$FIRST_PANE" >&2; exit 1; }
 pass "direct send-keys → capture-pane works (PTY echo confirmed)"
 
-# Dispatch — Step 3b's v0.22.0 shape. CW_TOPIC_REPO_CWD ensures send.sh's
-# cw_topic_state_dir resolves against $HUB's repo-hash (matches what
-# deploy.md exports in real flow). Capture stderr so failures surface.
-SEND_ERR=$( CW_TOPIC_REPO_CWD="$HUB" \
-  "$PLUGIN_ROOT/bin/send.sh" "$FIRST_CMDR" "$TOPIC" "@$PROMPT_FILE" 2>&1 >/dev/null ) \
+# Dispatch — Step 3b's v0.22.0 shape. v0.31.0: cd into $HUB so send.sh's
+# cw_topic_state_dir resolves against $HUB's repo-hash via $PWD (matches
+# what deploy-init.sh wrote). The v0.30.0 CW_TOPIC_REPO_CWD env var is
+# dead; subshell cd is the v0.31.0 contract. Capture stderr so failures
+# surface.
+SEND_ERR=$( cd "$HUB" \
+  && "$PLUGIN_ROOT/bin/send.sh" "$FIRST_CMDR" "$TOPIC" "@$PROMPT_FILE" 2>&1 >/dev/null ) \
   || { echo "FAIL: bin/send.sh failed (BUG 5 fix not landed? stderr below)" >&2; echo "--- stderr ---" >&2; echo "$SEND_ERR" >&2; echo "--- TROOPER_STATE_DIR ($TROOPER_STATE_DIR) ---" >&2; ls -la "$TROOPER_STATE_DIR" >&2; exit 1; }
 
 # Give tmux a moment to deliver the send-keys + propagate display state.

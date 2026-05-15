@@ -10,13 +10,34 @@ if [[ -z "${CW_SLUG_REGEX_BASE:-}" ]]; then
   readonly CW_SLUG_REGEX_BASE='[A-Za-z0-9._-]+'
 fi
 
+# cw_state_root — absolute path to this project's clone-wars state root.
+#
+# Default: $PWD/.clone-wars (project-local; the directive's Bash blocks run
+# in the conductor's invocation cwd, so $PWD resolves there).
+#
+# Test/debug seam: if CLONE_WARS_HOME is set, return its value verbatim.
+# Production flow never sets it; 96 existing tests use the env var for
+# sandbox isolation (they want state under a tmpdir without cd'ing).
+#
+# INVARIANT: never call inside a `cd` subshell — $PWD changes there. The
+# only safe caller is the conductor's invocation cwd (which inherits $PWD
+# from the slash directive's environment).
 cw_state_root() {
-  printf '%s\n' "${CLONE_WARS_HOME:-$HOME/.clone-wars}"
+  if [[ -n "${CLONE_WARS_HOME:-}" ]]; then
+    printf '%s\n' "$CLONE_WARS_HOME"
+  else
+    printf '%s/.clone-wars\n' "$PWD"
+  fi
 }
 
+# cw_state_ensure — create state/ + archive/ subdirs and self-ignoring
+# .gitignore so the entire .clone-wars/ dir stays out of the user's git
+# history. Idempotent: .gitignore only written if absent (preserves user
+# customizations across re-runs).
 cw_state_ensure() {
   local root; root=$(cw_state_root)
   mkdir -p "$root/state" "$root/archive"
+  [[ -f "$root/.gitignore" ]] || printf '*\n' > "$root/.gitignore"
 }
 
 # cw_repo_hash_for <cwd>
@@ -42,36 +63,37 @@ cw_repo_hash() {
   cw_repo_hash_for "$PWD"
 }
 
-# cw_topic_repo_hash
-# Returns the SHA256 hash to use for topic-state paths. Honors $CW_TOPIC_REPO_CWD
-# (set by /clone-wars:deploy when the design doc declares **Target Sub-Project:**),
-# falling back to the conductor's $PWD when unset (single-repo mode).
-# Use this everywhere `cw_repo_hash` was called for topic-state path resolution.
+# cw_topic_repo_hash — SHA256 hash used as a state-path component.
+#
+# v0.31.0: simplified to return hash of $PWD. The CW_TOPIC_REPO_CWD branch
+# (v0.10.0 sub-repo redirect for deploy multi-repo) is removed in v0.31.0
+# because state is now project-local: the conductor's invocation cwd is
+# the canonical anchor; sub-repo state lives in the SAME .clone-wars/
+# as the rest of the deploy. The env var is no longer set by any
+# production code path. The hash segment is kept in the path shape for
+# v0.31.0 (cosmetic; project-local already disambiguates); v0.32.0
+# cleanup sweep decides whether to drop the hash entirely.
 cw_topic_repo_hash() {
-  if [[ -n "${CW_TOPIC_REPO_CWD:-}" ]]; then
-    cw_repo_hash_for "$CW_TOPIC_REPO_CWD"
-  else
-    cw_repo_hash_for "$PWD"
-  fi
+  cw_repo_hash_for "$PWD"
 }
 
 # cw_repo_state_dir — absolute path to this repo's state root:
-#   $CLONE_WARS_HOME/state/<repo-hash>
-# Honors $CW_TOPIC_REPO_CWD via cw_topic_repo_hash so downstream bin scripts
-# (turn-send/wait, archive, spawn, teardown) read the same paths that
-# bin/deploy-init.sh wrote when the design doc declares **Target Sub-Project:**.
+#   <state-root>/state/<repo-hash>
+# v0.31.0: state-root is project-local (<invoking-cwd>/.clone-wars/).
+# The <repo-hash> segment is kept (cosmetic in v0.31.0; project-local
+# already disambiguates by directory); v0.32.0 cleanup may drop it.
 cw_repo_state_dir() {
   printf '%s/state/%s\n' "$(cw_state_root)" "$(cw_topic_repo_hash)"
 }
 
 # cw_topic_state_dir <topic> — absolute path to a topic's state dir:
-#   $CLONE_WARS_HOME/state/<repo-hash>/<topic>
-# Centralises the path construction that was inlined in 6+ callers (bin/list.sh,
-# bin/teardown.sh, bin/send.sh, bin/collect.sh, bin/spawn.sh, lib/commanders.sh).
-# lib/consult.sh's cw_consult_topic_dir and lib/deploy.sh's cw_deploy_topic_dir
-# remain as named alternatives for clarity at call sites where the consult/deploy
-# context is meaningful.
-# Honors $CW_TOPIC_REPO_CWD via cw_topic_repo_hash (see cw_repo_state_dir).
+#   <state-root>/state/<repo-hash>/<topic>
+# Centralises the path construction that was inlined in 6+ callers
+# (bin/list.sh, bin/teardown.sh, bin/send.sh, bin/collect.sh,
+# bin/spawn.sh, lib/commanders.sh). lib/consult.sh's cw_consult_topic_dir
+# and lib/deploy.sh's cw_deploy_topic_dir remain as named alternatives
+# for clarity at call sites where the consult/deploy context is
+# meaningful.
 cw_topic_state_dir() {
   printf '%s/state/%s/%s\n' "$(cw_state_root)" "$(cw_topic_repo_hash)" "$1"
 }

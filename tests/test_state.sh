@@ -5,9 +5,12 @@ cd "$(dirname "$0")"
 source lib/assert.sh
 source ../lib/state.sh
 
-# 1. Default root is $HOME/.clone-wars when CLONE_WARS_HOME is unset.
+# 1. Default root is $PWD/.clone-wars when CLONE_WARS_HOME is unset (v0.31.0:
+#    project-local state — the directive's Bash blocks run in the conductor's
+#    invocation cwd, so $PWD resolves there. CLONE_WARS_HOME stays as a
+#    test/debug seam — Case 2 below covers it).
 unset CLONE_WARS_HOME
-assert_eq "$(cw_state_root)" "$HOME/.clone-wars" "default root"
+assert_eq "$(cw_state_root)" "$PWD/.clone-wars" "default root (v0.31.0 project-local)"
 pass "default root"
 
 # 2. Override via CLONE_WARS_HOME.

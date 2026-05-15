@@ -119,23 +119,29 @@ fi
 
 Continue using `$ARG_RAW` for the topic from this point.
 
-1. Resolve args path:
+1. Resolve a unique args path (v0.31.0: project-local + mktemp per invocation
+   so parallel sessions don't collide on a stable filename):
 
    ```
-   ARGS_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args"
-   mkdir -p "$ARGS_DIR"; echo "$ARGS_DIR/consult.txt"
+   source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+   ARGS_DIR="$(cw_state_root)/_args"
+   mkdir -p "$ARGS_DIR"
+   ARGS_FILE=$(mktemp -p "$ARGS_DIR" -t 'consult.XXXXXX')
+   echo "$ARGS_FILE" > /tmp/cw-consult-args-path.txt
+   echo "$ARGS_FILE"
    ```
 
-2. Write tool: `file_path` = the path printed; `content` = `$ARG_RAW`.
+2. Write tool: `file_path` = the path printed (read from `/tmp/cw-consult-args-path.txt` in later Bash blocks); `content` = `$ARG_RAW`.
 
 3. Initialize the consult topic AND compute the repo hash once:
 
    ```
    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
    source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
+   ARGS_FILE=$(cat /tmp/cw-consult-args-path.txt)
    REPO_HASH=$(cw_repo_hash)
-   CONSULT_TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/consult-init.sh" "$(cat "$ARGS_DIR/consult.txt")")
-   TOPIC_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$CONSULT_TOPIC"
+   CONSULT_TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/consult-init.sh" "$(cat "$ARGS_FILE")")
+   TOPIC_DIR="$(cw_state_root)/state/$REPO_HASH/$CONSULT_TOPIC"
    echo "$CONSULT_TOPIC"   # for use in subsequent steps
    ```
 

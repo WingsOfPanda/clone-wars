@@ -68,12 +68,16 @@ injection, write it via the Write tool, then invoke sub-scripts.
 
 Set task `0` → `in_progress`.
 
-1. Resolve args path:
+1. Resolve a unique args path (v0.31.0: project-local + mktemp per
+   invocation so parallel sessions don't collide):
 
    ```
-   ARGS_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args"
+   source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+   ARGS_DIR="$(cw_state_root)/_args"
    mkdir -p "$ARGS_DIR"
-   echo "$ARGS_DIR/meditate.txt"
+   ARGS_FILE=$(mktemp -p "$ARGS_DIR" -t 'meditate.XXXXXX')
+   echo "$ARGS_FILE" > /tmp/cw-meditate-args-path.txt
+   echo "$ARGS_FILE"
    ```
 
 2. Write tool: `file_path` = the path printed; `content` = `$ARGUMENTS`.
@@ -83,9 +87,10 @@ Set task `0` → `in_progress`.
    ```
    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
    source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
+   ARGS_FILE=$(cat /tmp/cw-meditate-args-path.txt)
    REPO_HASH=$(cw_repo_hash)
-   MEDITATE_TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/meditate-init.sh" "$(cat "$ARGS_DIR/meditate.txt")")
-   TOPIC_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$MEDITATE_TOPIC"
+   MEDITATE_TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/meditate-init.sh" "$(cat "$ARGS_FILE")")
+   TOPIC_DIR="$(cw_state_root)/state/$REPO_HASH/$MEDITATE_TOPIC"
    ART_DIR="$TOPIC_DIR/_meditate"
    ```
 

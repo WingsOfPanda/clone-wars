@@ -28,6 +28,7 @@ if [[ "${1:-}" == "--args-file" ]]; then
   args_file="$2"; shift 2
   mapfile -t _TOKENS < <(cw_args_file_load "$args_file")
   set -- "${_TOKENS[@]}" "$@"
+  cw_args_file_consume "$args_file"
 fi
 
 NO_BRANCH=0
@@ -70,13 +71,10 @@ TARGET_CWD=$(cw_deploy_resolve_target "$DESIGN_PATH" "$(cw_repo_root)") || {
   log_error "could not resolve target cwd"; exit 1;
 }
 
-# Export $CW_TOPIC_REPO_CWD BEFORE the ART_DIR computation so cw_deploy_art_dir
-# (which calls cw_topic_state_dir → cw_topic_repo_hash) anchors paths on the
-# TARGET (sub-repo) hash rather than the conductor's cwd. Every downstream bin
-# script (turn-send, turn-wait, archive, spawn, teardown) inherits this env var
-# from the directive (commands/deploy.md Step 0 re-exports it from
-# target_cwd.txt) so all readers/writers agree on the path.
-export CW_TOPIC_REPO_CWD="$TARGET_CWD"
+# v0.31.0: $CW_TOPIC_REPO_CWD export removed. State is project-local now;
+# the conductor's invocation cwd is the canonical state-root anchor.
+# Downstream bin scripts (turn-send, turn-wait, archive, spawn, teardown)
+# read $ART_DIR/target_cwd.txt directly when they need the sub-repo path.
 TOPIC_DIR=$(cw_deploy_topic_dir "$TOPIC")
 ART_DIR=$(cw_deploy_art_dir "$TOPIC")
 [[ ! -d "$ART_DIR" ]] || { log_error "topic _deploy dir already exists: $ART_DIR (pick a different --topic or run teardown)"; exit 1; }

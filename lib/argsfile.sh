@@ -24,3 +24,16 @@ cw_args_file_load() {
   done < <(printf '%s\n' "$line" | xargs -n1 printf '%s\n' 2>/dev/null)
   printf '%s\n' "${tokens[@]}"
 }
+
+# cw_args_file_consume <path>
+# Delete the args-file after a bin script reads it. Called at the end of
+# every bin script's --args-file branch so <root>/.clone-wars/_args/
+# doesn't accumulate orphans across long sessions.
+#
+# Silent on missing file OR empty arg (rc=0 both cases) so callers can
+# call it unconditionally without guarding.
+cw_args_file_consume() {
+  local path="${1:-}"
+  [[ -n "$path" && -f "$path" ]] || return 0
+  rm -f "$path"
+}

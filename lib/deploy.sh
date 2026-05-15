@@ -2,12 +2,15 @@
 # Sourced. Depends on lib/state.sh, lib/log.sh.
 
 # cw_deploy_topic_dir <topic>
-# Honors $CW_TOPIC_REPO_CWD (sub-repo redirect) via cw_topic_state_dir →
-# cw_topic_repo_hash. Single-repo mode unchanged (env var unset → $PWD-based hash).
+# v0.31.0: state is project-local (<invoking-cwd>/.clone-wars/) and the
+# <repo-hash> segment is computed from $PWD (the conductor's invocation
+# cwd). The CW_TOPIC_REPO_CWD env var (v0.10.0 sub-repo redirect) is no
+# longer set by any production code path; readers that need the sub-repo
+# path read $ART_DIR/target_cwd.txt directly.
 cw_deploy_topic_dir() { cw_topic_state_dir "$1"; }
 
 # cw_deploy_art_dir <topic>
-# Same env-var contract as cw_deploy_topic_dir.
+# Same project-local contract as cw_deploy_topic_dir.
 cw_deploy_art_dir() {
   printf '%s/_deploy\n' "$(cw_topic_state_dir "$1")"
 }

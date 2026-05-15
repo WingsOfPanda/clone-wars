@@ -84,12 +84,16 @@ persist across separate Bash calls in this harness).
 
 Set task `0` → `in_progress`.
 
-1. Resolve args path:
+1. Resolve a unique args path (v0.31.0: project-local + mktemp per
+   invocation so parallel sessions don't collide):
 
    ```bash
-   ARGS_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args"
+   source /home/liupan/CC/clone-wars/lib/state.sh
+   ARGS_DIR="$(cw_state_root)/_args"
    mkdir -p "$ARGS_DIR"
-   echo "$ARGS_DIR/deep-research.txt"
+   ARGS_FILE=$(mktemp -p "$ARGS_DIR" -t 'deep-research.XXXXXX')
+   echo "$ARGS_FILE" > /tmp/cw-deep-research-args-path.txt
+   echo "$ARGS_FILE"
    ```
 
 2. Write tool: `file_path` = path printed above; `content` = `$ARGUMENTS`.
@@ -102,8 +106,8 @@ Set task `0` → `in_progress`.
    source /home/liupan/CC/clone-wars/lib/consult.sh
    source /home/liupan/CC/clone-wars/lib/deep-research.sh
 
-   ARGS_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args"
-   ARGS=$(cat "$ARGS_DIR/deep-research.txt")
+   ARGS_FILE=$(cat /tmp/cw-deep-research-args-path.txt)
+   ARGS=$(cat "$ARGS_FILE")
    # shellcheck disable=SC2086 — splitting intentional for --seed-from + topic
    DEEP_TOPIC=$(/home/liupan/CC/clone-wars/bin/deep-research-init.sh $ARGS)
    echo "$DEEP_TOPIC"

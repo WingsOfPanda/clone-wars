@@ -24,6 +24,7 @@ if [[ "${1:-}" == "--args-file" ]]; then
   shift 2
   mapfile -t _TOKENS < <(cw_args_file_load "$args_file")
   set -- "${_TOKENS[@]}" "$@"
+  cw_args_file_consume "$args_file"
 fi
 
 state_root=$(cw_state_root)
