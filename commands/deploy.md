@@ -55,11 +55,17 @@ Write tool, then invoke sub-scripts with the resolved values.
 
 Set task `0` → `in_progress`.
 
-1. Resolve args path:
+1. Resolve a unique args path (v0.31.0: project-local + mktemp per
+   invocation so parallel sessions don't collide on a stable filename):
    ```
-   ARGS_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args"
-   mkdir -p "$ARGS_DIR"; echo "$ARGS_DIR/deploy.txt"
+   source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+   ARGS_DIR="$(cw_state_root)/_args"
+   mkdir -p "$ARGS_DIR"
+   ARGS_FILE=$(mktemp -p "$ARGS_DIR" -t 'deploy.XXXXXX')
+   echo "$ARGS_FILE" > /tmp/cw-deploy-args-path.txt
+   echo "$ARGS_FILE"
    ```
+   Subsequent Bash blocks read the path via `ARGS_FILE=$(cat /tmp/cw-deploy-args-path.txt)`.
 2. Parse `--max-rounds <N>` out of `$ARGUMENTS` BEFORE writing the args file.
    The init script rejects unknown flags, so this flag must never reach it.
    Scan `$ARGUMENTS` token-by-token: when you see `--max-rounds`, capture the
@@ -84,7 +90,7 @@ Set task `0` → `in_progress`.
    ```
    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
    REPO_HASH=$(cw_repo_hash)
-   STATE_ROOT="${CLONE_WARS_HOME:-$HOME/.clone-wars}"
+   STATE_ROOT=$(cw_state_root)
    CANDIDATE=$(find "$STATE_ROOT/state/$REPO_HASH" \
                  -path '*/_consult/design-doc/*-design.md' \
                  -type f -printf '%T@ %p\n' 2>/dev/null \
@@ -102,9 +108,10 @@ Set task `0` → `in_progress`.
    ```
    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
    source "$CLAUDE_PLUGIN_ROOT/lib/deploy.sh"
+   ARGS_FILE=$(cat /tmp/cw-deploy-args-path.txt)
    REPO_HASH=$(cw_repo_hash)
    TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/deploy-init.sh" \
-              --args-file "$ARGS_DIR/deploy.txt" 2>/tmp/cw-init-err) \
+              --args-file "$ARGS_FILE" 2>/tmp/cw-init-err) \
               && INIT_RC=0 || INIT_RC=$?
    ```
    When `INIT_RC=0`, jump straight to the post-init block below (TOPIC_DIR /
@@ -140,15 +147,16 @@ Set task `0` → `in_progress`.
     git -C "$TARGET_CWD" stash push -u -m "deploy ${TOPIC:-pending} WIP"
     STASH_SHA=$(git -C "$TARGET_CWD" stash list -1 --format=%H)
     [[ -n "$STASH_SHA" ]] || { log_error "stash push reported success but no stash on list"; exit 1; }
+    ARGS_FILE=$(cat /tmp/cw-deploy-args-path.txt)
     TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/deploy-init.sh" \
-               --args-file "$ARGS_DIR/deploy.txt" 2>/tmp/cw-init-err) || {
+               --args-file "$ARGS_FILE" 2>/tmp/cw-init-err) || {
       log_error "init.sh failed on second attempt after stash; popping stash and aborting"
       git -C "$TARGET_CWD" stash pop "$STASH_SHA" 2>/dev/null || \
         log_warn "stash pop failed; SHA $STASH_SHA still in stash list"
       exit 1
     }
     REPO_HASH=$(cw_repo_hash)
-    ART_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$TOPIC/_deploy"
+    ART_DIR="$(cw_state_root)/state/$REPO_HASH/$TOPIC/_deploy"
     printf 'sha=%s\nmessage=%s\n' "$STASH_SHA" "deploy $TOPIC WIP" \
       | cw_atomic_write "$ART_DIR/pre-deploy-stash.txt"
     log_ok "stashed pre-deploy WIP as $STASH_SHA; will attempt pop in Step 4"
@@ -161,13 +169,14 @@ Set task `0` → `in_progress`.
     git -C "$TARGET_CWD" add -A
     git -C "$TARGET_CWD" commit -m "chore: WIP before deploy ${TOPIC:-pending}"
     COMMIT_SHA=$(git -C "$TARGET_CWD" rev-parse HEAD)
+    ARGS_FILE=$(cat /tmp/cw-deploy-args-path.txt)
     TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/deploy-init.sh" \
-               --args-file "$ARGS_DIR/deploy.txt" 2>/tmp/cw-init-err) || {
+               --args-file "$ARGS_FILE" 2>/tmp/cw-init-err) || {
       log_error "init.sh failed on second attempt after WIP commit"
       exit 1
     }
     REPO_HASH=$(cw_repo_hash)
-    ART_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$TOPIC/_deploy"
+    ART_DIR="$(cw_state_root)/state/$REPO_HASH/$TOPIC/_deploy"
     printf 'sha=%s\n' "$COMMIT_SHA" \
       | cw_atomic_write "$ART_DIR/pre-deploy-commit.txt"
     log_ok "committed pre-deploy WIP as $COMMIT_SHA; commit lives on feat branch"
@@ -200,13 +209,14 @@ Set task `0` → `in_progress`.
     doc path embedded in the args file:
 
     ```
+    ARGS_FILE=$(cat /tmp/cw-deploy-args-path.txt)
     DESIGN_PATH=$(awk '{
       for (i=1; i<=NF; i++) {
         if ($i !~ /^--/ && (i==1 || $(i-1) !~ /^--(branch|topic|provider)$/)) {
           print $i; exit
         }
       }
-    }' "$ARGS_DIR/deploy.txt")
+    }' "$ARGS_FILE")
     [[ -n "$DESIGN_PATH" ]] || { log_error "rescue: cannot find design path in args file"; cat /tmp/cw-init-err >&2; exit 1; }
     TOPIC=$(cw_deploy_derive_topic "$DESIGN_PATH")
     TARGET_CWD=$(cw_deploy_resolve_target "$DESIGN_PATH" "$(cw_repo_root)") || { log_error "rescue: resolve_target failed"; exit 1; }

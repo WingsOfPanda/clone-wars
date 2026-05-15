@@ -17,27 +17,29 @@ trooper-selection flow added in v0.18.0.
 
 The user's `$ARGUMENTS` may contain shell metacharacters. To prevent injection, we keep it out of any bash source: write it via the Write tool (a literal string parameter), then invoke the bin script with `--args-file`.
 
-1. Use the Bash tool to resolve the args-file path:
+1. Use the Bash tool to resolve a unique args-file path (v0.31.0: project-local
+   + mktemp per invocation so parallel sessions don't collide):
 
    ```
-   ARGS_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args"
+   source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+   ARGS_DIR="$(cw_state_root)/_args"
    mkdir -p "$ARGS_DIR"
-   echo "$ARGS_DIR/medic.txt"
+   mktemp -p "$ARGS_DIR" -t 'medic.XXXXXX'
    ```
 
    The script prints the absolute path; remember it for steps 2 and 3.
 
 2. Use the Write tool to put `$ARGUMENTS` into that path:
 
-   - `file_path`: the path printed by step 1 (an absolute path under `~/.clone-wars/_args/`).
+   - `file_path`: the path printed by step 1 (an absolute path under `<conductor-cwd>/.clone-wars/_args/`).
    - `content`: the literal value of `$ARGUMENTS` (the slash-command argument string, exactly as the user typed it).
 
    IMPORTANT: do NOT echo, printf, or otherwise quote `$ARGUMENTS` into a shell command — pass it directly as the Write tool's `content` parameter. This is the entire reason for the Write step.
 
-3. Use the Bash tool to invoke medic:
+3. Use the Bash tool to invoke medic. Pass the path printed by step 1 as the `--args-file` arg (the script's argv consumes + deletes it via `cw_args_file_consume`):
 
    ```
-   "${CLAUDE_PLUGIN_ROOT}/bin/medic.sh" --args-file "${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args/medic.txt"
+   "${CLAUDE_PLUGIN_ROOT}/bin/medic.sh" --args-file <ARGS_PATH-from-step-1>
    ```
 
 4. Show the script's output to the user verbatim — it is already formatted with status glyphs and a Verdict line.
