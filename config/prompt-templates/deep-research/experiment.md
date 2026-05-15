@@ -19,6 +19,8 @@ Your experiment:
   Approach label:  {{APPROACH_LABEL}}
   Approach brief:  {{APPROACH_BRIEF}}
 
+{{TASK_CONTEXT}}
+
 Branch sandbox: {{BRANCH_DIR}}
   Stay inside this directory; use absolute paths.
   Do NOT modify files outside the branch dir.

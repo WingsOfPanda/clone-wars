@@ -23,7 +23,23 @@ source "$PLUGIN_ROOT/lib/contracts.sh"
 source "$PLUGIN_ROOT/lib/ipc.sh"
 source "$PLUGIN_ROOT/lib/deep-research.sh"
 
-[[ $# -eq 5 ]] || { log_error "Usage: $0 <topic> <commander> <exp-id> <approach-label> <approach-brief>"; exit 2; }
+# v0.34.0: --inputs (pre-flight readability probe) + --context-file
+# (per-experiment task context interpolation). Both flags are optional;
+# omitting them preserves v0.33.0 behavior (no probe, empty {{TASK_CONTEXT}}).
+INPUTS=""
+CONTEXT_FILE=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --inputs=*)        INPUTS="${1#*=}";       shift ;;
+    --inputs)          INPUTS="$2";            shift 2 ;;
+    --context-file=*)  CONTEXT_FILE="${1#*=}"; shift ;;
+    --context-file)    CONTEXT_FILE="$2";      shift 2 ;;
+    --) shift; break ;;
+    *)  break ;;
+  esac
+done
+
+[[ $# -eq 5 ]] || { log_error "Usage: $0 [--inputs=<paths>] [--context-file=<path>] <topic> <commander> <exp-id> <approach-label> <approach-brief>"; exit 2; }
 TOPIC="$1"
 COMMANDER="$2"
 EXP_ID="$3"
@@ -40,6 +56,15 @@ cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 
 
 [[ "$COMMANDER" =~ ^[a-z][a-z0-9-]*$ ]] \
   || { log_error "commander must match [a-z][a-z0-9-]*; got '$COMMANDER'"; exit 2; }
+
+# v0.34.0 D3: pre-flight readability probe for --inputs paths.
+if [[ -n "$INPUTS" ]]; then
+  IFS=',' read -ra _INPUT_PATHS <<< "$INPUTS"
+  for _p in "${_INPUT_PATHS[@]}"; do
+    [[ -r "$_p" ]] \
+      || { log_error "pre-flight: cannot read input path '$_p'"; exit 2; }
+  done
+fi
 
 state_root="${CLONE_WARS_HOME:-$HOME/.clone-wars}"
 repo_hash=$(cw_repo_hash)
@@ -132,6 +157,15 @@ _awk_esc() {
   printf '%s' "$s"
 }
 TOPIC_TEXT_VAL=$(cat "$ART_DIR/topic.txt")
+
+# v0.34.0 D4: optional per-experiment context interpolation.
+TASK_CONTEXT_VAL=""
+if [[ -n "$CONTEXT_FILE" ]]; then
+  [[ -r "$CONTEXT_FILE" ]] \
+    || { log_error "cannot read --context-file: $CONTEXT_FILE"; exit 2; }
+  TASK_CONTEXT_VAL=$(<"$CONTEXT_FILE")
+fi
+
 awk \
   -v topic="$(_awk_esc "$TOPIC_TEXT_VAL")" \
   -v exp_id="$(_awk_esc "$EXP_ID")" \
@@ -142,7 +176,8 @@ awk \
   -v metric_block="$(_awk_esc "$METRIC_BLOCK")" \
   -v hardware_block="$(_awk_esc "$HARDWARE_BLOCK")" \
   -v outbox_path="$(_awk_esc "$OUTBOX_PATH")" \
-  -v time_budget="$(_awk_esc "$TIME_BUDGET_S")" '
+  -v time_budget="$(_awk_esc "$TIME_BUDGET_S")" \
+  -v task_context="$(_awk_esc "$TASK_CONTEXT_VAL")" '
 {
   gsub(/\{\{METRIC_BLOCK\}\}/,    metric_block)
   gsub(/\{\{HARDWARE_BLOCK\}\}/,  hardware_block)
@@ -154,6 +189,7 @@ awk \
   gsub(/\{\{BRANCH_DIR\}\}/,      branch_dir)
   gsub(/\{\{METRIC_NAME\}\}/,     metric_name)
   gsub(/\{\{TIME_BUDGET_S\}\}/,   time_budget)
+  gsub(/\{\{TASK_CONTEXT\}\}/,    task_context)
   print
 }' "$TEMPLATE" | cw_atomic_write "$PROMPT_FILE"
 
