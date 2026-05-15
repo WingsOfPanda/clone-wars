@@ -9,7 +9,14 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && p
 # shellcheck source=../lib/state.sh
 source "$PLUGIN_ROOT/lib/state.sh" 2>/dev/null || exit 0
 
-STATE_ROOT="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state"
+# v0.31.0: scan project-local state, not the global root. The hook fires
+# only on active.txt files within the current Claude Code session's
+# project (.clone-wars/ in $PWD). Cross-session bleed (a deep-research
+# session in project A firing reminders in project B) is fixed at the
+# scope-of-scan layer. The hook uses $PWD directly rather than
+# cw_state_root so it doesn't inherit the CLONE_WARS_HOME test seam —
+# the production semantics are unconditional.
+STATE_ROOT="$PWD/.clone-wars/state"
 [[ -d "$STATE_ROOT" ]] || exit 0
 
 # Scan for any topic with active.txt under _deep-research/.
