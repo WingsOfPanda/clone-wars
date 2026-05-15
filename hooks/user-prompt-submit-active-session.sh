@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# hooks/user-prompt-submit-active-session.sh — v0.28.0
+# hooks/user-prompt-submit-active-session.sh — v0.28.0 (project-local in v0.31.0)
 # Fires on every UserPromptSubmit. If any deep-research session has an
-# active.txt under the user's CLONE_WARS_HOME state dir, emit a compact
-# context block telling Yoda to run handler 3.b. Otherwise exit silently.
+# active.txt under the current project's `.clone-wars/state/` dir,
+# emit a compact context block telling Yoda to run handler 3.b.
+# Otherwise exit silently.
 set -uo pipefail
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -14,8 +15,8 @@ source "$PLUGIN_ROOT/lib/state.sh" 2>/dev/null || exit 0
 # project (.clone-wars/ in $PWD). Cross-session bleed (a deep-research
 # session in project A firing reminders in project B) is fixed at the
 # scope-of-scan layer. The hook uses $PWD directly rather than
-# cw_state_root so it doesn't inherit the CLONE_WARS_HOME test seam —
-# the production semantics are unconditional.
+# cw_state_root so it doesn't inherit the test/debug env-var seam —
+# production semantics are unconditional.
 STATE_ROOT="$PWD/.clone-wars/state"
 [[ -d "$STATE_ROOT" ]] || exit 0
 
