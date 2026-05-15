@@ -22,8 +22,8 @@ ART_DIR="$1"; COMMANDER="$2"
 
 [[ -d "$ART_DIR" ]] || { echo "monitor: art-dir missing: $ART_DIR" >&2; exit 2; }
 
-PROBE_S="${CW_DEEP_RESEARCH_PROBE_S:-300}"
-STUCK_S="${CW_DEEP_RESEARCH_STUCK_S:-600}"
+PROBE_S="${CW_DEEP_RESEARCH_PROBE_S:-900}"
+STUCK_S="${CW_DEEP_RESEARCH_STUCK_S:-1800}"
 
 TOPIC_DIR=$(dirname "$ART_DIR")
 OUTBOX="$TOPIC_DIR/$COMMANDER-codex/outbox.jsonl"
