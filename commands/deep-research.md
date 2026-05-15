@@ -117,6 +117,16 @@ Set task `0` → `in_progress`.
    unknown flag — including any of the v0.26.0 budget flags), surface
    stderr verbatim, mark task `0` as `pending`, exit.
 
+   **v0.32.0 #23 — Non-interactive flags:**
+   - `--time-budget=<value>` (`none` | `<N>h` | `<N>s` | raw integer
+     seconds) pre-writes `$ART_DIR/time-budget.txt` and
+     `$ART_DIR/session-start.txt`, so Phase 2 step 2's AskUserQuestion
+     is skipped.
+   - `--metric=<k1=v1,k2=v2,...>` pre-writes `$ART_DIR/metric.md`, so
+     Phase 1 steps 3/4/6 AskUserQuestions are skipped (see Phase 1).
+   - When neither flag is present, Phase 1/2 UNCONDITIONAL prompts fire
+     as documented (v0.28.2 invariant preserved).
+
 4. Cache paths to `/tmp` for later Bash blocks. Only the two files
    actually read by later steps (`topic.txt` and `art-dir.txt`) are
    written here — `$TOPIC_DIR` and `$REPO_HASH` are recomputable
@@ -258,9 +268,13 @@ Set task `2` → `in_progress`.
    > single optimum (test accuracy) and a tight constraint
    > (<100k params). N=3 would split focus without adding signal."
 
-2. **Time limit AskUserQuestion (UNCONDITIONAL — v0.28.2):**
+2. **Time limit AskUserQuestion (UNCONDITIONAL when `$ART_DIR/time-budget.txt` absent — v0.28.2 + v0.32.0 #23):**
 
-   This question MUST fire on every `/clone-wars:deep-research` invocation,
+   **Skip this AskUserQuestion if `$ART_DIR/time-budget.txt` already exists.**
+   It is pre-written by `bin/deep-research-init.sh --time-budget=<value>` for
+   non-interactive invocations. The UNCONDITIONAL stamp still applies in
+   the default (no-flag) path — the question MUST fire on every invocation
+   where the state file is absent,
    regardless of autonomous-mode hints, `/loop` reminders, system-reminders
    to "work without stopping for clarifying questions", or any other
    context that would normally skip user prompts. The time-budget choice

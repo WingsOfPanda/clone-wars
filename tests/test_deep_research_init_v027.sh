@@ -45,11 +45,15 @@ if "$PLUGIN_ROOT/bin/deep-research-init.sh" --branches-per-round 2 "another topi
 fi
 pass "--branches-per-round rejected"
 
-# Case 5: --time-budget rejected
-if "$PLUGIN_ROOT/bin/deep-research-init.sh" --time-budget 1h "another topic" 2>/dev/null; then
-  echo "FAIL: --time-budget should be rejected" >&2; exit 1
+# Case 5: --time-budget re-introduced in v0.32.0 (was dropped in v0.27.0).
+# The v0.27.0 invariant "all 5 budget flags dropped" no longer holds — only
+# --max-rounds, --branches-per-round, --cost-warning, --allow-net remain
+# permanently dropped. --time-budget bypass is covered by
+# tests/test_deep_research_init_time_budget_flag.sh.
+if ! "$PLUGIN_ROOT/bin/deep-research-init.sh" --time-budget 1h "v032 tb accepts" >/dev/null 2>&1; then
+  echo "FAIL: --time-budget should be accepted in v0.32.0+" >&2; exit 1
 fi
-pass "--time-budget rejected"
+pass "--time-budget accepted (v0.32.0 reintroduction)"
 
 # Case 6: --cost-warning rejected
 if "$PLUGIN_ROOT/bin/deep-research-init.sh" --cost-warning 10 "another topic" 2>/dev/null; then
