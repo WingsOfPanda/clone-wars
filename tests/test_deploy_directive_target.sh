@@ -38,10 +38,12 @@ fi
 rm -f /tmp/_bare_git.$$
 pass "no leftover bare git invocations in directive"
 
-# Directive must export CW_TOPIC_REPO_CWD so downstream bin scripts (turn-send/wait,
-# archive, spawn, teardown) inherit the sub-repo-keyed hash for path resolution.
+# v0.31.0: directive MUST NOT export CW_TOPIC_REPO_CWD. State is project-local;
+# downstream bin scripts read $ART_DIR/target_cwd.txt directly for the sub-repo
+# path. Asserting absence rather than presence makes the invariant legible —
+# future contributors who re-add the export will fail this test.
 grep -qE 'export[ ]+CW_TOPIC_REPO_CWD' "$D" \
-  || { echo "FAIL: directive must export CW_TOPIC_REPO_CWD for downstream bin scripts" >&2; exit 1; }
-pass "directive exports CW_TOPIC_REPO_CWD"
+  && { echo "FAIL: directive must NOT export CW_TOPIC_REPO_CWD in v0.31.0 (removed in favor of target_cwd.txt direct read)" >&2; exit 1; }
+pass "directive does NOT export CW_TOPIC_REPO_CWD (v0.31.0 invariant)"
 
 echo "ALL: ok"

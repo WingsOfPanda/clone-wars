@@ -44,9 +44,11 @@ cat > "$ART_DIR/dag-waves.txt" <<EOF
 2	2	Beta-Repo	$HUB/inner/Beta-Repo	nested abs path case
 EOF
 
-# Run multi-init from $SANDBOX (different cwd than $HUB) with hub-cwd arg.
-( cd "$SANDBOX" && CW_TOPIC_REPO_CWD="$HUB" \
-  "$PLUGIN_ROOT/bin/deploy-multi-init.sh" "$TOPIC" "$HUB" )
+# v0.31.0: invoke from $HUB (the conductor's $PWD in the real flow). The
+# v0.30.0 CW_TOPIC_REPO_CWD env var is dead; cw_topic_repo_hash uses
+# $PWD so invoking from $HUB matches REPO_HASH computed above.
+( cd "$HUB" \
+  && "$PLUGIN_ROOT/bin/deploy-multi-init.sh" "$TOPIC" "$HUB" )
 
 assert_file_exists "$ART_DIR/troopers.txt" "troopers.txt written"
 mapfile -t LINES < "$ART_DIR/troopers.txt"
@@ -69,8 +71,8 @@ mkdir -p "$ART2"
 cat > "$ART2/dag-waves.txt" <<EOF
 1	1	Phantom	$SANDBOX/does-not-exist/Phantom	doomed
 EOF
-err=$( cd "$SANDBOX" && CW_TOPIC_REPO_CWD="$HUB" \
-  "$PLUGIN_ROOT/bin/deploy-multi-init.sh" "$TOPIC2" "$HUB" 2>&1 ) && rc=0 || rc=$?
+err=$( cd "$HUB" \
+  && "$PLUGIN_ROOT/bin/deploy-multi-init.sh" "$TOPIC2" "$HUB" 2>&1 ) && rc=0 || rc=$?
 [[ "$rc" -ne 0 ]] || { echo "FAIL: bad path-field should rc!=0" >&2; exit 1; }
 echo "$err" | grep -qi 'not found' \
   || { echo "FAIL: bad path-field error should mention 'not found': $err" >&2; exit 1; }

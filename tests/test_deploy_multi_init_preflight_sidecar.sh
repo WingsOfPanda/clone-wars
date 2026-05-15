@@ -37,8 +37,8 @@ cat > "$ART_DIR/dag-waves.txt" <<EOF
 3	3	ui	none	wire frontend
 EOF
 
-( cd "$SANDBOX" && CW_TOPIC_REPO_CWD="$HUB" \
-  "$PLUGIN_ROOT/bin/deploy-multi-init.sh" "$TOPIC" "$HUB" >/dev/null )
+( cd "$HUB" \
+  && "$PLUGIN_ROOT/bin/deploy-multi-init.sh" "$TOPIC" "$HUB" >/dev/null )
 
 # Existing artifacts still produced
 assert_file_exists "$ART_DIR/troopers.txt"          "troopers.txt written"
