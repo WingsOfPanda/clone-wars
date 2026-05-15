@@ -24,15 +24,45 @@ source "$PLUGIN_ROOT/lib/deep-research.sh"
 SEED_FROM=""
 TOPIC=""
 
+TIME_BUDGET=""
+METRIC_KV=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --seed-from)   SEED_FROM="$2"; shift 2 ;;
-    --seed-from=*) SEED_FROM="${1#*=}"; shift ;;
+    --seed-from)     SEED_FROM="$2"; shift 2 ;;
+    --seed-from=*)   SEED_FROM="${1#*=}"; shift ;;
+    --time-budget)   TIME_BUDGET="$2"; shift 2 ;;
+    --time-budget=*) TIME_BUDGET="${1#*=}"; shift ;;
+    --metric)        METRIC_KV="$2"; shift 2 ;;
+    --metric=*)      METRIC_KV="${1#*=}"; shift ;;
     --) shift; TOPIC="$*"; break ;;
-    -*) log_error "unknown flag: $1 (v0.27.0 dropped --max-rounds, --branches-per-round, --time-budget, --cost-warning, --allow-net)"; exit 2 ;;
+    -*) log_error "unknown flag: $1 (v0.32.0 added --time-budget + --metric; v0.27.0 dropped --max-rounds, --branches-per-round, --cost-warning, --allow-net)"; exit 2 ;;
     *)  TOPIC="$*"; break ;;
   esac
 done
+
+# v0.32.0 #23: resolve --time-budget value. Empty = unset = directive Phase 2 prompts.
+if [[ -n "$TIME_BUDGET" ]]; then
+  case "$TIME_BUDGET" in
+    none) RESOLVED_BUDGET=none ;;
+    *h)
+      h="${TIME_BUDGET%h}"
+      [[ "$h" =~ ^[1-9][0-9]*$ ]] \
+        || { log_error "invalid --time-budget hours: '$TIME_BUDGET'"; exit 2; }
+      RESOLVED_BUDGET=$(( h * 3600 ))
+      ;;
+    *s)
+      s="${TIME_BUDGET%s}"
+      [[ "$s" =~ ^[1-9][0-9]*$ ]] \
+        || { log_error "invalid --time-budget seconds: '$TIME_BUDGET'"; exit 2; }
+      RESOLVED_BUDGET="$s"
+      ;;
+    *)
+      [[ "$TIME_BUDGET" =~ ^[1-9][0-9]*$ ]] \
+        || { log_error "--time-budget must be 'none', '<N>h', or positive seconds; got '$TIME_BUDGET'"; exit 2; }
+      RESOLVED_BUDGET="$TIME_BUDGET"
+      ;;
+  esac
+fi
 
 [[ -n "$TOPIC" ]] || { log_error "topic required"; exit 2; }
 
@@ -98,6 +128,25 @@ fi
 # + diff alert lives in bin/deep-research-experiment-send.sh; this
 # snapshot lets the diff helper detect mid-session memory.free drops.
 cw_deep_research_hardware_probe "$ART_DIR/hardware.txt"
+
+# v0.32.0 #23: if --metric was passed, pre-write metric.md via the
+# existing helper. Directive prose skips Phase 1 steps 3/4/6
+# AskUserQuestions when metric.md exists.
+if [[ -n "$METRIC_KV" ]]; then
+  metric_out=$(printf '%s\n' "${METRIC_KV//,/$'\n'}" \
+    | cw_deep_research_format_metric_block 2>"$ART_DIR/metric.err") \
+    || { log_error "--metric: $(cat "$ART_DIR/metric.err")"; exit 2; }
+  printf '%s\n' "$metric_out" > "$ART_DIR/metric.md"
+  rm -f "$ART_DIR/metric.err"
+fi
+
+# v0.32.0 #23: if --time-budget was passed, pre-write the state files
+# Phase 2 step 2 would normally produce. Directive prose skips the
+# AskUserQuestion when time-budget.txt exists.
+if [[ -n "${RESOLVED_BUDGET:-}" ]]; then
+  printf '%s\n' "$RESOLVED_BUDGET" > "$ART_DIR/time-budget.txt"
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$ART_DIR/session-start.txt"
+fi
 
 # v0.28.0: touch active.txt. The UserPromptSubmit hook scans for this
 # file under $CLONE_WARS_HOME/state/ to detect an in-progress session
