@@ -6,6 +6,8 @@
 #       — heuristic metric name extraction; empty string if ambiguous
 #   cw_deep_research_validate_result_json <relative-path>
 #       — schema check; rc=0 valid; rc>0 invalid (stderr); call from branch dir
+#   cw_deep_research_validate_result_json_v033 <relative-path> <expected-metric-name>
+#       — v0.33.0 D1: base schema + mandatory metric_name match check
 #   cw_deep_research_extract_approaches <landscape-md-path>
 #       — TSV "label\tbrief\n" from meditate landscape ## Approaches section
 #   cw_deep_research_pick_roster <N>
@@ -219,6 +221,26 @@ cw_deep_research_extract_approaches() {
       printf "%s\t%s\n", label, rest
     }
   ' "$path"
+}
+
+# cw_deep_research_validate_result_json_v033 <relative-path> <expected-metric-name>
+# v0.33.0 D1: extends grep-fallback validation with mandatory metric_name match
+# against metric.md's primary_metric. Caller must have cd'd to the branch dir
+# (log_paths are relative). rc=0 valid; rc=1 invalid (stderr message).
+cw_deep_research_validate_result_json_v033() {
+  local path="${1:-}" expected_metric="${2:-}"
+  [[ -n "$expected_metric" ]] \
+    || { echo "expected-metric-name required" >&2; return 1; }
+  # Run base validator first (handles missing fields, status enum, log_paths)
+  _cw_deep_research_validate_result_grep "$path" || return 1
+  # Now the metric_name match
+  local actual_metric
+  actual_metric=$(grep -oE '"metric_name"[[:space:]]*:[[:space:]]*"[^"]*"' "$path" \
+    | head -1 \
+    | sed -E 's/.*"([^"]*)"$/\1/')
+  [[ "$actual_metric" == "$expected_metric" ]] \
+    || { echo "metric_name '$actual_metric' != metric.md primary '$expected_metric'" >&2; return 1; }
+  return 0
 }
 
 _cw_deep_research_validate_result_grep() {
