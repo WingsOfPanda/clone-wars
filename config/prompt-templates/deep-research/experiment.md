@@ -55,18 +55,30 @@ In ONE turn, do all of the following:
 4. Atomically write {{BRANCH_DIR}}/result.json with this EXACT schema:
 
    {
-     "branch_id":      "{{EXP_ID}}",
-     "approach_label": "{{APPROACH_LABEL}}",
-     "metric_name":    "{{METRIC_NAME}}",
-     "metric_value":   <number or null>,
-     "status":         "ok" | "fail" | "timeout" | "cost_blown",
-     "runtime_s":      <number — wall-clock for the run phase only>,
-     "log_paths":      ["./stdout.log", "./stderr.log"],
-     "notes":          "<free-form, max 500 chars>"
+     "branch_id":           "{{EXP_ID}}",
+     "approach_label":      "{{APPROACH_LABEL}}",
+     "metric_name":         "{{METRIC_NAME}}",
+     "metric_value":        <number or null>,
+     "status":              "ok" | "fail" | "timeout" | "cost_blown",
+     "runtime_s":           <number — wall-clock for the run phase only>,
+     "log_paths":           ["./stdout.log", "./stderr.log"],
+     "notes":               "<free-form, max 500 chars>",
+
+     "self_reported_count": <integer or null>,
+     "self_reported_ratio": <number or null>,
+     "self_reported_notes": "<string or null>"
    }
 
+   - metric_name MUST equal "{{METRIC_NAME}}" (rendered from metric.md's
+     primary_metric). Any other value is rejected by score.sh — the row
+     will be omitted from scoreboard.md and a result-validation.txt file
+     written next to your result.json explaining the rejection.
    - metric_value MUST be non-null when status="ok".
    - metric_value MUST be null when status != "ok".
+   - self_reported_count / self_reported_ratio / self_reported_notes are
+     OPTIONAL advisory metrics. Use them when your run measured multiple
+     things and you want to surface them without confusing the scoreboard.
+     Only metric_value (matched against metric_name) drives convergence.
    - log_paths MUST exist on disk by the time you write result.json.
    - Write via tmp + rename for atomicity:
        printf '%s' '<json>' > result.json.tmp && mv result.json.tmp result.json
@@ -104,5 +116,11 @@ Independence: cross-experiment context lives in your codex session
 history. If you've run prior experiments in this session, build on what
 you learned; the advisor's follow-up prompts will reference your prior
 result.json when relevant.
+
+Validation feedback: after your done event lands, the advisor's
+score.sh validates result.json. If validation fails, the advisor writes
+{{BRANCH_DIR}}/result-validation.txt with the specific reason (e.g.
+`metric_name 'foo' != metric.md primary 'bar'`). Read the file on your
+next inbox read, fix result.json, re-emit a done event.
 
 END_OF_INSTRUCTION
