@@ -16,6 +16,10 @@ set -uo pipefail
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 # shellcheck source=../lib/log.sh
 source "$PLUGIN_ROOT/lib/log.sh"
+# shellcheck source=../lib/state.sh
+source "$PLUGIN_ROOT/lib/state.sh"
+# shellcheck source=../lib/deep-research.sh
+source "$PLUGIN_ROOT/lib/deep-research.sh"
 
 [[ $# -eq 2 ]] || { echo "Usage: $0 <art-dir> <commander>" >&2; exit 2; }
 ART_DIR="$1"; COMMANDER="$2"
@@ -58,16 +62,23 @@ while true; do
       OFFSET=$local_size
     fi
 
-    # Liveness check via mtime
-    mtime=$(stat -c '%Y' "$OUTBOX" 2>/dev/null || echo 0)
-    now=$(date +%s)
-    delta=$((now - mtime))
-    if (( delta >= STUCK_S )) && (( now - LAST_STUCK_TS >= STUCK_S )); then
-      emit "stuck" "outbox mtime ${delta}s old (>= ${STUCK_S}s threshold)"
-      LAST_STUCK_TS=$now
-    elif (( delta >= PROBE_S )) && (( now - LAST_STALE_TS >= PROBE_S )); then
-      emit "stale" "outbox mtime ${delta}s old (>= ${PROBE_S}s threshold)"
-      LAST_STALE_TS=$now
+    # v0.32.0 #1: phase-aware liveness — only emit stale/stuck when
+    # phase=working. Once Yoda probes a stale trooper (phase=stale) or
+    # the trooper blocks on a question (phase=blocked), Monitor goes
+    # silent. Yoda owns escalation. Missing state.txt → empty phase → skip.
+    phase=$(cw_deep_research_trooper_state_field "$ART_DIR" "$COMMANDER" phase 2>/dev/null || echo "")
+    if [[ "$phase" == "working" ]]; then
+      # Liveness check via mtime
+      mtime=$(stat -c '%Y' "$OUTBOX" 2>/dev/null || echo 0)
+      now=$(date +%s)
+      delta=$((now - mtime))
+      if (( delta >= STUCK_S )) && (( now - LAST_STUCK_TS >= STUCK_S )); then
+        emit "stuck" "outbox mtime ${delta}s old (>= ${STUCK_S}s threshold)"
+        LAST_STUCK_TS=$now
+      elif (( delta >= PROBE_S )) && (( now - LAST_STALE_TS >= PROBE_S )); then
+        emit "stale" "outbox mtime ${delta}s old (>= ${PROBE_S}s threshold)"
+        LAST_STALE_TS=$now
+      fi
     fi
   fi
   sleep 2

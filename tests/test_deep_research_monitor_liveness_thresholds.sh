@@ -15,6 +15,17 @@ mkdir -p "$TOPIC_DIR/rex-codex"
 OUTBOX="$TOPIC_DIR/rex-codex/outbox.jsonl"
 echo '{"event":"ack","ts":"2026-05-13T08:00:00Z"}' > "$OUTBOX"
 
+# v0.32.0 #1: Monitor is now phase-aware and emits stale/stuck only when
+# phase=working. Pre-write state.txt so the existing assertion still holds.
+cat > "$ART/troopers/rex/state.txt" <<EOF2
+exp_counter=1
+phase=working
+current_exp_id=exp-001
+last_event_ts=2026-05-13T08:00:00Z
+last_event=dispatched
+probe_sent_ts=
+EOF2
+
 # Short thresholds via env override for the test
 export CW_DEEP_RESEARCH_PROBE_S=3 CW_DEEP_RESEARCH_STUCK_S=6
 
