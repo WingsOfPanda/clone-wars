@@ -22,7 +22,7 @@ TOPIC="$1"
 cw_consult_topic_validate "$TOPIC" \
   || { log_error "invalid topic: $TOPIC"; exit 2; }
 
-state_root="${CLONE_WARS_HOME:-$HOME/.clone-wars}"
+state_root=$(cw_state_root)
 repo_hash=$(cw_repo_hash)
 state_dir="$state_root/state/$repo_hash/$TOPIC"
 [[ -d "$state_dir" ]] || { log_error "$state_dir not found"; exit 1; }
@@ -35,7 +35,8 @@ TROOPERS_FILE="$ART_DIR/troopers.txt"
 cw_teardown_with_preflight_orphans "$ART_DIR" "$TROOPERS_FILE" 1col
 
 ts=$(date -u +%Y%m%dT%H%M%SZ)
-archive_dir="$state_root/archive/$repo_hash/${TOPIC}-${ts}"
+# v0.38.0: archive is per-MACHINE (global), distinct from per-PROJECT state.
+archive_dir="$(cw_global_state_root)/archive/$repo_hash/${TOPIC}-${ts}"
 mkdir -p "$(dirname "$archive_dir")"
 mv "$state_dir" "$archive_dir"
 log_ok "[teardown] archived $TOPIC → $archive_dir"

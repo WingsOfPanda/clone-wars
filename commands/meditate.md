@@ -475,7 +475,8 @@ Set task `9` → `in_progress`.
 Then move the topic state dir to archive:
 
 ```
-ARCHIVE_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/archive/$REPO_HASH/$MEDITATE_TOPIC-$(date -u +%Y%m%dT%H%M%SZ)"
+source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+ARCHIVE_DIR="$(cw_global_state_root)/archive/$REPO_HASH/$MEDITATE_TOPIC-$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$(dirname "$ARCHIVE_DIR")"
 mv "$TOPIC_DIR" "$ARCHIVE_DIR"
 log_info "archived to: $ARCHIVE_DIR"

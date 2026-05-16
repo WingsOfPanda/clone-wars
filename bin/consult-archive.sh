@@ -17,7 +17,7 @@ cw_consult_assert_topic "$TOPIC"
 
 TOPIC_DIR="$(cw_consult_topic_dir "$TOPIC")"
 ART_DIR="$TOPIC_DIR/_consult"
-ARCHIVE_BASE="$(cw_state_root)/archive/$(cw_topic_repo_hash)/$TOPIC"
+ARCHIVE_BASE="$(cw_global_state_root)/archive/$(cw_topic_repo_hash)/$TOPIC"
 
 DEST=$(cw_state_archive_dir "$ART_DIR" "$ARCHIVE_BASE" "_consult") || exit 1
 rmdir "$TOPIC_DIR" 2>/dev/null || true

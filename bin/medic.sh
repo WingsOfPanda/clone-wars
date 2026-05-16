@@ -27,7 +27,7 @@ if [[ "${1:-}" == "--args-file" ]]; then
   cw_args_file_consume "$args_file"
 fi
 
-state_root=$(cw_state_root)
+state_root=$(cw_global_state_root)
 fail=0
 warn=0
 providers_ok=0
@@ -87,7 +87,7 @@ if cw_in_tmux_session && tmux info >/dev/null 2>&1; then
 fi
 
 # 3. state dir resolves and is writable
-if cw_state_ensure 2>/dev/null && [[ -w "$state_root" ]]; then
+if cw_global_state_ensure 2>/dev/null && [[ -w "$state_root" ]]; then
   log_ok "state dir: $state_root (writable)"
 else
   log_error "state dir: $state_root cannot be created or is not writable"

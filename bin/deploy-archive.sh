@@ -17,7 +17,7 @@ cw_deploy_assert_topic "$TOPIC"
 
 TOPIC_DIR="$(cw_deploy_topic_dir "$TOPIC")"
 ART_DIR="$TOPIC_DIR/_deploy"
-ARCHIVE_BASE="$(cw_state_root)/archive/$(cw_topic_repo_hash)/$TOPIC"
+ARCHIVE_BASE="$(cw_global_state_root)/archive/$(cw_topic_repo_hash)/$TOPIC"
 
 DEST=$(cw_state_archive_dir "$ART_DIR" "$ARCHIVE_BASE" "_deploy") || exit 1
 rmdir "$TOPIC_DIR" 2>/dev/null || true

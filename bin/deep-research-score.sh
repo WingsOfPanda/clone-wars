@@ -22,7 +22,7 @@ TOPIC="$1"
   || { log_error "topic must start with 'deep-research-': $TOPIC"; exit 2; }
 cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 2; }
 
-state_root="${CLONE_WARS_HOME:-$HOME/.clone-wars}"
+state_root=$(cw_state_root)
 repo_hash=$(cw_repo_hash)
 TOPIC_DIR="$state_root/state/$repo_hash/$TOPIC"
 ART_DIR="$TOPIC_DIR/_deep-research"

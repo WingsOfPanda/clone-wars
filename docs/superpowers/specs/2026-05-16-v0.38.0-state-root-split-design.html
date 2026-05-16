@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v0.38.0 — state-root split design</title>
+<style>
+  :root {
+    --fg: #1f2328;
+    --muted: #59636e;
+    --bg: #ffffff;
+    --code-bg: #f6f8fa;
+    --border: #d0d7de;
+    --accent: #0969da;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e6edf3;
+      --muted: #9198a1;
+      --bg: #0d1117;
+      --code-bg: #151b23;
+      --border: #3d444d;
+      --accent: #4493f8;
+    }
+  }
+  html, body { background: var(--bg); color: var(--fg); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans",
+                 Helvetica, Arial, sans-serif;
+    line-height: 1.55; max-width: 880px; margin: 0 auto;
+    padding: 32px 24px 96px; font-size: 16px;
+  }
+  h1, h2, h3 { line-height: 1.25; margin-top: 1.6em; margin-bottom: 0.6em; }
+  h1 { font-size: 1.9em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+  h2 { font-size: 1.45em; border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
+  h3 { font-size: 1.2em; }
+  p { margin: 0.8em 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.88em; background: var(--code-bg);
+    padding: 0.15em 0.35em; border-radius: 4px;
+  }
+  pre { background: var(--code-bg); padding: 14px 16px; border-radius: 6px;
+        overflow-x: auto; font-size: 0.85em; line-height: 1.5;
+        border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; font-size: 1em; }
+  table { border-collapse: collapse; margin: 1em 0; font-size: 0.92em; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--code-bg); font-weight: 600; }
+  ul, ol { padding-left: 1.5em; }
+  li { margin: 0.3em 0; }
+  blockquote { border-left: 4px solid var(--border); padding: 0.2em 1em; margin: 1em 0; color: var(--muted); }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2em 0; }
+  .meta { color: var(--muted); font-size: 0.92em; }
+  .meta strong { color: var(--fg); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px;
+           background: var(--code-bg); border: 1px solid var(--border);
+           font-size: 0.82em; font-family: ui-monospace, SFMono-Regular, monospace;
+           color: var(--muted); }
+  .toc { background: var(--code-bg); border: 1px solid var(--border);
+         border-radius: 6px; padding: 12px 20px; margin: 1em 0 2em; font-size: 0.92em; }
+  .toc > strong { color: var(--muted); font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.05em; }
+</style>
+</head>
+<body>
+
+<h1>v0.38.0 — Split state-root concepts: per-machine config vs per-project state</h1>
+
+<p class="meta">
+  <strong>Status:</strong> Spec — pending review &nbsp;·&nbsp;
+  <strong>Date:</strong> 2026-05-16 &nbsp;·&nbsp;
+  <strong>Branch:</strong> <code>feat/v0.38.0-state-root-split</code> (off main, post-v0.37.0 merge) &nbsp;·&nbsp;
+  <strong>Predecessor:</strong> v0.31.0 (project-local state relocation)
+</p>
+
+<div class="toc">
+  <strong>Contents</strong>
+  <ul>
+    <li><a href="#problem">Problem</a></li>
+    <li><a href="#audit">Audit summary</a></li>
+    <li><a href="#goal">Goal</a></li>
+    <li><a href="#approach">Approach summary</a></li>
+    <li><a href="#surface">Surface inventory</a></li>
+    <li><a href="#tests">Tests</a></li>
+    <li><a href="#out-of-scope">Out of scope</a></li>
+    <li><a href="#release-gate">Release-gate dogfood</a></li>
+    <li><a href="#open-questions">Open questions</a></li>
+  </ul>
+</div>
+
+<h2 id="problem">Problem</h2>
+
+<p>
+  v0.31.0 collapsed two distinct concepts under a single <code>cw_state_root</code> helper:
+</p>
+
+<ul>
+  <li><strong>Per-MACHINE config</strong> — what binaries are available (<code>providers-available.txt</code>), shipping defaults (<code>contracts.yaml</code>, <code>commanders.yaml</code>), user's roster choice (<code>providers-active.txt</code>). One per install; survives across all projects.</li>
+  <li><strong>Per-PROJECT state</strong> — this project's ongoing <code>/consult</code> topics, <code>/deploy</code> runs, <code>/deep-research</code> sessions. One per repo; meaningful only inside that repo.</li>
+</ul>
+
+<p>
+  Before v0.31.0, both lived globally under <code>~/.clone-wars/</code>. v0.31.0 moved the
+  whole tree project-local for the per-project case (right) but inadvertently dragged the
+  per-machine config along (wrong). Various scripts then inconsistently bypass
+  <code>cw_state_root</code> using literal <code>${CLONE_WARS_HOME:-$HOME/.clone-wars}</code>
+  because the authors knew the data was per-machine — but didn't formalize a separate
+  helper.
+</p>
+
+<h3>Observed symptom (user-reported)</h3>
+
+<p>
+  Running <code>/clone-wars:medic</code> writes
+  <code>&lt;project&gt;/.clone-wars/providers-available.txt</code>, then reads
+  <code>~/.clone-wars/providers-available.txt</code> in Step A (different code path).
+  On any fresh install, this means: medic detects providers correctly, writes the list
+  project-local, then the interactive roster picker silently logs <code>warn:
+  providers-available.txt not found; skipping trooper selection</code> because it looks
+  in the wrong place. Roster picker never fires; consult silently uses defaults.
+</p>
+
+<p>
+  The user only saw the picker work because they had a pre-v0.31.0
+  <code>~/.clone-wars/providers-available.txt</code> left over from earlier installs.
+  <strong>Fresh-install users get a broken medic→consult chain.</strong> Same class of
+  break affects <code>/clone-wars:deep-research-init</code>'s codex-presence gate and
+  <code>bin/deploy-multi-init.sh</code>'s <code>commanders.yaml</code> lookup.
+</p>
+
+<h2 id="audit">Audit summary</h2>
+
+<table>
+  <thead><tr><th>Class</th><th>Files</th><th>Current path</th><th>Should be</th></tr></thead>
+  <tbody>
+    <tr><td>Per-MACHINE config (BUG)</td><td><code>bin/medic.sh:30/224</code>, <code>lib/contracts.sh:6</code>, <code>lib/commanders.sh:13</code>, <code>lib/state.sh:240 cw_active_providers_path</code>, <code>bin/consult-drilldown.sh:83</code>, <code>bin/medic.sh:104,184</code>, <code>commands/medic.md:25</code></td><td>project-local</td><td><strong>global</strong></td></tr>
+    <tr><td>Per-MACHINE config (work-around with literal global)</td><td><code>bin/deep-research-init.sh:74</code>, <code>bin/deep-research-{experiment-send,score,abort,teardown}.sh</code>, <code>bin/deploy-multi-init.sh:56</code>, <code>commands/meditate.md:478</code>, <code>commands/medic.md:88,101,206</code></td><td>global (literal)</td><td>global via helper</td></tr>
+    <tr><td>Archive (split)</td><td><code>bin/{consult,deploy}-archive.sh:20</code> + <code>lib/ipc.sh:53</code></td><td>project-local</td><td><strong>global</strong> (matches meditate; matches pre-v0.31.0; user picked Global in brainstorming)</td></tr>
+    <tr><td>Per-PROJECT state (correct)</td><td><code>state/</code>, <code>_args/</code>, <code>_run/</code></td><td>project-local via <code>cw_state_root</code></td><td>unchanged</td></tr>
+    <tr><td>Hook scope (correct)</td><td><code>hooks/user-prompt-submit-active-session.sh:20</code></td><td><code>$PWD/.clone-wars/state</code></td><td>unchanged — scoped to current project intentionally</td></tr>
+  </tbody>
+</table>
+
+<h2 id="goal">Goal</h2>
+
+<p>
+  (A) Restore the broken medic→consult/deploy/deep-research chain for fresh installs.
+  (B) Add an explicit <code>cw_global_state_root</code> helper so per-machine config has
+  a single source of truth. (C) Stop the workaround pattern where authors bypass
+  <code>cw_state_root</code> with literal global paths because no helper exists for that
+  case. (D) Add a permanent lint that enforces the discipline.
+</p>
+
+<h2 id="approach">Approach summary</h2>
+
+<h3>Layer A — new helpers in <code>lib/state.sh</code></h3>
+
+<pre><code># cw_global_state_root — per-MACHINE config root.
+# Always resolves to ${CLONE_WARS_HOME:-$HOME/.clone-wars}, regardless of $PWD.
+# Use for config that is per-install, not per-project: medic's
+# providers-{active,available}.txt, contracts.yaml, commanders.yaml,
+# the archive/ subtree.
+#
+# Contrast with cw_state_root (per-PROJECT state at $PWD/.clone-wars/)
+# for /consult, /deploy, /deep-research, /meditate per-topic work.
+cw_global_state_root() {
+  printf '%s\n' "${CLONE_WARS_HOME:-$HOME/.clone-wars}"
+}
+
+# cw_global_state_ensure — like cw_state_ensure but for the global root.
+cw_global_state_ensure() {
+  local root; root=$(cw_global_state_root)
+  mkdir -p "$root"
+  [[ -f "$root/.gitignore" ]] || printf '*\n' &gt; "$root/.gitignore" 2&gt;/dev/null || true
+}</code></pre>
+
+<h3>Layer B — migrate the per-machine paths (12 call sites)</h3>
+
+<p>Mechanical conversion. Order: lib/ first, then bin/, then commands/. See the surface table for the per-file change list.</p>
+
+<h3>Layer C — drop <code>commands/medic.md</code> Step 1 (args-file boilerplate)</h3>
+
+<p>
+  medic takes no arguments. The <code>_args/</code> staging pattern is v0.31.0
+  boilerplate that applied uniformly to every directive. For medic it's dead weight that
+  pollutes <code>&lt;project&gt;/.clone-wars/_args/</code> with empty files. Drop steps
+  1, 2, 3 from <code>commands/medic.md</code>; new Step 1 is just
+  <code>"${CLAUDE_PLUGIN_ROOT}/bin/medic.sh"</code> (no <code>--args-file</code> flag).
+</p>
+
+<p>
+  <code>bin/medic.sh</code> keeps accepting <code>--args-file &lt;path&gt;</code> as a
+  no-op for back-compat with mid-upgrade sessions. The script's
+  <code>cw_args_file_consume</code> call already handles the empty-args case gracefully.
+</p>
+
+<h3>Layer D — permanent lint <code>tests/test_state_root_discipline.sh</code></h3>
+
+<p>Counterpart to v0.37.0's <code>test_no_hardcoded_paths.sh</code>. Runs every release. Enforces:</p>
+
+<ol>
+  <li>medic.{md,sh} use <code>cw_global_state_root</code>, never <code>cw_state_root</code>.</li>
+  <li>contracts/commanders helpers + <code>cw_active_providers_path</code> use <code>cw_global_state_root</code>.</li>
+  <li>Archive base files use <code>cw_global_state_root</code>.</li>
+  <li>No literal <code>${CLONE_WARS_HOME:-$HOME/.clone-wars}</code> outside <code>lib/state.sh</code>.</li>
+  <li><code>commands/medic.md</code> has no <code>_args/</code> reference (Step 1 dropped).</li>
+</ol>
+
+<h3>Layer E — version-locked invariants</h3>
+
+<p><code>tests/test_v0_38_0_static_wiring.sh</code> — 10 invariants per the surface inventory.</p>
+
+<h2 id="surface">Surface inventory</h2>
+
+<table>
+  <thead><tr><th>File</th><th>Change</th><th>LoC</th></tr></thead>
+  <tbody>
+    <tr><td><code>lib/state.sh</code></td><td>New helpers + rewrite <code>cw_active_providers_path</code></td><td>+30</td></tr>
+    <tr><td><code>lib/contracts.sh</code></td><td><code>cw_contracts_path</code> → <code>cw_global_state_root</code></td><td>3</td></tr>
+    <tr><td><code>lib/commanders.sh</code></td><td><code>cw_commanders_path</code> → <code>cw_global_state_root</code></td><td>3</td></tr>
+    <tr><td><code>lib/ipc.sh</code></td><td>Archive base → <code>cw_global_state_root</code></td><td>2</td></tr>
+    <tr><td><code>bin/medic.sh</code></td><td><code>state_root=$(cw_global_state_root)</code> + <code>cw_global_state_ensure</code></td><td>5</td></tr>
+    <tr><td><code>bin/consult-drilldown.sh</code></td><td>contracts read → <code>cw_global_state_root</code></td><td>2</td></tr>
+    <tr><td><code>bin/consult-archive.sh</code> + <code>bin/deploy-archive.sh</code></td><td>Archive base → <code>cw_global_state_root</code></td><td>4</td></tr>
+    <tr><td><code>bin/deploy-multi-init.sh</code></td><td>literal → <code>$(cw_global_state_root)</code></td><td>2</td></tr>
+    <tr><td><code>bin/deep-research-init.sh</code> + 4 siblings</td><td>literal → <code>$(cw_global_state_root)</code></td><td>8</td></tr>
+    <tr><td><code>commands/medic.md</code></td><td>Drop Step 1 args-file (~25 LoC); literal → helper</td><td>−20 net</td></tr>
+    <tr><td><code>commands/meditate.md:478</code></td><td>Archive literal → helper</td><td>2</td></tr>
+    <tr><td><code>commands/teardown.md:20</code></td><td>Doc clarification</td><td>1</td></tr>
+    <tr><td><code>tests/test_state_root_discipline.sh</code></td><td>NEW permanent lint</td><td>~50</td></tr>
+    <tr><td><code>tests/test_v0_38_0_static_wiring.sh</code></td><td>NEW (10 invariants)</td><td>~90</td></tr>
+    <tr><td><code>.claude-plugin/plugin.json</code> + <code>marketplace.json</code></td><td>0.37.0 → 0.38.0</td><td>4</td></tr>
+    <tr><td><code>CLAUDE.md</code></td><td>Status row + release-gate row</td><td>2</td></tr>
+  </tbody>
+</table>
+
+<p>Estimated PR size: ~200 LoC net.</p>
+
+<h2 id="tests">Tests</h2>
+
+<h3><code>test_state_root_discipline.sh</code> (permanent — no skip-guard)</h3>
+
+<ol>
+  <li>medic.{md,sh} doesn't call <code>cw_state_root</code> (and <code>cw_global_state_root</code> is present).</li>
+  <li><code>lib/contracts.sh</code> + <code>lib/commanders.sh</code> call <code>cw_global_state_root</code>, not <code>cw_state_root</code>.</li>
+  <li>Archive base files use <code>cw_global_state_root</code>.</li>
+  <li>No literal <code>${CLONE_WARS_HOME:-$HOME/.clone-wars}</code> outside <code>lib/state.sh</code>.</li>
+  <li><code>commands/medic.md</code> has no <code>_args/</code> reference (Step 1 dropped).</li>
+</ol>
+
+<h3><code>test_v0_38_0_static_wiring.sh</code> (version-locked)</h3>
+
+<p>10 invariants per Layer E.</p>
+
+<h2 id="out-of-scope">Out of scope</h2>
+
+<ul>
+  <li><strong>Migration code</strong> — leave-alone, per v0.31.0 precedent. Users on the v0.31–v0.37 era who relied on project-local medic state need one <code>/medic</code> re-run after upgrade.</li>
+  <li><strong>Renaming <code>cw_state_root</code></strong> — too invasive; <code>cw_state_root</code> keeps its per-project semantics. The new helper sits alongside.</li>
+  <li><strong>Removing <code>${CLONE_WARS_HOME:-$HOME/.clone-wars}</code> env-var seam</strong> — kept inside <code>lib/state.sh</code>'s helpers for tests/debug. Outside <code>lib/state.sh</code>, the literal is banned by the permanent lint.</li>
+  <li><strong>Auto-detecting + cleaning up v0.31–v0.37 project-local stragglers</strong> — out of scope. They become inert.</li>
+  <li><strong>Migrating existing project-local archive/ subtrees</strong> — out of scope. v0.38.0+ writes new archives globally; old project-local archives stay where they are.</li>
+</ul>
+
+<h2 id="release-gate">Release-gate dogfood</h2>
+
+<ol>
+  <li><code>/clone-wars:medic</code> writes <code>~/.clone-wars/providers-available.txt</code> (not project-local). Verify with <code>ls ~/.clone-wars/</code>.</li>
+  <li><code>commands/medic.md</code> no longer creates <code>&lt;project&gt;/.clone-wars/_args/medic.XXXXXX</code> (no Step 1 args-file write).</li>
+  <li>Subsequent <code>/clone-wars:consult</code> reads the roster correctly — interactive picker runs (no <code>skipping trooper selection</code> warning).</li>
+  <li>Fresh-install simulation: <code>mv ~/.clone-wars ~/.clone-wars.bak &amp;&amp; rm -rf &lt;project&gt;/.clone-wars/{providers-*,contracts.yaml,commanders.yaml}</code>. Re-run <code>/medic</code>: contracts.yaml/commanders.yaml get copied from plugin to <code>~/.clone-wars/</code>, providers detected, roster picker fires.</li>
+  <li>Archive dir for new <code>/consult</code>, <code>/deploy</code>, <code>/deep-research</code>, <code>/meditate</code> runs lands at <code>~/.clone-wars/archive/&lt;repo-hash&gt;/&lt;topic&gt;-&lt;ts&gt;/</code> (uniformly).</li>
+  <li><code>bash tests/test_state_root_discipline.sh</code> exits 0.</li>
+  <li>Deliberate-regression test: add <code>cw_state_root</code> call to <code>bin/medic.sh</code>, lint exits 1 with file:line + suggested fix.</li>
+</ol>
+
+<h2 id="open-questions">Open questions</h2>
+
+<ol>
+  <li><strong><code>cw_global_state_ensure</code> <code>.gitignore</code> auto-write</strong> — <code>~/.clone-wars/</code> isn't usually under git but the defensive write costs nothing. Worth keeping? Yes.</li>
+  <li><strong><code>bin/medic.sh</code> accepting (and ignoring) <code>--args-file</code> for back-compat</strong> — covers users who upgrade mid-session and their cached directive still passes <code>--args-file</code>. Recommendation: keep no-op for one release, drop in v0.39.</li>
+  <li><strong>Lint coverage for literal env-var seam</strong> — strict; will fail if anyone manually expands <code>${CLONE_WARS_HOME:-$HOME/.clone-wars}</code> outside <code>lib/state.sh</code>. Acceptable since the helper is now available.</li>
+</ol>
+
+<hr>
+
+<p class="meta">
+  <span class="badge">v0.38.0</span> &nbsp;
+  Generated alongside the markdown spec at <code>docs/superpowers/specs/2026-05-16-v0.38.0-state-root-split-design.md</code>.
+</p>
+
+</body>
+</html>

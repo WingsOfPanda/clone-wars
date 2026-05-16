@@ -11,40 +11,25 @@ providers should be the active roster for `/clone-wars:consult`.
 
 ## Steps
 
-Steps 1–6 below are the bash wrapper around `bin/medic.sh` (mechanical
+Steps 1–4 below are the bash wrapper around `bin/medic.sh` (mechanical
 health checks). Steps A–G are the Claude-side interactive
 trooper-selection flow added in v0.18.0.
 
-The user's `$ARGUMENTS` may contain shell metacharacters. To prevent injection, we keep it out of any bash source: write it via the Write tool (a literal string parameter), then invoke the bin script with `--args-file`.
+`/clone-wars:medic` takes no arguments. v0.38.0 dropped the args-file
+boilerplate that v0.31.0 added (medic-specific case: no `$ARGUMENTS`
+to stage, no per-project staging dir to pollute the project tree with
+empty files). `bin/medic.sh` still accepts `--args-file <path>` as a
+back-compat no-op for one release.
 
-1. Use the Bash tool to resolve a unique args-file path (v0.31.0: project-local
-   + mktemp per invocation so parallel sessions don't collide):
-
-   ```
-   source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
-   ARGS_DIR="$(cw_state_root)/_args"
-   mkdir -p "$ARGS_DIR"
-   mktemp -p "$ARGS_DIR" -t 'medic.XXXXXX'
-   ```
-
-   The script prints the absolute path; remember it for steps 2 and 3.
-
-2. Use the Write tool to put `$ARGUMENTS` into that path:
-
-   - `file_path`: the path printed by step 1 (an absolute path under `<conductor-cwd>/.clone-wars/_args/`).
-   - `content`: the literal value of `$ARGUMENTS` (the slash-command argument string, exactly as the user typed it).
-
-   IMPORTANT: do NOT echo, printf, or otherwise quote `$ARGUMENTS` into a shell command — pass it directly as the Write tool's `content` parameter. This is the entire reason for the Write step.
-
-3. Use the Bash tool to invoke medic. Pass the path printed by step 1 as the `--args-file` arg (the script's argv consumes + deletes it via `cw_args_file_consume`):
+1. Use the Bash tool to invoke medic:
 
    ```
-   "${CLAUDE_PLUGIN_ROOT}/bin/medic.sh" --args-file <ARGS_PATH-from-step-1>
+   "${CLAUDE_PLUGIN_ROOT}/bin/medic.sh"
    ```
 
-4. Show the script's output to the user verbatim — it is already formatted with status glyphs and a Verdict line.
+2. Show the script's output to the user verbatim — it is already formatted with status glyphs and a Verdict line.
 
-5. If the verdict is `FAIL`, briefly summarize which checks failed and offer next steps:
+3. If the verdict is `FAIL`, briefly summarize which checks failed and offer next steps:
 
    - **tmux missing or too old** → `apt install tmux` / `brew install tmux`; clone-wars
      requires tmux ≥ 3.0.
@@ -54,12 +39,12 @@ The user's `$ARGUMENTS` may contain shell metacharacters. To prevent injection, 
    - **config file missing** → reinstall the plugin: `/plugin install clone-wars@clone-wars`.
    - **all providers missing** → install at least one of `codex`, `gemini`, `claude`.
 
-6. If the verdict is `OK`, no further action is needed; the user is ready
+4. If the verdict is `OK`, no further action is needed; the user is ready
    to run `/clone-wars:consult` or `/clone-wars:deploy`.
 
 ## Trooper selection (v0.18.0)
 
-After the health table renders (steps 1–6 above), interactively pick which
+After the health table renders (steps 1–4 above), interactively pick which
 detected providers should be the active roster for `/clone-wars:consult`.
 Selection persists at `$state_root/providers-active.txt` (global, one per
 machine/install). `bin/consult-init.sh` prefers this file over
@@ -85,7 +70,8 @@ provider binary (claude / codex / opencode).
 Use the Bash tool:
 
 ```
-state_root="${CLONE_WARS_HOME:-$HOME/.clone-wars}"
+source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+state_root=$(cw_global_state_root)
 grep -vE '^[[:space:]]*(#|$)' "$state_root/providers-available.txt" 2>/dev/null
 ```
 

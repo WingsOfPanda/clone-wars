@@ -66,7 +66,7 @@ if [[ -n "$INPUTS" ]]; then
   done
 fi
 
-state_root="${CLONE_WARS_HOME:-$HOME/.clone-wars}"
+state_root=$(cw_state_root)
 repo_hash=$(cw_repo_hash)
 TOPIC_DIR="$state_root/state/$repo_hash/$TOPIC"
 ART_DIR="$TOPIC_DIR/_deep-research"

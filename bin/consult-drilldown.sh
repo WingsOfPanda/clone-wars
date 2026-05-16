@@ -80,7 +80,7 @@ mkdir -p "$DD_DIR/_scratch" \
 
 # Read drill timeout from contracts.yaml (findings_timeout_s); default 90s.
 TIMEOUT=$(awk -F: '/findings_timeout_s/{gsub(/[^0-9]/,"",$2); print $2; exit}' \
-  "$(cw_state_root)/contracts.yaml" 2>/dev/null)
+  "$(cw_global_state_root)/contracts.yaml" 2>/dev/null)
 TIMEOUT=${TIMEOUT:-90}
 
 SECTION_SLUG=$(printf '%s' "$TITLE" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')

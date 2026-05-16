@@ -10,7 +10,7 @@
 
 # cw_commanders_path — print the active commanders.yaml path.
 cw_commanders_path() {
-  local p="$(cw_state_root)/commanders.yaml"
+  local p="$(cw_global_state_root)/commanders.yaml"
   [[ -f "$p" ]] || p="$PLUGIN_ROOT/config/commanders.yaml"
   printf '%s\n' "$p"
 }

@@ -71,7 +71,7 @@ fi
 
 # Codex availability gate (medic active-set is IGNORED for deep-research;
 # roster size is advisor-decided in directive Phase 2).
-state_root="${CLONE_WARS_HOME:-$HOME/.clone-wars}"
+state_root=$(cw_global_state_root)
 providers_file="$state_root/providers-available.txt"
 if [[ ! -f "$providers_file" ]] || ! grep -qE '^codex$' "$providers_file"; then
   log_error "/clone-wars:deep-research requires codex provider."
