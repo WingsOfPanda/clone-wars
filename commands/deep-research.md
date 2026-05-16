@@ -85,14 +85,18 @@ persist across separate Bash calls in this harness).
 Set task `0` → `in_progress`.
 
 1. Resolve a unique args path (v0.31.0: project-local + mktemp per
-   invocation so parallel sessions don't collide):
+   invocation so parallel sessions don't collide) and a per-invocation
+   `RUN_DIR` (v0.36.0: project-local pointer dir; replaces session-global
+   pointer files that collided across parallel runs):
 
    ```bash
+   source /home/liupan/CC/clone-wars/lib/log.sh
    source /home/liupan/CC/clone-wars/lib/state.sh
+   RUN_DIR=$(cw_run_dir deep-research)
    ARGS_DIR="$(cw_state_root)/_args"
    mkdir -p "$ARGS_DIR"
    ARGS_FILE=$(mktemp -p "$ARGS_DIR" -t 'deep-research.XXXXXX')
-   echo "$ARGS_FILE" > /tmp/cw-deep-research-args-path.txt
+   printf '%s' "$ARGS_FILE" > "$RUN_DIR/args-path.txt"
    echo "$ARGS_FILE"
    ```
 
@@ -106,7 +110,8 @@ Set task `0` → `in_progress`.
    source /home/liupan/CC/clone-wars/lib/consult.sh
    source /home/liupan/CC/clone-wars/lib/deep-research.sh
 
-   ARGS_FILE=$(cat /tmp/cw-deep-research-args-path.txt)
+   RUN_DIR=$(cw_run_dir_last)
+   ARGS_FILE=$(cat "$RUN_DIR/args-path.txt")
    ARGS=$(cat "$ARGS_FILE")
    # shellcheck disable=SC2086 — splitting intentional for --seed-from + topic
    DEEP_TOPIC=$(/home/liupan/CC/clone-wars/bin/deep-research-init.sh $ARGS)
@@ -127,17 +132,18 @@ Set task `0` → `in_progress`.
    - When neither flag is present, Phase 1/2 UNCONDITIONAL prompts fire
      as documented (v0.28.2 invariant preserved).
 
-4. Cache paths to `/tmp` for later Bash blocks. Only the two files
+4. Cache paths to `$RUN_DIR` for later Bash blocks. Only the two files
    actually read by later steps (`topic.txt` and `art-dir.txt`) are
    written here — `$TOPIC_DIR` and `$REPO_HASH` are recomputable
    on demand by any block that needs them.
 
    ```bash
    source /home/liupan/CC/clone-wars/lib/state.sh
-   echo "$DEEP_TOPIC" > /tmp/cw-deep-research-topic.txt
+   RUN_DIR=$(cw_run_dir_last)
+   printf '%s' "$DEEP_TOPIC" > "$RUN_DIR/topic.txt"
    REPO_HASH=$(cw_repo_hash)
-   TOPIC_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$DEEP_TOPIC"
-   echo "$TOPIC_DIR/_deep-research" > /tmp/cw-deep-research-art-dir.txt
+   TOPIC_DIR="$(cw_state_root)/state/$REPO_HASH/$DEEP_TOPIC"
+   printf '%s' "$TOPIC_DIR/_deep-research" > "$RUN_DIR/art-dir.txt"
    ```
 
 Set task `0` → `completed`.
@@ -162,7 +168,9 @@ header for details.
 1. Seed: read the heuristic metric guess from init's metric.txt:
 
    ```bash
-   ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
+   source /home/liupan/CC/clone-wars/lib/state.sh
+   RUN_DIR=$(cw_run_dir_last)
+   ART_DIR=$(cat "$RUN_DIR/art-dir.txt")
    SEED_METRIC=$(cat "$ART_DIR/metric.txt" 2>/dev/null | head -1)
    TOPIC_TEXT=$(cat "$ART_DIR/topic.txt")
    echo "SEED_METRIC=$SEED_METRIC"
@@ -220,8 +228,10 @@ header for details.
 5. Format and write `metric.md`:
 
    ```bash
+   source /home/liupan/CC/clone-wars/lib/state.sh
    source /home/liupan/CC/clone-wars/lib/deep-research.sh
-   ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
+   RUN_DIR=$(cw_run_dir_last)
+   ART_DIR=$(cat "$RUN_DIR/art-dir.txt")
    cw_deep_research_format_metric_block <<EOF > "$ART_DIR/metric.md"
    primary_metric=accuracy
    direction=maximize
@@ -316,7 +326,9 @@ Set task `2` → `in_progress`.
    Parse user's answer to seconds and write:
 
    ```bash
-   ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
+   source /home/liupan/CC/clone-wars/lib/state.sh
+   RUN_DIR=$(cw_run_dir_last)
+   ART_DIR=$(cat "$RUN_DIR/art-dir.txt")
    echo "none" > "$ART_DIR/time-budget.txt"      # or the seconds value
    date -u +%Y-%m-%dT%H:%M:%SZ > "$ART_DIR/session-start.txt"
    # v0.28.0: stagnation-cursor.txt is gone — completion-check helper
@@ -333,10 +345,12 @@ Set task `2` → `in_progress`.
 3. **Allocate roster (mechanical):**
 
    ```bash
+   source /home/liupan/CC/clone-wars/lib/state.sh
    source /home/liupan/CC/clone-wars/lib/deep-research.sh
+   RUN_DIR=$(cw_run_dir_last)
    mapfile -t ROSTER < <(cw_deep_research_pick_roster 2)   # or 3
    echo "Roster: ${ROSTER[*]}"
-   printf '%s\n' "${ROSTER[@]}" > /tmp/cw-deep-research-roster.txt
+   printf '%s\n' "${ROSTER[@]}" > "$RUN_DIR/roster.txt"
    ```
 
 Set task `2` → `completed`.
@@ -366,8 +380,9 @@ This mirrors `/clone-wars:meditate` Step 2 (v0.25.0+) and
    source /home/liupan/CC/clone-wars/lib/state.sh
    source /home/liupan/CC/clone-wars/lib/consult.sh
    source /home/liupan/CC/clone-wars/lib/deep-research.sh
-   ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
-   mapfile -t ROSTER < /tmp/cw-deep-research-roster.txt
+   RUN_DIR=$(cw_run_dir_last)
+   ART_DIR=$(cat "$RUN_DIR/art-dir.txt")
+   mapfile -t ROSTER < "$RUN_DIR/roster.txt"
    cw_deep_research_write_preflight_sidecar "$ART_DIR" "${ROSTER[@]}"
    ```
 
@@ -382,8 +397,10 @@ This mirrors `/clone-wars:meditate` Step 2 (v0.25.0+) and
    pane, applies main-vertical layout, writes `preflight-panes.txt`:
 
    ```bash
-   DEEP_TOPIC=$(cat /tmp/cw-deep-research-topic.txt)
-   ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
+   source /home/liupan/CC/clone-wars/lib/state.sh
+   RUN_DIR=$(cw_run_dir_last)
+   DEEP_TOPIC=$(cat "$RUN_DIR/topic.txt")
+   ART_DIR=$(cat "$RUN_DIR/art-dir.txt")
    /home/liupan/CC/clone-wars/bin/preflight-layout.sh \
      --art-dir "$ART_DIR" \
      --troopers-from "$ART_DIR/troopers-preflight.txt" \
@@ -405,7 +422,9 @@ This mirrors `/clone-wars:meditate` Step 2 (v0.25.0+) and
    `SPAWN_RETRY_COUNT=1`.
 
    ```bash
-   DEEP_TOPIC=$(cat /tmp/cw-deep-research-topic.txt)
+   source /home/liupan/CC/clone-wars/lib/state.sh
+   RUN_DIR=$(cw_run_dir_last)
+   DEEP_TOPIC=$(cat "$RUN_DIR/topic.txt")
    /home/liupan/CC/clone-wars/bin/deep-research-teardown.sh "$DEEP_TOPIC" 2>/dev/null || true
    SPAWN_RETRY_COUNT=1
    log_info "preflight failed (cold start?); retrying preflight + parallel spawn"
@@ -428,8 +447,10 @@ from `PREFLIGHT_PANES`) and `--preflight-art-dir` (so spawn.sh validates
 the pane ID against the correct preflight-panes.txt):
 
 ```bash
-DEEP_TOPIC=$(cat /tmp/cw-deep-research-topic.txt)
-ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
+source /home/liupan/CC/clone-wars/lib/state.sh
+RUN_DIR=$(cw_run_dir_last)
+DEEP_TOPIC=$(cat "$RUN_DIR/topic.txt")
+ART_DIR=$(cat "$RUN_DIR/art-dir.txt")
 /home/liupan/CC/clone-wars/bin/spawn.sh \
   <commander> codex "$DEEP_TOPIC" \
   --target-pane "${PREFLIGHT_PANES[<commander>]}" \
@@ -447,7 +468,9 @@ block:
 - **Any failed AND `SPAWN_RETRY_COUNT == 0`** → Stage 1 retry-once:
 
   ```bash
-  DEEP_TOPIC=$(cat /tmp/cw-deep-research-topic.txt)
+  source /home/liupan/CC/clone-wars/lib/state.sh
+  RUN_DIR=$(cw_run_dir_last)
+  DEEP_TOPIC=$(cat "$RUN_DIR/topic.txt")
   /home/liupan/CC/clone-wars/bin/deep-research-teardown.sh "$DEEP_TOPIC" 2>/dev/null || true
   SPAWN_RETRY_COUNT=1
   log_info "spawn failed (cold start?); retrying preflight + parallel spawn"
@@ -475,7 +498,8 @@ block:
 
   Then AskUserQuestion with two options:
   - `Proceed degraded (${#SUCCESS[@]}/$N troopers)` — drop failed commanders
-    from ROSTER + `/tmp/cw-deep-research-roster.txt` + `troopers.txt`, kill
+    from ROSTER + `$RUN_DIR/roster.txt` (resolve via `RUN_DIR=$(cw_run_dir_last)`)
+    + `troopers.txt`, kill
     their preflight panes via `cw_preflight_kill_orphans`, continue to
     Phase 4 with the reduced roster. Force abort if `${#SUCCESS[@]} < 2`
     (deep-research min N=2).
@@ -516,8 +540,9 @@ trooper's prompt via the `{{TASK_CONTEXT}}` placeholder.
    source /home/liupan/CC/clone-wars/lib/log.sh
    source /home/liupan/CC/clone-wars/lib/state.sh
    source /home/liupan/CC/clone-wars/lib/deep-research.sh
-   ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
-   mapfile -t ROSTER < /tmp/cw-deep-research-roster.txt
+   RUN_DIR=$(cw_run_dir_last)
+   ART_DIR=$(cat "$RUN_DIR/art-dir.txt")
+   mapfile -t ROSTER < "$RUN_DIR/roster.txt"
    # v0.28.2: write durable roster file so render_summary / status_brief /
    # finalize.sh can iterate commanders without the directive's /tmp cache.
    # Was read-but-never-written in v0.28.0 — left the Status table empty in
@@ -558,7 +583,10 @@ trooper's prompt via the `{{TASK_CONTEXT}}` placeholder.
 3. **Write initial `session-summary.md`:**
 
    ```bash
-   ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
+   source /home/liupan/CC/clone-wars/lib/state.sh
+   source /home/liupan/CC/clone-wars/lib/deep-research.sh
+   RUN_DIR=$(cw_run_dir_last)
+   ART_DIR=$(cat "$RUN_DIR/art-dir.txt")
    cw_deep_research_render_summary "$ART_DIR" > "$ART_DIR/session-summary.md"
    ```
 
@@ -572,7 +600,9 @@ trooper's prompt via the `{{TASK_CONTEXT}}` placeholder.
    a single message):
 
    ```bash
-   DEEP_TOPIC=$(cat /tmp/cw-deep-research-topic.txt)
+   source /home/liupan/CC/clone-wars/lib/state.sh
+   RUN_DIR=$(cw_run_dir_last)
+   DEEP_TOPIC=$(cat "$RUN_DIR/topic.txt")
    /home/liupan/CC/clone-wars/bin/deep-research-experiment-send.sh \
      "$DEEP_TOPIC" "<cmdr>" "exp-001" "<approach-label>" "<short direction>"
    ```
@@ -711,8 +741,10 @@ Then single batched panes teardown via `--pairs` (one 9s graceful banner
 across N panes, not N × 9s):
 
 ```bash
-DEEP_TOPIC=$(cat /tmp/cw-deep-research-topic.txt)
-mapfile -t ROSTER < /tmp/cw-deep-research-roster.txt
+source /home/liupan/CC/clone-wars/lib/state.sh
+RUN_DIR=$(cw_run_dir_last)
+DEEP_TOPIC=$(cat "$RUN_DIR/topic.txt")
+mapfile -t ROSTER < "$RUN_DIR/roster.txt"
 /home/liupan/CC/clone-wars/bin/teardown.sh --pairs "$DEEP_TOPIC" "${ROSTER[@]}"
 /home/liupan/CC/clone-wars/bin/deep-research-teardown.sh "$DEEP_TOPIC"
 ```
