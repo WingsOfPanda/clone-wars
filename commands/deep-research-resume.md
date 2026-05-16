@@ -5,7 +5,7 @@
 > is detected. Yoda reads it via the Read tool to load the handler
 > logic on each chat-triggered turn.
 
-You are mid-session as the deep-research advisor. An active.txt exists
+You are mid-session as the deep-research advisor. An active-<session-id>.txt exists
 in some `_deep-research/` state dir under `$CLONE_WARS_HOME/state/`.
 Before responding to the user, run the steps below in order.
 
@@ -22,7 +22,7 @@ source ${CLAUDE_PLUGIN_ROOT}/lib/consult.sh
 source ${CLAUDE_PLUGIN_ROOT}/lib/deep-research.sh
 ```
 
-Resolve ART_DIR by reading the active.txt that the hook surfaced:
+Resolve ART_DIR by reading the active-<session-id>.txt that the hook surfaced:
 - Topic slug: from the hook's `topic:` field.
 - ART_DIR: from the hook's `Active state:` field.
 

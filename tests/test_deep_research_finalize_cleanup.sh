@@ -8,6 +8,10 @@ PLUGIN_ROOT="$(cd .. && pwd)"
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 export CLONE_WARS_HOME="$TMP/cw"
 
+# v0.40.0: finalize removes active-<CLAUDE_CODE_SESSION_ID>.txt
+export CLAUDE_CODE_SESSION_ID=cccccccc-fin-test-3333-444444444444
+SID="$CLAUDE_CODE_SESSION_ID"
+
 source "$PLUGIN_ROOT/lib/state.sh"
 REPO_HASH=$(cw_repo_hash)
 TOPIC=deep-research-finalize-test
@@ -15,7 +19,7 @@ ART="$CLONE_WARS_HOME/state/$REPO_HASH/$TOPIC/_deep-research"
 mkdir -p "$ART/troopers/rex" "$ART/troopers/cody"
 echo "rex" > "$ART/troopers.txt"
 echo "cody" >> "$ART/troopers.txt"
-echo "$TOPIC" > "$ART/active.txt"
+echo "$TOPIC" > "$ART/active-${SID}.txt"
 echo "user-halted" > "$ART/halt.flag"
 echo "fake-topic" > "$ART/topic.txt"
 echo "none" > "$ART/time-budget.txt"
@@ -68,10 +72,10 @@ EOF
 rc=0; "$PLUGIN_ROOT/bin/deep-research-finalize.sh" "$TOPIC" >/tmp/finalize.out 2>&1 || rc=$?
 [[ "$rc" == "0" ]] || { echo "FAIL: finalize rc=$rc" >&2; cat /tmp/finalize.out >&2; exit 1; }
 
-# active.txt removed
-[[ ! -f "$ART/active.txt" ]] \
-  || { echo "FAIL: active.txt still exists" >&2; exit 1; }
-pass "finalize removes active.txt"
+# active-<sid>.txt removed (v0.40.0)
+[[ ! -f "$ART/active-${SID}.txt" ]] \
+  || { echo "FAIL: active-${SID}.txt still exists" >&2; exit 1; }
+pass "finalize removes active-<session-id>.txt"
 
 # Per-trooper state phase updated
 rex_phase=$(awk -F= '/^phase=/{print $2}' "$ART/troopers/rex/state.txt")

@@ -56,6 +56,32 @@ cw_commander_in_use() {
   cw_commanders_in_use_in_topic "$topic" | grep -qx "$commander"
 }
 
+# cw_format_collision_error <commander> <model> <topic>
+# v0.40.0: print the multi-line rejection message bin/spawn.sh emits
+# when cw_commander_in_use returns true. Extracted into a helper so
+# tests can exercise the owner-session disclosure path without
+# needing a live tmux + provider binary stack.
+#
+# When the colliding trooper state dir has a .session_id file written
+# by a different Claude Code session, the message includes the first
+# 8 chars of each session id so the user can disambiguate "my stale
+# state" from "sibling terminal's live state".
+cw_format_collision_error() {
+  local commander="$1" model="$2" topic="$3"
+  local trooper_dir owner this_session
+  trooper_dir=$(cw_trooper_dir "$commander" "$model" "$topic")
+  owner=""
+  if [[ -f "$trooper_dir/.session_id" ]]; then
+    owner=$(head -1 "$trooper_dir/.session_id" 2>/dev/null | tr -d '\n')
+  fi
+  this_session="${CLAUDE_CODE_SESSION_ID:-unknown}"
+  printf '%s is already deployed on %s; pick another commander\n' "$commander" "$topic"
+  if [[ -n "$owner" && "$owner" != "$this_session" ]]; then
+    printf '  owned by another Claude Code session (id=%s…, mine=%s…)\n' "${owner:0:8}" "${this_session:0:8}"
+  fi
+  printf '  or run: /clone-wars:teardown %s %s\n' "$commander" "$topic"
+}
+
 # cw_commanders_in_use_globally
 # Print every commander currently deployed across every topic in this repo.
 cw_commanders_in_use_globally() {

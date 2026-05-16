@@ -34,11 +34,16 @@ cw_pane_meta_path(){ printf '%s/pane.json\n'     "$(cw_trooper_dir "$1" "$2" "$3
 # cw_state_init <commander> <model> <topic>
 # Create a fresh state dir for a trooper, clean any prior IPC files.
 # Touches outbox.jsonl so polling can grep the empty file safely.
+#
+# v0.40.0: also stamps .session_id with the current Claude Code session
+# uuid so cw_format_collision_error can name the owner when another
+# session retries on the same (topic, commander) pair.
 cw_state_init() {
   local dir; dir=$(cw_trooper_dir "$1" "$2" "$3")
   mkdir -p "$dir"
-  rm -f "$dir/identity.md" "$dir/inbox.md" "$dir/outbox.jsonl" "$dir/status.json" "$dir/pane.json"
+  rm -f "$dir/identity.md" "$dir/inbox.md" "$dir/outbox.jsonl" "$dir/status.json" "$dir/pane.json" "$dir/.session_id"
   touch "$dir/outbox.jsonl"
+  printf '%s\n' "${CLAUDE_CODE_SESSION_ID:-unknown}" > "$dir/.session_id"
 }
 
 # cw_state_archive <commander> <model> <topic> [<suffix>]
