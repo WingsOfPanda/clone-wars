@@ -22,20 +22,25 @@ source "$PLUGIN_ROOT/lib/state.sh"
 REPO_HASH=$(cw_repo_hash)
 HOOK="$PLUGIN_ROOT/hooks/user-prompt-submit-active-session.sh"
 
+# v0.40.0: hook reads .session_id from stdin JSON and matches
+# active-<that-sid>.txt. Tests must pipe synthetic JSON.
+SID=eeeeeeee-uphook-test-7777-888888888888
+PAYLOAD="{\"session_id\":\"$SID\",\"hook_event_name\":\"UserPromptSubmit\"}"
+
 # Case A: no active sessions → exit 0, empty stdout
 mkdir -p "$PROJ/.clone-wars/state/$REPO_HASH"
-OUT=$("$HOOK"); rc=$?
-[[ "$rc" == "0" ]] || { echo "FAIL: hook rc=$rc when no active.txt" >&2; exit 1; }
+OUT=$(printf '%s' "$PAYLOAD" | "$HOOK"); rc=$?
+[[ "$rc" == "0" ]] || { echo "FAIL: hook rc=$rc when no active-<sid>.txt" >&2; exit 1; }
 [[ -z "$OUT" ]] || { echo "FAIL: hook should emit nothing when no active session, got: $OUT" >&2; exit 1; }
 pass "no active session → exit 0, empty stdout"
 
-# Case B: active.txt exists → emit context block referencing resume directive
+# Case B: active-<sid>.txt exists → emit context block referencing resume directive
 TOPIC=deep-research-hooktest
 mkdir -p "$PROJ/.clone-wars/state/$REPO_HASH/$TOPIC/_deep-research"
-echo "$TOPIC" > "$PROJ/.clone-wars/state/$REPO_HASH/$TOPIC/_deep-research/active.txt"
+echo "$TOPIC" > "$PROJ/.clone-wars/state/$REPO_HASH/$TOPIC/_deep-research/active-${SID}.txt"
 
-OUT=$("$HOOK"); rc=$?
-[[ "$rc" == "0" ]] || { echo "FAIL: hook rc=$rc when active.txt exists" >&2; exit 1; }
+OUT=$(printf '%s' "$PAYLOAD" | "$HOOK"); rc=$?
+[[ "$rc" == "0" ]] || { echo "FAIL: hook rc=$rc when active-<sid>.txt exists" >&2; exit 1; }
 assert_contains "$OUT" "clone-wars:deep-research active session" "marker phrase"
 assert_contains "$OUT" "$TOPIC" "topic slug surfaced"
 assert_contains "$OUT" "commands/deep-research-resume.md" "resume directive path"
