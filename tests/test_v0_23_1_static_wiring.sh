@@ -59,8 +59,8 @@ pass "Upfront task table omits legacy 3b row + explains runtime creation"
 STEP_3B=$(awk '/^### Step 3b /,/^### Step 3c /' "$DEPLOY_MD")
 [[ -n "$STEP_3B" ]] \
   || { echo "FAIL: Step 3b body not located" >&2; exit 1; }
-[[ "$STEP_3B" == *'source "$CLAUDE_PLUGIN_ROOT/lib/commanders.sh"'* ]] \
-  || { echo "FAIL: Step 3b does not source lib/commanders.sh" >&2; exit 1; }
+[[ "$STEP_3B" == *'source "${CLAUDE_PLUGIN_ROOT}/lib/commanders.sh"'* ]] \
+  || { echo "FAIL: Step 3b does not source lib/commanders.sh (expected braced \${CLAUDE_PLUGIN_ROOT} per v0.39.0 migration)" >&2; exit 1; }
 pass "Step 3b sources lib/commanders.sh for cw_cmdr_rank"
 
 # 4. Per-(wave,repo) TaskCreate directive with the canonical subject pattern
