@@ -56,16 +56,22 @@ Write tool, then invoke sub-scripts with the resolved values.
 Set task `0` → `in_progress`.
 
 1. Resolve a unique args path (v0.31.0: project-local + mktemp per
-   invocation so parallel sessions don't collide on a stable filename):
+   invocation so parallel sessions don't collide on a stable filename)
+   and a per-invocation `RUN_DIR` (v0.36.0: project-local pointer dir;
+   replaces session-global pointer files that collided across parallel
+   runs):
    ```
+   source "$CLAUDE_PLUGIN_ROOT/lib/log.sh"
    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+   RUN_DIR=$(cw_run_dir deploy)
    ARGS_DIR="$(cw_state_root)/_args"
    mkdir -p "$ARGS_DIR"
    ARGS_FILE=$(mktemp -p "$ARGS_DIR" -t 'deploy.XXXXXX')
-   echo "$ARGS_FILE" > /tmp/cw-deploy-args-path.txt
+   printf '%s' "$ARGS_FILE" > "$RUN_DIR/args-path.txt"
    echo "$ARGS_FILE"
    ```
-   Subsequent Bash blocks read the path via `ARGS_FILE=$(cat /tmp/cw-deploy-args-path.txt)`.
+   Subsequent Bash blocks read the args path via
+   `RUN_DIR=$(cw_run_dir_last); ARGS_FILE=$(cat "$RUN_DIR/args-path.txt")`.
 2. Parse `--max-rounds <N>` out of `$ARGUMENTS` BEFORE writing the args file.
    The init script rejects unknown flags, so this flag must never reach it.
    Scan `$ARGUMENTS` token-by-token: when you see `--max-rounds`, capture the
@@ -108,10 +114,11 @@ Set task `0` → `in_progress`.
    ```
    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
    source "$CLAUDE_PLUGIN_ROOT/lib/deploy.sh"
-   ARGS_FILE=$(cat /tmp/cw-deploy-args-path.txt)
+   RUN_DIR=$(cw_run_dir_last)
+   ARGS_FILE=$(cat "$RUN_DIR/args-path.txt")
    REPO_HASH=$(cw_repo_hash)
    TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/deploy-init.sh" \
-              --args-file "$ARGS_FILE" 2>/tmp/cw-init-err) \
+              --args-file "$ARGS_FILE" 2>"$RUN_DIR/init-err") \
               && INIT_RC=0 || INIT_RC=$?
    ```
    When `INIT_RC=0`, jump straight to the post-init block below (TOPIC_DIR /
@@ -143,13 +150,15 @@ Set task `0` → `in_progress`.
     On `Stash and continue`:
 
     ```
+    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+    RUN_DIR=$(cw_run_dir_last)
     TARGET_CWD=$(pwd)
     git -C "$TARGET_CWD" stash push -u -m "deploy ${TOPIC:-pending} WIP"
     STASH_SHA=$(git -C "$TARGET_CWD" stash list -1 --format=%H)
     [[ -n "$STASH_SHA" ]] || { log_error "stash push reported success but no stash on list"; exit 1; }
-    ARGS_FILE=$(cat /tmp/cw-deploy-args-path.txt)
+    ARGS_FILE=$(cat "$RUN_DIR/args-path.txt")
     TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/deploy-init.sh" \
-               --args-file "$ARGS_FILE" 2>/tmp/cw-init-err) || {
+               --args-file "$ARGS_FILE" 2>"$RUN_DIR/init-err") || {
       log_error "init.sh failed on second attempt after stash; popping stash and aborting"
       git -C "$TARGET_CWD" stash pop "$STASH_SHA" 2>/dev/null || \
         log_warn "stash pop failed; SHA $STASH_SHA still in stash list"
@@ -165,13 +174,15 @@ Set task `0` → `in_progress`.
     On `Commit first as chore: WIP`:
 
     ```
+    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+    RUN_DIR=$(cw_run_dir_last)
     TARGET_CWD=$(pwd)
     git -C "$TARGET_CWD" add -A
     git -C "$TARGET_CWD" commit -m "chore: WIP before deploy ${TOPIC:-pending}"
     COMMIT_SHA=$(git -C "$TARGET_CWD" rev-parse HEAD)
-    ARGS_FILE=$(cat /tmp/cw-deploy-args-path.txt)
+    ARGS_FILE=$(cat "$RUN_DIR/args-path.txt")
     TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/deploy-init.sh" \
-               --args-file "$ARGS_FILE" 2>/tmp/cw-init-err) || {
+               --args-file "$ARGS_FILE" 2>"$RUN_DIR/init-err") || {
       log_error "init.sh failed on second attempt after WIP commit"
       exit 1
     }
@@ -209,7 +220,9 @@ Set task `0` → `in_progress`.
     doc path embedded in the args file:
 
     ```
-    ARGS_FILE=$(cat /tmp/cw-deploy-args-path.txt)
+    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+    RUN_DIR=$(cw_run_dir_last)
+    ARGS_FILE=$(cat "$RUN_DIR/args-path.txt")
     DESIGN_PATH=$(awk '{
       for (i=1; i<=NF; i++) {
         if ($i !~ /^--/ && (i==1 || $(i-1) !~ /^--(branch|topic|provider)$/)) {
@@ -217,7 +230,7 @@ Set task `0` → `in_progress`.
         }
       }
     }' "$ARGS_FILE")
-    [[ -n "$DESIGN_PATH" ]] || { log_error "rescue: cannot find design path in args file"; cat /tmp/cw-init-err >&2; exit 1; }
+    [[ -n "$DESIGN_PATH" ]] || { log_error "rescue: cannot find design path in args file"; cat "$RUN_DIR/init-err" >&2; exit 1; }
     TOPIC=$(cw_deploy_derive_topic "$DESIGN_PATH")
     TARGET_CWD=$(cw_deploy_resolve_target "$DESIGN_PATH" "$(cw_repo_root)") || { log_error "rescue: resolve_target failed"; exit 1; }
     # v0.31.0: state is project-local; no per-target env-var export.
@@ -229,11 +242,13 @@ Set task `0` → `in_progress`.
     when init failed at DAG parse on a multi-repo doc:
 
     ```
+    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+    RUN_DIR=$(cw_run_dir_last)
     if [[ ! -f "$ART_DIR/design.md" ]] \
        || ! grep -qE '^## Execution DAG\b' "$ART_DIR/design.md" \
        || [[ -f "$ART_DIR/dag-waves.txt" ]]; then
       log_error "init failed for a non-DAG-parse reason; rescue does not apply"
-      cat /tmp/cw-init-err >&2
+      cat "$RUN_DIR/init-err" >&2
       "$CLAUDE_PLUGIN_ROOT/bin/deploy-archive.sh" "$TOPIC" 2>/dev/null || true
       exit 1
     fi
@@ -1180,18 +1195,20 @@ If a `pre-deploy-stash.txt` exists from Step 0's intercept, attempt to
 restore the stashed WIP onto the user's working tree:
 
 ```
+source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+RUN_DIR=$(cw_run_dir_last)
 TARGET_CWD=$(cat "$ART_DIR/target_cwd.txt")
 if [[ -f "$ART_DIR/pre-deploy-stash.txt" ]]; then
   STASH_SHA=$(awk -F= '/^sha=/{print $2; exit}' "$ART_DIR/pre-deploy-stash.txt")
   if [[ -n "$STASH_SHA" ]]; then
-    if git -C "$TARGET_CWD" stash pop "$STASH_SHA" 2>/tmp/cw-stashpop-err; then
+    if git -C "$TARGET_CWD" stash pop "$STASH_SHA" 2>"$RUN_DIR/stashpop-err"; then
       log_ok "popped pre-deploy stash $STASH_SHA back onto working tree"
       printf 'status=popped\nsha=%s\n' "$STASH_SHA" \
         | cw_atomic_write "$ART_DIR/post-deploy-stash-pop.txt"
     else
       log_warn "stash pop conflict; stash $STASH_SHA preserved for manual recovery"
       log_warn "  recovery: cd $TARGET_CWD && git stash apply $STASH_SHA"
-      log_warn "  conflict detail in /tmp/cw-stashpop-err"
+      log_warn "  conflict detail in $RUN_DIR/stashpop-err"
       printf 'status=conflict\nsha=%s\n' "$STASH_SHA" \
         | cw_atomic_write "$ART_DIR/post-deploy-stash-pop.txt"
     fi
