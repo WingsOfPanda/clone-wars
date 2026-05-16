@@ -42,7 +42,7 @@ while [[ -f "$BRANCH_DIR/refine-$n.md" ]]; do
 done
 REFINE="$BRANCH_DIR/refine-$n.md"
 
-printf '%s\n' "$TEXT" > "$REFINE.tmp" && mv "$REFINE.tmp" "$REFINE"
+printf '%s\n' "$TEXT" | cw_atomic_write "$REFINE"
 log_info "[refine] wrote $REFINE"
 
 # Nudge unless DRY_RUN. Use bin/send.sh which v0.33.0 D5 emits a
