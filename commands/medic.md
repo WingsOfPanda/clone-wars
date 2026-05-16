@@ -70,7 +70,7 @@ provider binary (claude / codex / opencode).
 Use the Bash tool:
 
 ```
-source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
 state_root=$(cw_global_state_root)
 grep -vE '^[[:space:]]*(#|$)' "$state_root/providers-available.txt" 2>/dev/null
 ```

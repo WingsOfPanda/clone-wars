@@ -28,7 +28,7 @@ The user's `$ARGUMENTS` may contain shell metacharacters. To prevent injection, 
    + mktemp per invocation so parallel sessions don't collide):
 
    ```
-   source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
    ARGS_DIR="$(cw_state_root)/_args"
    mkdir -p "$ARGS_DIR"
    mktemp -p "$ARGS_DIR" -t 'teardown.XXXXXX'

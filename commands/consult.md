@@ -72,9 +72,9 @@ Write tool, then invoke sub-scripts with the resolved topic.
 For N=3 (codex/rex, claude/cody, opencode/wolffe):
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/<verb>.sh" rex  codex    "$CONSULT_TOPIC"
-"$CLAUDE_PLUGIN_ROOT/bin/<verb>.sh" cody claude   "$CONSULT_TOPIC"
-"$CLAUDE_PLUGIN_ROOT/bin/<verb>.sh" wolffe  opencode "$CONSULT_TOPIC"
+"${CLAUDE_PLUGIN_ROOT}/bin/<verb>.sh" rex  codex    "$CONSULT_TOPIC"
+"${CLAUDE_PLUGIN_ROOT}/bin/<verb>.sh" cody claude   "$CONSULT_TOPIC"
+"${CLAUDE_PLUGIN_ROOT}/bin/<verb>.sh" wolffe  opencode "$CONSULT_TOPIC"
 ```
 
 For N=2, issue 2 calls instead. Iterate `TROOPERS` to derive each call:
@@ -82,7 +82,7 @@ For N=2, issue 2 calls instead. Iterate `TROOPERS` to derive each call:
 ```
 for entry in "${TROOPERS[@]}"; do
   IFS=$'\t' read -r prov cmdr <<<"$entry"
-  # Issue: "$CLAUDE_PLUGIN_ROOT/bin/<verb>.sh" "$cmdr" "$prov" "$CONSULT_TOPIC"
+  # Issue: "${CLAUDE_PLUGIN_ROOT}/bin/<verb>.sh" "$cmdr" "$prov" "$CONSULT_TOPIC"
   # — but as a PARALLEL Bash tool call, not a serial loop.
 done
 ```
@@ -125,8 +125,8 @@ Continue using `$ARG_RAW` for the topic from this point.
    replaces session-global pointer files that collided across parallel runs):
 
    ```
-   source "$CLAUDE_PLUGIN_ROOT/lib/log.sh"
-   source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/lib/log.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
    RUN_DIR=$(cw_run_dir consult)
    ARGS_DIR="$(cw_state_root)/_args"
    mkdir -p "$ARGS_DIR"
@@ -142,12 +142,12 @@ Continue using `$ARG_RAW` for the topic from this point.
 3. Initialize the consult topic AND compute the repo hash once:
 
    ```
-   source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
-   source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/lib/consult.sh"
    RUN_DIR=$(cw_run_dir_last)
    ARGS_FILE=$(cat "$RUN_DIR/args-path.txt")
    REPO_HASH=$(cw_repo_hash)
-   CONSULT_TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/consult-init.sh" "$(cat "$ARGS_FILE")")
+   CONSULT_TOPIC=$("${CLAUDE_PLUGIN_ROOT}/bin/consult-init.sh" "$(cat "$ARGS_FILE")")
    TOPIC_DIR="$(cw_state_root)/state/$REPO_HASH/$CONSULT_TOPIC"
    echo "$CONSULT_TOPIC"   # for use in subsequent steps
    ```
@@ -307,7 +307,7 @@ After all 6 drafts are written, invoke walk-assemble:
 
 ```
 RUN_DIR=$(cw_run_dir_last)
-DD_PATH=$("$CLAUDE_PLUGIN_ROOT/bin/consult-walk-assemble.sh" "$CONSULT_TOPIC" 2>"$RUN_DIR/fastpath-err") || {
+DD_PATH=$("${CLAUDE_PLUGIN_ROOT}/bin/consult-walk-assemble.sh" "$CONSULT_TOPIC" 2>"$RUN_DIR/fastpath-err") || {
   log_error "fast-path: walk-assemble FAILED — see $RUN_DIR/fastpath-err"
   exit 1
 }
@@ -368,7 +368,7 @@ SPAWN_RETRY_COUNT=0
 **Run preflight (single foreground bash call):**
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/preflight-layout.sh" "$CONSULT_TOPIC" "$N"
+"${CLAUDE_PLUGIN_ROOT}/bin/preflight-layout.sh" "$CONSULT_TOPIC" "$N"
 ```
 
 Expected behavior:
@@ -405,9 +405,9 @@ Canonical N=3 example (codex/rex, claude/cody, opencode/wolffe — order
 matches `TROOPERS`):
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" rex  codex    "$CONSULT_TOPIC" --target-pane "${PREFLIGHT_PANES[rex]}"   # parallel 1
-"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" cody claude   "$CONSULT_TOPIC" --target-pane "${PREFLIGHT_PANES[cody]}"  # parallel 2
-"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" wolffe  opencode "$CONSULT_TOPIC" --target-pane "${PREFLIGHT_PANES[wolffe]}"   # parallel 3
+"${CLAUDE_PLUGIN_ROOT}/bin/spawn.sh" rex  codex    "$CONSULT_TOPIC" --target-pane "${PREFLIGHT_PANES[rex]}"   # parallel 1
+"${CLAUDE_PLUGIN_ROOT}/bin/spawn.sh" cody claude   "$CONSULT_TOPIC" --target-pane "${PREFLIGHT_PANES[cody]}"  # parallel 2
+"${CLAUDE_PLUGIN_ROOT}/bin/spawn.sh" wolffe  opencode "$CONSULT_TOPIC" --target-pane "${PREFLIGHT_PANES[wolffe]}"   # parallel 3
 ```
 
 For N=2 (any 2-provider subset selected via `/clone-wars:medic`), issue
@@ -416,7 +416,7 @@ For N=2 (any 2-provider subset selected via `/clone-wars:medic`), issue
 ```
 for entry in "${TROOPERS[@]}"; do
   IFS=$'\t' read -r prov cmdr <<<"$entry"
-  # Issue: "$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" "$cmdr" "$prov" "$CONSULT_TOPIC" --target-pane "${PREFLIGHT_PANES[$cmdr]}"
+  # Issue: "${CLAUDE_PLUGIN_ROOT}/bin/spawn.sh" "$cmdr" "$prov" "$CONSULT_TOPIC" --target-pane "${PREFLIGHT_PANES[$cmdr]}"
   # — but as a PARALLEL Bash tool call, not a serial loop.
 done
 ```
@@ -436,7 +436,7 @@ After all `N` parallel spawn calls return, evaluate the rc tuple.
 
   ```
   # Tear down everything (preflight panes + any spawned troopers); KEEP _consult/.
-  "$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC" 2>/dev/null || true
+  "${CLAUDE_PLUGIN_ROOT}/bin/consult-teardown.sh" "$CONSULT_TOPIC" 2>/dev/null || true
   SPAWN_RETRY_COUNT=1
   log_info "Stage 1: spawn failed (cold start?); retrying preflight + parallel spawn once"
   ```
@@ -499,13 +499,13 @@ After all `N` parallel spawn calls return, evaluate the rc tuple.
     log_info "Stage 2: proceeding degraded with N=$N"
 
     # consult-teardown's preflight-orphan extension cleans the failed sentinels
-    "$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC" 2>/dev/null || true
+    "${CLAUDE_PLUGIN_ROOT}/bin/consult-teardown.sh" "$CONSULT_TOPIC" 2>/dev/null || true
     ```
 
   - **Abort all** — full teardown + exit 1:
 
     ```
-    "$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC" 2>/dev/null || true
+    "${CLAUDE_PLUGIN_ROOT}/bin/consult-teardown.sh" "$CONSULT_TOPIC" 2>/dev/null || true
     rm -rf "$TOPIC_DIR"
     exit 1
     ```
@@ -549,19 +549,19 @@ Canonical N=3 example:
 
 ```
 Bash(
-  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" rex  codex',
+  command='"${CLAUDE_PLUGIN_ROOT}/bin/consult-research-wait.sh" "$CONSULT_TOPIC" rex  codex',
   run_in_background: true,
   description='master yoda await captain rex research (background)'
 )
 
 Bash(
-  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" cody claude',
+  command='"${CLAUDE_PLUGIN_ROOT}/bin/consult-research-wait.sh" "$CONSULT_TOPIC" cody claude',
   run_in_background: true,
   description='master yoda await commander cody research (background)'
 )
 
 Bash(
-  command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" wolffe  opencode',
+  command='"${CLAUDE_PLUGIN_ROOT}/bin/consult-research-wait.sh" "$CONSULT_TOPIC" wolffe  opencode',
   run_in_background: true,
   description='master yoda await commander wolffe research (background)'
 )
@@ -622,7 +622,7 @@ f. **Re-arm by removing the `.done` sentinel and re-running the wait-script
    ```
    rm -f "$DONE_SENTINEL"
    Bash(
-     command='"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$CONSULT_TOPIC" <commander> <model>',
+     command='"${CLAUDE_PLUGIN_ROOT}/bin/consult-research-wait.sh" "$CONSULT_TOPIC" <commander> <model>',
      run_in_background: true,
      description='master yoda await <commander> research re-arm (background)'
    )
@@ -645,7 +645,7 @@ terminal value.
 Set task `6` → `in_progress`.
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/consult-diff.sh" "$CONSULT_TOPIC"
+"${CLAUDE_PLUGIN_ROOT}/bin/consult-diff.sh" "$CONSULT_TOPIC"
 ```
 
 `consult-diff.sh` reads `_consult/troopers.txt` and produces an N-way
@@ -700,7 +700,7 @@ Otherwise set task `8` → `completed`.
 Set task `9` → `in_progress`.
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/consult-adjudicate.sh" "$CONSULT_TOPIC"
+"${CLAUDE_PLUGIN_ROOT}/bin/consult-adjudicate.sh" "$CONSULT_TOPIC"
 ```
 
 This writes `_consult/adjudicated-draft.md`. v0.15.0 emits 5 sections:
@@ -755,7 +755,7 @@ Skip auto-detection in that case.
 if [[ -f "$TOPIC_DIR/_consult/multi-repo.txt" && -f "$TOPIC_DIR/_consult/targets.txt" ]]; then
   log_info "[step 10] multi-repo set by --targets; skipping auto-detect"
 else
-  source "$CLAUDE_PLUGIN_ROOT/lib/consult-walk.sh"
+  source "${CLAUDE_PLUGIN_ROOT}/lib/consult-walk.sh"
   # v0.30.0: corpus swap — use adjudicated.md (cross-verified findings) instead of
   # topic.txt (raw user input). Catches sub-repos that emerged during research.
   # Falls back to topic.txt if adjudicated.md is missing (defensive only; should
@@ -827,7 +827,7 @@ case "$N" in
 esac
 
 CW_SOURCE_LABEL="$CW_SOURCE_LABEL" CW_PATH_LABEL="$CW_PATH_LABEL" \
-  "$CLAUDE_PLUGIN_ROOT/bin/consult-synthesize.sh" "$CONSULT_TOPIC"
+  "${CLAUDE_PLUGIN_ROOT}/bin/consult-synthesize.sh" "$CONSULT_TOPIC"
 ```
 
 Determine section list based on multi-repo flag:
@@ -915,7 +915,7 @@ RUN_DIR=$(cw_run_dir_last)
 ATTEMPT=1
 MAX_ATTEMPT_PER_SECTION=2
 while :; do
-  if DD_PATH=$("$CLAUDE_PLUGIN_ROOT/bin/consult-walk-assemble.sh" "$CONSULT_TOPIC" 2>"$RUN_DIR/walk-err"); then
+  if DD_PATH=$("${CLAUDE_PLUGIN_ROOT}/bin/consult-walk-assemble.sh" "$CONSULT_TOPIC" 2>"$RUN_DIR/walk-err"); then
     log_ok "[step 12] design-doc assembled + audit PASS: $DD_PATH"
     break
   fi
@@ -923,7 +923,7 @@ while :; do
   mapfile -t ISSUE_LINES < <(grep '^ISSUE=' "$RUN_DIR/walk-err" || true)
   [[ ${#ISSUE_LINES[@]} -gt 0 ]] || { log_error "[step 12] audit FAIL but no ISSUE= lines parsed"; exit 1; }
 
-  source "$CLAUDE_PLUGIN_ROOT/lib/consult-walk.sh"
+  source "${CLAUDE_PLUGIN_ROOT}/lib/consult-walk.sh"
   for line in "${ISSUE_LINES[@]}"; do
     KEY="${line#ISSUE=}"
     TARGET=$(cw_consult_audit_issue_to_section "$KEY")
@@ -1025,7 +1025,7 @@ Loop while user picks "Yes":
 
    Single trooper (`K=1`, 7 args):
    ```
-   "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
+   "${CLAUDE_PLUGIN_ROOT}/bin/consult-drilldown.sh" \
      "$CONSULT_TOPIC" "$DRILL_TOPIC" "$DRILL_DIR" "$DRILL_FOCUS" \
      "$DESIGN_DOC" \
      <commander> <provider>
@@ -1034,7 +1034,7 @@ Loop while user picks "Yes":
    Two troopers in parallel (`K=2`, 9 args) — covers N=2 "both" or any
    N=3 pair (`rex + cody`, `rex + wolffe`, `cody + wolffe`):
    ```
-   "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
+   "${CLAUDE_PLUGIN_ROOT}/bin/consult-drilldown.sh" \
      "$CONSULT_TOPIC" "$DRILL_TOPIC" "$DRILL_DIR" "$DRILL_FOCUS" \
      "$DESIGN_DOC" \
      rex codex cody claude
@@ -1046,13 +1046,13 @@ Loop while user picks "Yes":
    produced files land in `$DRILL_DIR/_scratch/` under the same slug:
    ```
    # Bash tool call 1 (parallel) — first 2 troopers
-   "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
+   "${CLAUDE_PLUGIN_ROOT}/bin/consult-drilldown.sh" \
      "$CONSULT_TOPIC" "$DRILL_TOPIC" "$DRILL_DIR" "$DRILL_FOCUS" \
      "$DESIGN_DOC" \
      rex codex cody claude
 
    # Bash tool call 2 (parallel) — third trooper
-   "$CLAUDE_PLUGIN_ROOT/bin/consult-drilldown.sh" \
+   "${CLAUDE_PLUGIN_ROOT}/bin/consult-drilldown.sh" \
      "$CONSULT_TOPIC" "$DRILL_TOPIC" "$DRILL_DIR" "$DRILL_FOCUS" \
      "$DESIGN_DOC" \
      wolffe opencode
@@ -1085,7 +1085,7 @@ Set task `13` → `completed`.
 Set task `14` → `in_progress`.
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/consult-teardown.sh" "$CONSULT_TOPIC"
+"${CLAUDE_PLUGIN_ROOT}/bin/consult-teardown.sh" "$CONSULT_TOPIC"
 ```
 
 `consult-teardown.sh` reads `_consult/troopers.txt` and tears down every
@@ -1096,7 +1096,7 @@ listed trooper (no hardcoded pair). Set task `14` → `completed`.
 Set task `15` → `in_progress`.
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/consult-archive.sh" "$CONSULT_TOPIC"
+"${CLAUDE_PLUGIN_ROOT}/bin/consult-archive.sh" "$CONSULT_TOPIC"
 ```
 
 Set task `15` → `completed`. Set task `16` → `in_progress`.

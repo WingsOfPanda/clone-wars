@@ -74,8 +74,8 @@ Set task `0` → `in_progress`.
    pointer files that collided across parallel runs):
 
    ```
-   source "$CLAUDE_PLUGIN_ROOT/lib/log.sh"
-   source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/lib/log.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
    RUN_DIR=$(cw_run_dir meditate)
    ARGS_DIR="$(cw_state_root)/_args"
    mkdir -p "$ARGS_DIR"
@@ -89,12 +89,12 @@ Set task `0` → `in_progress`.
 3. Initialize the topic + compute repo hash:
 
    ```
-   source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
-   source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/lib/consult.sh"
    RUN_DIR=$(cw_run_dir_last)
    ARGS_FILE=$(cat "$RUN_DIR/args-path.txt")
    REPO_HASH=$(cw_repo_hash)
-   MEDITATE_TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/meditate-init.sh" "$(cat "$ARGS_FILE")")
+   MEDITATE_TOPIC=$("${CLAUDE_PLUGIN_ROOT}/bin/meditate-init.sh" "$(cat "$ARGS_FILE")")
    TOPIC_DIR="$(cw_state_root)/state/$REPO_HASH/$MEDITATE_TOPIC"
    ART_DIR="$TOPIC_DIR/_meditate"
    ```
@@ -118,7 +118,7 @@ Yoda classifies the topic via keyword scan and writes
 send-script via `{{LIT_GUIDANCE}}` — Yoda itself never runs retrieval.
 
 ```
-source "$CLAUDE_PLUGIN_ROOT/lib/meditate.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/meditate.sh"
 TOPIC_TEXT=$(cat "$ART_DIR/topic.txt")
 LIT_FINAL=$(cw_meditate_classify_topic "$TOPIC_TEXT")
 {
@@ -137,7 +137,7 @@ Set task `2` → `in_progress`.
 Allocate panes via the preflight helper (reuse from v0.20.0):
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/preflight-layout.sh" "$MEDITATE_TOPIC" "$N"
+"${CLAUDE_PLUGIN_ROOT}/bin/preflight-layout.sh" "$MEDITATE_TOPIC" "$N"
 ```
 
 This writes `_meditate/preflight-panes.txt` with ordered pane IDs.
@@ -152,7 +152,7 @@ SPAWN_RETRY_COUNT=0
 `TROOPERS` entry. Each call:
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" \
+"${CLAUDE_PLUGIN_ROOT}/bin/spawn.sh" \
   <commander> <provider> "$MEDITATE_TOPIC" \
   --target-pane <pane_id_from_preflight> \
   --preflight-art-dir "$ART_DIR"
@@ -164,7 +164,7 @@ Evaluate the rc tuple after the parallel block:
 - **Any failed AND `SPAWN_RETRY_COUNT == 0`** → retry once:
 
   ```
-  "$CLAUDE_PLUGIN_ROOT/bin/meditate-teardown.sh" "$MEDITATE_TOPIC" 2>/dev/null || true
+  "${CLAUDE_PLUGIN_ROOT}/bin/meditate-teardown.sh" "$MEDITATE_TOPIC" 2>/dev/null || true
   SPAWN_RETRY_COUNT=1
   log_info "spawn failed (cold start?); retrying parallel spawn once"
   ```
@@ -174,7 +174,7 @@ Evaluate the rc tuple after the parallel block:
 - **Any failed AND `SPAWN_RETRY_COUNT == 1`** → retry exhausted:
 
   ```
-  "$CLAUDE_PLUGIN_ROOT/bin/meditate-teardown.sh" "$MEDITATE_TOPIC" 2>/dev/null || true
+  "${CLAUDE_PLUGIN_ROOT}/bin/meditate-teardown.sh" "$MEDITATE_TOPIC" 2>/dev/null || true
   rm -rf "$TOPIC_DIR"
   exit 1
   ```
@@ -188,7 +188,7 @@ Set task `3` → `in_progress`.
 Issue N parallel Bash tool calls (one per trooper):
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/meditate-research-send.sh" "$MEDITATE_TOPIC" <cmdr> <provider>
+"${CLAUDE_PLUGIN_ROOT}/bin/meditate-research-send.sh" "$MEDITATE_TOPIC" <cmdr> <provider>
 ```
 
 Each trooper's research prompt has already been pre-rendered with the
@@ -207,7 +207,7 @@ Set task `4` → `in_progress`.
 For each trooper, dispatch a background-await Bash call:
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/consult-research-wait.sh" "$MEDITATE_TOPIC" <cmdr> <provider>
+"${CLAUDE_PLUGIN_ROOT}/bin/consult-research-wait.sh" "$MEDITATE_TOPIC" <cmdr> <provider>
 ```
 
 `bin/consult-research-wait.sh` dispatches to `cw_consult_wait research`
@@ -234,7 +234,7 @@ Set task `5` → `in_progress`.
 Run input validator:
 
 ```
-OUT_DRAFT=$("$CLAUDE_PLUGIN_ROOT/bin/meditate-synth-preliminary.sh" "$MEDITATE_TOPIC") \
+OUT_DRAFT=$("${CLAUDE_PLUGIN_ROOT}/bin/meditate-synth-preliminary.sh" "$MEDITATE_TOPIC") \
   || { log_error "preliminary synth blocked — inputs missing"; exit 1; }
 ```
 
@@ -384,7 +384,7 @@ Set task `6` → `in_progress` (or `completed` immediately if skipped).
 Issue N parallel Bash calls:
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/meditate-adversary-send.sh" "$MEDITATE_TOPIC" <cmdr> <provider>
+"${CLAUDE_PLUGIN_ROOT}/bin/meditate-adversary-send.sh" "$MEDITATE_TOPIC" <cmdr> <provider>
 ```
 
 Set task `6` → `completed`.
@@ -396,7 +396,7 @@ Set task `7` → `in_progress`.
 Issue N background-await Bash calls (mirror Step 4):
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/meditate-adversary-wait.sh" "$MEDITATE_TOPIC" <cmdr> <provider>
+"${CLAUDE_PLUGIN_ROOT}/bin/meditate-adversary-wait.sh" "$MEDITATE_TOPIC" <cmdr> <provider>
 ```
 
 This shim dispatches to `cw_consult_wait adversary`. Same notification
@@ -413,7 +413,7 @@ Set task `8` → `in_progress`.
 Run input validator:
 
 ```
-OUT_FINAL=$("$CLAUDE_PLUGIN_ROOT/bin/meditate-synth-final.sh" "$MEDITATE_TOPIC") \
+OUT_FINAL=$("${CLAUDE_PLUGIN_ROOT}/bin/meditate-synth-final.sh" "$MEDITATE_TOPIC") \
   || { log_error "final synth blocked"; exit 1; }
 ```
 
@@ -469,13 +469,13 @@ Set task `8` → `completed`.
 Set task `9` → `in_progress`.
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/meditate-teardown.sh" "$MEDITATE_TOPIC"
+"${CLAUDE_PLUGIN_ROOT}/bin/meditate-teardown.sh" "$MEDITATE_TOPIC"
 ```
 
 Then move the topic state dir to archive:
 
 ```
-source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
 ARCHIVE_DIR="$(cw_global_state_root)/archive/$REPO_HASH/$MEDITATE_TOPIC-$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$(dirname "$ARCHIVE_DIR")"
 mv "$TOPIC_DIR" "$ARCHIVE_DIR"

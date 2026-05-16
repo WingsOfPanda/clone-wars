@@ -7,6 +7,20 @@ a design trail.
 
 ---
 
+## v0.39.0 — 2026-05-16 — directive `${CLAUDE_PLUGIN_ROOT}` brace migration
+
+- Closes first v0.38.0 dogfood finding: 96 unbraced `$CLAUDE_PLUGIN_ROOT`
+  references across consult/deploy/meditate/medic/list/teardown directives
+  survived render-time substitution, breaking copy-paste into Bash subshells
+  where the env var is unset.
+- Pure mechanical sed: `$CLAUDE_PLUGIN_ROOT` → `${CLAUDE_PLUGIN_ROOT}`. Zero
+  logic changes. `deep-research{,-resume}.md` unchanged (already 100% braced
+  from v0.37.0).
+- New permanent lint `tests/test_braced_plugin_root.sh` (no skip-guard) +
+  5-invariant version-locked static-wiring lock prevent regression.
+- Strict-dogfood: ride v0.38.0 dogfood (the failing /clone-wars:medic Step A
+  bash block this fix closes IS the dogfood evidence).
+
 ## v0.38.0 — 2026-05-16 — state-root split (per-machine vs per-project)
 
 - Closes medic→consult chain break on fresh installs: medic wrote per-project
@@ -20,7 +34,7 @@ a design trail.
 - New permanent lint `tests/test_state_root_discipline.sh` (no skip-guard);
   10-invariant static-wiring lock.
 - Breaking: v0.31-v0.37 project-local copies become inert; users re-run `/medic` once.
-- Strict-dogfood: [ ]
+- Strict-dogfood: [x] partial — 1 finding caught + fixed in v0.39.0 (unbraced `$CLAUDE_PLUGIN_ROOT` in 6 directives broke copy-paste into Bash subshells); remaining release-gate items pending.
 
 ## v0.37.0 — 2026-05-16 — portable paths
 

@@ -61,8 +61,8 @@ Set task `0` → `in_progress`.
    replaces session-global pointer files that collided across parallel
    runs):
    ```
-   source "$CLAUDE_PLUGIN_ROOT/lib/log.sh"
-   source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/lib/log.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
    RUN_DIR=$(cw_run_dir deploy)
    ARGS_DIR="$(cw_state_root)/_args"
    mkdir -p "$ARGS_DIR"
@@ -94,7 +94,7 @@ Set task `0` → `in_progress`.
    design-doc shape is considered; pre-v0.12 `--design-doc` flag and
    `synthesis.md` fallback are gone):
    ```
-   source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
    REPO_HASH=$(cw_repo_hash)
    STATE_ROOT=$(cw_state_root)
    CANDIDATE=$(find "$STATE_ROOT/state/$REPO_HASH" \
@@ -112,12 +112,12 @@ Set task `0` → `in_progress`.
    sub-step 5b can intercept multi-repo DAG-parse failures from
    human-authored docs:
    ```
-   source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
-   source "$CLAUDE_PLUGIN_ROOT/lib/deploy.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/lib/deploy.sh"
    RUN_DIR=$(cw_run_dir_last)
    ARGS_FILE=$(cat "$RUN_DIR/args-path.txt")
    REPO_HASH=$(cw_repo_hash)
-   TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/deploy-init.sh" \
+   TOPIC=$("${CLAUDE_PLUGIN_ROOT}/bin/deploy-init.sh" \
               --args-file "$ARGS_FILE" 2>"$RUN_DIR/init-err") \
               && INIT_RC=0 || INIT_RC=$?
    ```
@@ -150,14 +150,14 @@ Set task `0` → `in_progress`.
     On `Stash and continue`:
 
     ```
-    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+    source "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
     RUN_DIR=$(cw_run_dir_last)
     TARGET_CWD=$(pwd)
     git -C "$TARGET_CWD" stash push -u -m "deploy ${TOPIC:-pending} WIP"
     STASH_SHA=$(git -C "$TARGET_CWD" stash list -1 --format=%H)
     [[ -n "$STASH_SHA" ]] || { log_error "stash push reported success but no stash on list"; exit 1; }
     ARGS_FILE=$(cat "$RUN_DIR/args-path.txt")
-    TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/deploy-init.sh" \
+    TOPIC=$("${CLAUDE_PLUGIN_ROOT}/bin/deploy-init.sh" \
                --args-file "$ARGS_FILE" 2>"$RUN_DIR/init-err") || {
       log_error "init.sh failed on second attempt after stash; popping stash and aborting"
       git -C "$TARGET_CWD" stash pop "$STASH_SHA" 2>/dev/null || \
@@ -174,14 +174,14 @@ Set task `0` → `in_progress`.
     On `Commit first as chore: WIP`:
 
     ```
-    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+    source "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
     RUN_DIR=$(cw_run_dir_last)
     TARGET_CWD=$(pwd)
     git -C "$TARGET_CWD" add -A
     git -C "$TARGET_CWD" commit -m "chore: WIP before deploy ${TOPIC:-pending}"
     COMMIT_SHA=$(git -C "$TARGET_CWD" rev-parse HEAD)
     ARGS_FILE=$(cat "$RUN_DIR/args-path.txt")
-    TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/deploy-init.sh" \
+    TOPIC=$("${CLAUDE_PLUGIN_ROOT}/bin/deploy-init.sh" \
                --args-file "$ARGS_FILE" 2>"$RUN_DIR/init-err") || {
       log_error "init.sh failed on second attempt after WIP commit"
       exit 1
@@ -220,7 +220,7 @@ Set task `0` → `in_progress`.
     doc path embedded in the args file:
 
     ```
-    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+    source "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
     RUN_DIR=$(cw_run_dir_last)
     ARGS_FILE=$(cat "$RUN_DIR/args-path.txt")
     DESIGN_PATH=$(awk '{
@@ -242,14 +242,14 @@ Set task `0` → `in_progress`.
     when init failed at DAG parse on a multi-repo doc:
 
     ```
-    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+    source "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
     RUN_DIR=$(cw_run_dir_last)
     if [[ ! -f "$ART_DIR/design.md" ]] \
        || ! grep -qE '^## Execution DAG\b' "$ART_DIR/design.md" \
        || [[ -f "$ART_DIR/dag-waves.txt" ]]; then
       log_error "init failed for a non-DAG-parse reason; rescue does not apply"
       cat "$RUN_DIR/init-err" >&2
-      "$CLAUDE_PLUGIN_ROOT/bin/deploy-archive.sh" "$TOPIC" 2>/dev/null || true
+      "${CLAUDE_PLUGIN_ROOT}/bin/deploy-archive.sh" "$TOPIC" 2>/dev/null || true
       exit 1
     fi
     log_info "DAG section is prose; auto-extracting parser-conforming lines"
@@ -412,9 +412,9 @@ Set task `0` → `in_progress`.
     reaching them:
 
     ```
-    "$CLAUDE_PLUGIN_ROOT/bin/deploy-dag-parse.sh" "$ART_DIR/design.md" "$ART_DIR" \
+    "${CLAUDE_PLUGIN_ROOT}/bin/deploy-dag-parse.sh" "$ART_DIR/design.md" "$ART_DIR" \
       || { log_error "rescue: dag-parse still failed; surfacing parser stderr"; exit 1; }
-    "$CLAUDE_PLUGIN_ROOT/bin/deploy-multi-init.sh" "$TOPIC" "$TARGET_CWD" \
+    "${CLAUDE_PLUGIN_ROOT}/bin/deploy-multi-init.sh" "$TOPIC" "$TARGET_CWD" \
       || { log_error "rescue: multi-init failed"; exit 1; }
     printf '%s\n' "$TARGET_CWD" | cw_atomic_write "$ART_DIR/target_cwd.txt"
     ( cd "$TARGET_CWD" && cw_deploy_branch_create "$TOPIC" "" ) \
@@ -456,7 +456,7 @@ Set task `0` → `in_progress`.
    ```
 6. Run audit and persist verdict:
    ```
-   source "$CLAUDE_PLUGIN_ROOT/lib/deploy.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/lib/deploy.sh"
    AUDIT=$(cw_deploy_audit_doc "$ART_DIR/design.md" 2>&1) && AUDIT_RC=0 || AUDIT_RC=$?
    printf '%s\n' "$AUDIT" > "$ART_DIR/design-audit.md"
    ```
@@ -464,7 +464,7 @@ Set task `0` → `in_progress`.
    ```
    if (( AUDIT_RC == 2 )); then
      log_error "design-doc unreadable; aborting."
-     "$CLAUDE_PLUGIN_ROOT/bin/deploy-archive.sh" "$TOPIC"
+     "${CLAUDE_PLUGIN_ROOT}/bin/deploy-archive.sh" "$TOPIC"
      exit 1
    elif (( AUDIT_RC == 1 )); then
      # Audit FAIL — read the design doc yourself, weigh the flagged issues, then:
@@ -545,13 +545,13 @@ deploy (rogue commits — the trooper edited a sub-repo we didn't
 create a feature branch in).
 
 ```
-source "$CLAUDE_PLUGIN_ROOT/lib/deploy.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/deploy.sh"
 HUB_CWD=$(cw_deploy_resolve_hub "$ART_DIR/design.md" "$(cw_repo_root)")
 TARGETS_CSV=""
 if [[ -f "$ART_DIR/multi-repo-targets.txt" ]]; then
   TARGETS_CSV=$(tr '\n' ',' < "$ART_DIR/multi-repo-targets.txt" | sed 's/,$//')
 fi
-"$CLAUDE_PLUGIN_ROOT/bin/deploy-sibling-baseline.sh" "$ART_DIR" "$HUB_CWD" "$TARGETS_CSV" \
+"${CLAUDE_PLUGIN_ROOT}/bin/deploy-sibling-baseline.sh" "$ART_DIR" "$HUB_CWD" "$TARGETS_CSV" \
   || log_warn "sibling-baseline.sh failed; Step 4 verify will be skipped"
 ```
 
@@ -588,7 +588,7 @@ Set task `1.1` → `in_progress`.
 ```
 PROVIDER=$(cat "$ART_DIR/provider.txt")
 TARGET_CWD=$(cat "$ART_DIR/target_cwd.txt")
-"$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" cody "$PROVIDER" "$TOPIC" --cwd "$TARGET_CWD"
+"${CLAUDE_PLUGIN_ROOT}/bin/spawn.sh" cody "$PROVIDER" "$TOPIC" --cwd "$TARGET_CWD"
 ```
 Set task `1.1` → `completed`. If spawn fails, archive `_deploy/` and exit.
 
@@ -613,7 +613,7 @@ MAX_ROUNDS="${MAX_ROUNDS_OVERRIDE:-5}"
 **Dispatch:**
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/deploy-turn-send.sh" "$TOPIC" "$ROUND"
+"${CLAUDE_PLUGIN_ROOT}/bin/deploy-turn-send.sh" "$TOPIC" "$ROUND"
 ```
 
 If round 1, the script generates the round-1 prompt (plan + implement +
@@ -626,7 +626,7 @@ in Step 3 BEFORE incrementing ROUND and re-entering Step 1.**
 
 ```
 Bash(
-  command='"$CLAUDE_PLUGIN_ROOT/bin/deploy-turn-wait.sh" "$TOPIC" "$ROUND"',
+  command='"${CLAUDE_PLUGIN_ROOT}/bin/deploy-turn-wait.sh" "$TOPIC" "$ROUND"',
   run_in_background: true,
   description="master yoda await cody round=$ROUND turn (background)"
 )
@@ -785,7 +785,7 @@ Count troopers and run preflight:
 
 ```
 N=$(wc -l < "$ART_DIR/troopers.txt")
-"$CLAUDE_PLUGIN_ROOT/bin/preflight-layout.sh" \
+"${CLAUDE_PLUGIN_ROOT}/bin/preflight-layout.sh" \
   --art-dir "$ART_DIR" \
   --cwd-from "$ART_DIR/cmdr-cwd-map.txt" \
   --troopers-from "$ART_DIR/troopers-preflight.txt" \
@@ -903,7 +903,7 @@ returned task ID into `REPO_TO_TASK_ID["<repo>"]` for the wave loop's
 `in_progress` / `completed` transitions below.
 
 ```
-source "$CLAUDE_PLUGIN_ROOT/lib/commanders.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/commanders.sh"
 
 declare -A REPO_TO_TASK_ID
 
@@ -947,7 +947,7 @@ for ((w=1; w<=WAVE_COUNT; w++)); do
 
   # Per-repo dispatch shape (each runs in parallel):
   #
-  #   "$CLAUDE_PLUGIN_ROOT/bin/spawn.sh" "${REPO_TO_CMDR[$repo]}" \
+  #   "${CLAUDE_PLUGIN_ROOT}/bin/spawn.sh" "${REPO_TO_CMDR[$repo]}" \
   #     "${REPO_TO_PROVIDER[$repo]}" "$TOPIC" \
   #     --target-pane "${PREFLIGHT_PANES[${REPO_TO_CMDR[$repo]}]}" \
   #     --preflight-art-dir "$ART_DIR" \
@@ -959,7 +959,7 @@ for ((w=1; w<=WAVE_COUNT; w++)); do
   #     "${REPO_TO_UPSTREAM_CSV[$repo]}")
   #   PROMPT_FILE="$ART_DIR/${REPO_TO_CMDR[$repo]}_dag_unit_prompt.md"
   #   printf '%s' "$PROMPT" > "$PROMPT_FILE"
-  #   "$CLAUDE_PLUGIN_ROOT/bin/send.sh" "${REPO_TO_CMDR[$repo]}" "$TOPIC" "@$PROMPT_FILE"
+  #   "${CLAUDE_PLUGIN_ROOT}/bin/send.sh" "${REPO_TO_CMDR[$repo]}" "$TOPIC" "@$PROMPT_FILE"
   #
   # When the per-repo dispatch returns rc=0, ISSUE:
   #   TaskUpdate(taskId=${REPO_TO_TASK_ID[$repo]}, status="in_progress")
@@ -978,7 +978,7 @@ for ((w=1; w<=WAVE_COUNT; w++)); do
   # Per-repo wave-wait shape (each runs in BACKGROUND parallel):
   #
   #   Bash(
-  #     command='"$CLAUDE_PLUGIN_ROOT/bin/deploy-wave-wait.sh" "$TOPIC" "${REPO_TO_CMDR[$repo]}" "${REPO_TO_PROVIDER[$repo]}"',
+  #     command='"${CLAUDE_PLUGIN_ROOT}/bin/deploy-wave-wait.sh" "$TOPIC" "${REPO_TO_CMDR[$repo]}" "${REPO_TO_PROVIDER[$repo]}"',
   #     run_in_background: true,
   #     description="master yoda await ${REPO_TO_CMDR[$repo]} wave $w (background)"
   #   )
@@ -1026,8 +1026,8 @@ After a wave's K spawns + wave-waits return:
   exit 1 (preserves diagnostic context):
 
   ```
-  "$CLAUDE_PLUGIN_ROOT/bin/deploy-teardown.sh" "$TOPIC" 2>/dev/null || true
-  "$CLAUDE_PLUGIN_ROOT/bin/deploy-archive.sh"  "$TOPIC"
+  "${CLAUDE_PLUGIN_ROOT}/bin/deploy-teardown.sh" "$TOPIC" 2>/dev/null || true
+  "${CLAUDE_PLUGIN_ROOT}/bin/deploy-archive.sh"  "$TOPIC"
   exit 1
   ```
 
@@ -1049,7 +1049,7 @@ Default = cross-repo invariants only. Escalate to full check (all tests
 **Compute the unsafe signal:**
 
 ```
-source "$CLAUDE_PLUGIN_ROOT/lib/deploy-dag.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/deploy-dag.sh"
 WAVE_COUNT=$(awk -F$'\t' '{print $1}' "$ART_DIR/dag-waves.txt" | sort -u | wc -l)
 FAN_IN_REPOS=$(cw_deploy_dag_fan_in_repos "$ART_DIR/dag-edges.txt" "$ART_DIR/dag-waves.txt")
 SHARED_PATHS=""
@@ -1158,11 +1158,11 @@ EOFP
   # disk while the trooper waits forever for a signal.
   FIX_PROMPT_FILE="$ART_DIR/${CMDR}_fix_prompt_round_${FIX_ROUNDS[$REPO]}.md"
   printf '%s' "$FIX_PROMPT" > "$FIX_PROMPT_FILE"
-  "$CLAUDE_PLUGIN_ROOT/bin/send.sh" "$CMDR" "$TOPIC" "@$FIX_PROMPT_FILE"
+  "${CLAUDE_PLUGIN_ROOT}/bin/send.sh" "$CMDR" "$TOPIC" "@$FIX_PROMPT_FILE"
 
   # 2. Background-await via deploy-wave-wait (mirror Step 3b)
   Bash(
-    command='"$CLAUDE_PLUGIN_ROOT/bin/deploy-wave-wait.sh" "$TOPIC" "$CMDR" "$PROVIDER"',
+    command='"${CLAUDE_PLUGIN_ROOT}/bin/deploy-wave-wait.sh" "$TOPIC" "$CMDR" "$PROVIDER"',
     run_in_background: true,
     description="master yoda await $CMDR fix-round ${FIX_ROUNDS[$REPO]} (background)"
   )
@@ -1195,7 +1195,7 @@ If a `pre-deploy-stash.txt` exists from Step 0's intercept, attempt to
 restore the stashed WIP onto the user's working tree:
 
 ```
-source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
 RUN_DIR=$(cw_run_dir_last)
 TARGET_CWD=$(cat "$ART_DIR/target_cwd.txt")
 if [[ -f "$ART_DIR/pre-deploy-stash.txt" ]]; then
@@ -1226,10 +1226,10 @@ Re-read each sibling's HEAD vs the baseline captured in Step 0.
 Surfaces any rogue commits on undeclared siblings' main branches.
 
 ```
-source "$CLAUDE_PLUGIN_ROOT/lib/deploy.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/deploy.sh"
 HUB_CWD=$(cw_deploy_resolve_hub "$ART_DIR/design.md" "$(cw_repo_root)")
 if [[ -f "$ART_DIR/sibling-baseline.txt" ]]; then
-  "$CLAUDE_PLUGIN_ROOT/bin/deploy-sibling-verify.sh" "$ART_DIR" "$HUB_CWD" \
+  "${CLAUDE_PLUGIN_ROOT}/bin/deploy-sibling-verify.sh" "$ART_DIR" "$HUB_CWD" \
     || log_warn "sibling-verify.sh failed; skipping rogue-commit intercept"
 fi
 ```
@@ -1256,7 +1256,7 @@ AskUserQuestion (Yoda formats sibling-rogue.txt as inline markdown table):
 On `Revert + replay on feat branch`:
 
 ```
-source "$CLAUDE_PLUGIN_ROOT/lib/deploy-sibling.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/deploy-sibling.sh"
 TOPIC=$(cat "$ART_DIR/topic.txt")
 declare -A ROGUE_BY_SLUG=()
 while IFS=$'\t' read -r slug sha subject; do
@@ -1310,7 +1310,7 @@ table. Surface any files the trooper added/modified that aren't covered
 by a listed path (or its prefix).
 
 ```
-source "$CLAUDE_PLUGIN_ROOT/lib/deploy-scope.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/deploy-scope.sh"
 TARGET_CWD=$(cat "$ART_DIR/target_cwd.txt")
 BASE=$(cat "$ART_DIR/branch-base.sha")
 
@@ -1393,8 +1393,8 @@ log_warn "scope drift accepted without amendment: see $ART_DIR/scope-overrides.t
 ```
 
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/deploy-teardown.sh" "$TOPIC"
-"$CLAUDE_PLUGIN_ROOT/bin/deploy-archive.sh" "$TOPIC"
+"${CLAUDE_PLUGIN_ROOT}/bin/deploy-teardown.sh" "$TOPIC"
+"${CLAUDE_PLUGIN_ROOT}/bin/deploy-archive.sh" "$TOPIC"
 ```
 
 **Final summary.** Output depends on `$ROUTING`:
@@ -1467,8 +1467,8 @@ Files written under `$ART_DIR` (= `$TOPIC_DIR/_deploy/`):
 ### Abandoned run cleanup
 If a previous run wedged (panes alive, state intact), tear down explicitly:
 ```
-"$CLAUDE_PLUGIN_ROOT/bin/deploy-teardown.sh" <topic>
-"$CLAUDE_PLUGIN_ROOT/bin/deploy-archive.sh" <topic>
+"${CLAUDE_PLUGIN_ROOT}/bin/deploy-teardown.sh" <topic>
+"${CLAUDE_PLUGIN_ROOT}/bin/deploy-archive.sh" <topic>
 ```
 
 ### Manual takeover (after hand-off)
