@@ -70,10 +70,10 @@ env vars do not persist across separate Bash calls in this harness.**
 Use this prelude in every Bash block that needs lib helpers:
 
 ```bash
-source /home/liupan/CC/clone-wars/lib/log.sh
-source /home/liupan/CC/clone-wars/lib/state.sh
-source /home/liupan/CC/clone-wars/lib/consult.sh
-source /home/liupan/CC/clone-wars/lib/deep-research.sh
+source ${CLAUDE_PLUGIN_ROOT}/lib/log.sh
+source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
+source ${CLAUDE_PLUGIN_ROOT}/lib/consult.sh
+source ${CLAUDE_PLUGIN_ROOT}/lib/deep-research.sh
 ```
 
 The post-init Phase 0 step 4 caches `$DEEP_TOPIC` and `$ART_DIR` paths
@@ -90,8 +90,8 @@ Set task `0` → `in_progress`.
    pointer files that collided across parallel runs):
 
    ```bash
-   source /home/liupan/CC/clone-wars/lib/log.sh
-   source /home/liupan/CC/clone-wars/lib/state.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/log.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
    RUN_DIR=$(cw_run_dir deep-research)
    ARGS_DIR="$(cw_state_root)/_args"
    mkdir -p "$ARGS_DIR"
@@ -105,16 +105,16 @@ Set task `0` → `in_progress`.
 3. Initialize the topic:
 
    ```bash
-   source /home/liupan/CC/clone-wars/lib/log.sh
-   source /home/liupan/CC/clone-wars/lib/state.sh
-   source /home/liupan/CC/clone-wars/lib/consult.sh
-   source /home/liupan/CC/clone-wars/lib/deep-research.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/log.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/consult.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/deep-research.sh
 
    RUN_DIR=$(cw_run_dir_last)
    ARGS_FILE=$(cat "$RUN_DIR/args-path.txt")
    ARGS=$(cat "$ARGS_FILE")
    # shellcheck disable=SC2086 — splitting intentional for --seed-from + topic
-   DEEP_TOPIC=$(/home/liupan/CC/clone-wars/bin/deep-research-init.sh $ARGS)
+   DEEP_TOPIC=$(${CLAUDE_PLUGIN_ROOT}/bin/deep-research-init.sh $ARGS)
    echo "$DEEP_TOPIC"
    ```
 
@@ -138,7 +138,7 @@ Set task `0` → `in_progress`.
    on demand by any block that needs them.
 
    ```bash
-   source /home/liupan/CC/clone-wars/lib/state.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
    RUN_DIR=$(cw_run_dir_last)
    printf '%s' "$DEEP_TOPIC" > "$RUN_DIR/topic.txt"
    REPO_HASH=$(cw_repo_hash)
@@ -168,7 +168,7 @@ header for details.
 1. Seed: read the heuristic metric guess from init's metric.txt:
 
    ```bash
-   source /home/liupan/CC/clone-wars/lib/state.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
    RUN_DIR=$(cw_run_dir_last)
    ART_DIR=$(cat "$RUN_DIR/art-dir.txt")
    SEED_METRIC=$(cat "$ART_DIR/metric.txt" 2>/dev/null | head -1)
@@ -228,8 +228,8 @@ header for details.
 5. Format and write `metric.md`:
 
    ```bash
-   source /home/liupan/CC/clone-wars/lib/state.sh
-   source /home/liupan/CC/clone-wars/lib/deep-research.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/deep-research.sh
    RUN_DIR=$(cw_run_dir_last)
    ART_DIR=$(cat "$RUN_DIR/art-dir.txt")
    cw_deep_research_format_metric_block <<EOF > "$ART_DIR/metric.md"
@@ -326,7 +326,7 @@ Set task `2` → `in_progress`.
    Parse user's answer to seconds and write:
 
    ```bash
-   source /home/liupan/CC/clone-wars/lib/state.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
    RUN_DIR=$(cw_run_dir_last)
    ART_DIR=$(cat "$RUN_DIR/art-dir.txt")
    echo "none" > "$ART_DIR/time-budget.txt"      # or the seconds value
@@ -345,8 +345,8 @@ Set task `2` → `in_progress`.
 3. **Allocate roster (mechanical):**
 
    ```bash
-   source /home/liupan/CC/clone-wars/lib/state.sh
-   source /home/liupan/CC/clone-wars/lib/deep-research.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/deep-research.sh
    RUN_DIR=$(cw_run_dir_last)
    mapfile -t ROSTER < <(cw_deep_research_pick_roster 2)   # or 3
    echo "Roster: ${ROSTER[*]}"
@@ -376,10 +376,10 @@ This mirrors `/clone-wars:meditate` Step 2 (v0.25.0+) and
    gap (deploy v0.22.0 precedent):
 
    ```bash
-   source /home/liupan/CC/clone-wars/lib/log.sh
-   source /home/liupan/CC/clone-wars/lib/state.sh
-   source /home/liupan/CC/clone-wars/lib/consult.sh
-   source /home/liupan/CC/clone-wars/lib/deep-research.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/log.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/consult.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/deep-research.sh
    RUN_DIR=$(cw_run_dir_last)
    ART_DIR=$(cat "$RUN_DIR/art-dir.txt")
    mapfile -t ROSTER < "$RUN_DIR/roster.txt"
@@ -397,11 +397,11 @@ This mirrors `/clone-wars:meditate` Step 2 (v0.25.0+) and
    pane, applies main-vertical layout, writes `preflight-panes.txt`:
 
    ```bash
-   source /home/liupan/CC/clone-wars/lib/state.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
    RUN_DIR=$(cw_run_dir_last)
    DEEP_TOPIC=$(cat "$RUN_DIR/topic.txt")
    ART_DIR=$(cat "$RUN_DIR/art-dir.txt")
-   /home/liupan/CC/clone-wars/bin/preflight-layout.sh \
+   ${CLAUDE_PLUGIN_ROOT}/bin/preflight-layout.sh \
      --art-dir "$ART_DIR" \
      --troopers-from "$ART_DIR/troopers-preflight.txt" \
      "$DEEP_TOPIC" "$N"
@@ -422,10 +422,10 @@ This mirrors `/clone-wars:meditate` Step 2 (v0.25.0+) and
    `SPAWN_RETRY_COUNT=1`.
 
    ```bash
-   source /home/liupan/CC/clone-wars/lib/state.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
    RUN_DIR=$(cw_run_dir_last)
    DEEP_TOPIC=$(cat "$RUN_DIR/topic.txt")
-   /home/liupan/CC/clone-wars/bin/deep-research-teardown.sh "$DEEP_TOPIC" 2>/dev/null || true
+   ${CLAUDE_PLUGIN_ROOT}/bin/deep-research-teardown.sh "$DEEP_TOPIC" 2>/dev/null || true
    SPAWN_RETRY_COUNT=1
    log_info "preflight failed (cold start?); retrying preflight + parallel spawn"
    ```
@@ -435,7 +435,7 @@ This mirrors `/clone-wars:meditate` Step 2 (v0.25.0+) and
    twice the run is unrecoverable):
 
    ```bash
-   /home/liupan/CC/clone-wars/bin/deep-research-teardown.sh "$DEEP_TOPIC" 2>/dev/null || true
+   ${CLAUDE_PLUGIN_ROOT}/bin/deep-research-teardown.sh "$DEEP_TOPIC" 2>/dev/null || true
    exit 1
    ```
 
@@ -447,11 +447,11 @@ from `PREFLIGHT_PANES`) and `--preflight-art-dir` (so spawn.sh validates
 the pane ID against the correct preflight-panes.txt):
 
 ```bash
-source /home/liupan/CC/clone-wars/lib/state.sh
+source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
 RUN_DIR=$(cw_run_dir_last)
 DEEP_TOPIC=$(cat "$RUN_DIR/topic.txt")
 ART_DIR=$(cat "$RUN_DIR/art-dir.txt")
-/home/liupan/CC/clone-wars/bin/spawn.sh \
+${CLAUDE_PLUGIN_ROOT}/bin/spawn.sh \
   <commander> codex "$DEEP_TOPIC" \
   --target-pane "${PREFLIGHT_PANES[<commander>]}" \
   --preflight-art-dir "$ART_DIR"
@@ -468,10 +468,10 @@ block:
 - **Any failed AND `SPAWN_RETRY_COUNT == 0`** → Stage 1 retry-once:
 
   ```bash
-  source /home/liupan/CC/clone-wars/lib/state.sh
+  source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
   RUN_DIR=$(cw_run_dir_last)
   DEEP_TOPIC=$(cat "$RUN_DIR/topic.txt")
-  /home/liupan/CC/clone-wars/bin/deep-research-teardown.sh "$DEEP_TOPIC" 2>/dev/null || true
+  ${CLAUDE_PLUGIN_ROOT}/bin/deep-research-teardown.sh "$DEEP_TOPIC" 2>/dev/null || true
   SPAWN_RETRY_COUNT=1
   log_info "spawn failed (cold start?); retrying preflight + parallel spawn"
   ```
@@ -537,9 +537,9 @@ trooper's prompt via the `{{TASK_CONTEXT}}` placeholder.
 1. **Seed per-trooper state.** For each commander in `troopers.txt`:
 
    ```bash
-   source /home/liupan/CC/clone-wars/lib/log.sh
-   source /home/liupan/CC/clone-wars/lib/state.sh
-   source /home/liupan/CC/clone-wars/lib/deep-research.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/log.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/deep-research.sh
    RUN_DIR=$(cw_run_dir_last)
    ART_DIR=$(cat "$RUN_DIR/art-dir.txt")
    mapfile -t ROSTER < "$RUN_DIR/roster.txt"
@@ -574,7 +574,7 @@ trooper's prompt via the `{{TASK_CONTEXT}}` placeholder.
    when outbox mtime exceeds `CW_DEEP_RESEARCH_PROBE_S` / `_STUCK_S` thresholds.
 
    For each commander, use the Monitor tool with config:
-   - `command`: `bash /home/liupan/CC/clone-wars/bin/deep-research-monitor.sh "$ART_DIR" "<cmdr>"`
+   - `command`: `bash ${CLAUDE_PLUGIN_ROOT}/bin/deep-research-monitor.sh "$ART_DIR" "<cmdr>"`
    - `persistent`: `true`
    - `description`: `deep-research monitor for <cmdr>`
 
@@ -583,8 +583,8 @@ trooper's prompt via the `{{TASK_CONTEXT}}` placeholder.
 3. **Write initial `session-summary.md`:**
 
    ```bash
-   source /home/liupan/CC/clone-wars/lib/state.sh
-   source /home/liupan/CC/clone-wars/lib/deep-research.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/deep-research.sh
    RUN_DIR=$(cw_run_dir_last)
    ART_DIR=$(cat "$RUN_DIR/art-dir.txt")
    cw_deep_research_render_summary "$ART_DIR" > "$ART_DIR/session-summary.md"
@@ -600,10 +600,10 @@ trooper's prompt via the `{{TASK_CONTEXT}}` placeholder.
    a single message):
 
    ```bash
-   source /home/liupan/CC/clone-wars/lib/state.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
    RUN_DIR=$(cw_run_dir_last)
    DEEP_TOPIC=$(cat "$RUN_DIR/topic.txt")
-   /home/liupan/CC/clone-wars/bin/deep-research-experiment-send.sh \
+   ${CLAUDE_PLUGIN_ROOT}/bin/deep-research-experiment-send.sh \
      "$DEEP_TOPIC" "<cmdr>" "exp-001" "<approach-label>" "<short direction>"
    ```
 
@@ -741,12 +741,12 @@ Then single batched panes teardown via `--pairs` (one 9s graceful banner
 across N panes, not N × 9s):
 
 ```bash
-source /home/liupan/CC/clone-wars/lib/state.sh
+source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
 RUN_DIR=$(cw_run_dir_last)
 DEEP_TOPIC=$(cat "$RUN_DIR/topic.txt")
 mapfile -t ROSTER < "$RUN_DIR/roster.txt"
-/home/liupan/CC/clone-wars/bin/teardown.sh --pairs "$DEEP_TOPIC" "${ROSTER[@]}"
-/home/liupan/CC/clone-wars/bin/deep-research-teardown.sh "$DEEP_TOPIC"
+${CLAUDE_PLUGIN_ROOT}/bin/teardown.sh --pairs "$DEEP_TOPIC" "${ROSTER[@]}"
+${CLAUDE_PLUGIN_ROOT}/bin/deep-research-teardown.sh "$DEEP_TOPIC"
 ```
 
 (`deep-research-teardown.sh` prints the absolute archive path to stdout; use it

@@ -16,10 +16,10 @@ Before responding to the user, run the steps below in order.
 Use the Bash tool with the lib helpers preloaded:
 
 ```bash
-source /home/liupan/CC/clone-wars/lib/log.sh
-source /home/liupan/CC/clone-wars/lib/state.sh
-source /home/liupan/CC/clone-wars/lib/consult.sh
-source /home/liupan/CC/clone-wars/lib/deep-research.sh
+source ${CLAUDE_PLUGIN_ROOT}/lib/log.sh
+source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
+source ${CLAUDE_PLUGIN_ROOT}/lib/consult.sh
+source ${CLAUDE_PLUGIN_ROOT}/lib/deep-research.sh
 ```
 
 Resolve ART_DIR by reading the active.txt that the hook surfaced:
@@ -104,7 +104,7 @@ For each trooper where `phase=idle` AND halt.flag absent:
 2. Compute next EXP_ID: read current `exp_counter` from state.txt, increment, format `exp-NNN`.
 3. Dispatch:
    ```bash
-   /home/liupan/CC/clone-wars/bin/deep-research-experiment-send.sh \
+   ${CLAUDE_PLUGIN_ROOT}/bin/deep-research-experiment-send.sh \
      "$TOPIC" "<cmdr>" "$EXP_ID" "<approach-label>" "<short direction>"
    ```
 4. The dispatch script updates state.txt to `phase=working, current_exp_id, exp_counter+1`.
