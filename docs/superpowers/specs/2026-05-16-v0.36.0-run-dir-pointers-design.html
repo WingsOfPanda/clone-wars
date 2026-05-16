@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v0.36.0 — _run/ pointer migration design</title>
+<style>
+  :root {
+    --fg: #1f2328;
+    --muted: #59636e;
+    --bg: #ffffff;
+    --code-bg: #f6f8fa;
+    --border: #d0d7de;
+    --accent: #0969da;
+    --warn: #bf8700;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e6edf3;
+      --muted: #9198a1;
+      --bg: #0d1117;
+      --code-bg: #151b23;
+      --border: #3d444d;
+      --accent: #4493f8;
+      --warn: #d29922;
+    }
+  }
+  html, body { background: var(--bg); color: var(--fg); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans",
+                 Helvetica, Arial, sans-serif;
+    line-height: 1.55;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 32px 24px 96px;
+    font-size: 16px;
+  }
+  h1, h2, h3 { line-height: 1.25; margin-top: 1.6em; margin-bottom: 0.6em; }
+  h1 { font-size: 1.9em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+  h2 { font-size: 1.45em; border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
+  h3 { font-size: 1.2em; }
+  p { margin: 0.8em 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.88em;
+    background: var(--code-bg);
+    padding: 0.15em 0.35em;
+    border-radius: 4px;
+  }
+  pre {
+    background: var(--code-bg);
+    padding: 14px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 0.85em;
+    line-height: 1.5;
+    border: 1px solid var(--border);
+  }
+  pre code { background: transparent; padding: 0; font-size: 1em; }
+  table {
+    border-collapse: collapse;
+    margin: 1em 0;
+    font-size: 0.92em;
+    width: 100%;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--code-bg); font-weight: 600; }
+  ul, ol { padding-left: 1.5em; }
+  li { margin: 0.3em 0; }
+  blockquote {
+    border-left: 4px solid var(--border);
+    padding: 0.2em 1em;
+    margin: 1em 0;
+    color: var(--muted);
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2em 0; }
+  .meta { color: var(--muted); font-size: 0.92em; }
+  .meta strong { color: var(--fg); }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    font-size: 0.82em;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    color: var(--muted);
+  }
+  .toc {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 20px;
+    margin: 1em 0 2em;
+    font-size: 0.92em;
+  }
+  .toc ul { margin: 0.3em 0; }
+  .toc > strong { color: var(--muted); font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.05em; }
+</style>
+</head>
+<body>
+
+<h1>v0.36.0 — Eliminate <code>/tmp/cw-*</code> cross-session pointer races via project-local <code>_run/</code> dirs</h1>
+
+<p class="meta">
+  <strong>Status:</strong> Spec — pending review &nbsp;·&nbsp;
+  <strong>Date:</strong> 2026-05-16 &nbsp;·&nbsp;
+  <strong>Branch:</strong> <code>feat/v0.36.0-run-dir-pointers</code> &nbsp;·&nbsp;
+  <strong>Predecessor:</strong> v0.31.0 (project-local state relocation) — this completes that work
+</p>
+
+<div class="toc">
+  <strong>Contents</strong>
+  <ul>
+    <li><a href="#problem">Problem</a></li>
+    <li><a href="#goal">Goal</a></li>
+    <li><a href="#approach-summary">Approach summary — Option A</a></li>
+    <li><a href="#approaches-considered">Approaches considered</a></li>
+    <li><a href="#layer-a">Layer A — <code>cw_run_dir</code> helper</a></li>
+    <li><a href="#layer-b">Layer B — directive rewrites</a></li>
+    <li><a href="#defaults">Defaults</a></li>
+    <li><a href="#tests">Tests</a></li>
+    <li><a href="#out-of-scope">Out of scope</a></li>
+    <li><a href="#release-gate-dogfood">Release-gate dogfood</a></li>
+    <li><a href="#open-questions">Open questions for reviewer</a></li>
+  </ul>
+</div>
+
+<h2 id="problem">Problem</h2>
+
+<p>
+  <code>/clone-wars:*</code> directives use ephemeral <code>/tmp/cw-*</code> files to bridge state
+  between separate Bash tool blocks within a single directive invocation. The names are
+  session-global. When two <code>/clone-wars:*</code> invocations run in parallel (different
+  terminals, different repos), they overwrite each other's pointer files.
+</p>
+
+<h3>Observed symptom (reported during recent deploy)</h3>
+
+<blockquote>
+  "during consult, one trooper report that 'The design doc changed on disk while I was
+  validating it.'"<br>
+  "/tmp/cw-consult-* files keep getting overwritten by parallel sessions. Inlining the
+  values directly."
+</blockquote>
+
+<h3>Causal chain</h3>
+
+<ol>
+  <li>Session A in repo X, session B in repo Y both running <code>/clone-wars:consult</code>.</li>
+  <li>Session B's first Bash block writes its <code>$ARGS_FILE</code> path to <code>/tmp/cw-consult-args-path.txt</code>.</li>
+  <li>Session A's second Bash block (Step 12 walk-assemble) reads <code>/tmp/cw-consult-args-path.txt</code> → gets B's args path → derives B's topic → walk-assemble writes the design doc into B's <code>_consult/design-doc/</code> path.</li>
+  <li>B's drill-round trooper, mid-read of B's own design doc, sees the file replaced (atomic rename works, but the <em>content</em> flips). Outbox: "design doc changed on disk."</li>
+</ol>
+
+<p>Symmetric: A or B can be writer or reader; either side's trooper can fire the message.</p>
+
+<h3>Inventory of the affected pointer-file class</h3>
+
+<table>
+  <thead>
+    <tr><th>Pointer file</th><th>Reader/writer</th><th>Directive</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>/tmp/cw-consult-args-path.txt</code></td><td>3 sites</td><td><code>commands/consult.md</code></td></tr>
+    <tr><td><code>/tmp/cw-fastpath-err</code></td><td>2 sites</td><td><code>commands/consult.md</code></td></tr>
+    <tr><td><code>/tmp/cw-meditate-args-path.txt</code></td><td>2 sites</td><td><code>commands/meditate.md</code></td></tr>
+    <tr><td><code>/tmp/cw-deep-research-args-path.txt</code></td><td>2 sites</td><td><code>commands/deep-research.md</code></td></tr>
+    <tr><td><code>/tmp/cw-deep-research-topic.txt</code></td><td>~5 sites</td><td><code>commands/deep-research.md</code></td></tr>
+    <tr><td><code>/tmp/cw-deep-research-art-dir.txt</code></td><td>~5 sites</td><td><code>commands/deep-research.md</code></td></tr>
+    <tr><td><code>/tmp/cw-deep-research-topic-dir.txt</code></td><td>~2 sites</td><td><code>commands/deep-research.md</code></td></tr>
+    <tr><td><code>/tmp/cw-deep-research-roster.txt</code></td><td>~3 sites</td><td><code>commands/deep-research.md</code></td></tr>
+    <tr><td><code>/tmp/cw-deep-research-repo-hash.txt</code></td><td>1 site</td><td><code>commands/deep-research.md</code></td></tr>
+    <tr><td><code>/tmp/cw-deploy-args-path.txt</code></td><td>6 sites</td><td><code>commands/deploy.md</code></td></tr>
+    <tr><td><code>/tmp/cw-init-err</code></td><td>5 sites</td><td><code>commands/deploy.md</code></td></tr>
+    <tr><td><code>/tmp/cw-stashpop-err</code></td><td>2 sites</td><td><code>commands/deploy.md</code></td></tr>
+  </tbody>
+</table>
+
+<p>
+  <strong>Spec correction during implementation (T6):</strong> initial site count was a
+  survey under-estimate. Actual sites by directive: consult.md (6 — included 2
+  <code>walk-err</code> redirects in Step 12 audit-retry that were missed), meditate.md
+  (2), deep-research.md (23), deploy.md (13). <strong>Total ~44 directive sites across
+  4 files.</strong> v0.31.0 partially closed this class (the <em>args files
+  themselves</em> moved to <code>mktemp -p $state_root/_args</code>), but the
+  <em>pointers to the args files</em> stayed at <code>/tmp/cw-*</code>.
+</p>
+
+<h2 id="goal">Goal</h2>
+
+<p>
+  Eliminate the cross-session pointer race by giving each directive invocation a fresh
+  project-local working directory, while keeping the cross-Bash-block discovery
+  mechanism that makes the pointer pattern necessary in the first place.
+</p>
+
+<h2 id="approach-summary">Approach summary — Option A (project-local mktemp dir per invocation)</h2>
+
+<p>Mirror v0.31.0's <code>_args/</code> mktemp pattern with a sibling <code>_run/</code> dir purely for directive-internal pointers.</p>
+
+<pre><code>$state_root/                                 # = $PWD/.clone-wars (per v0.31.0)
+├── _args/                                   # already exists — args files (v0.31.0)
+└── _run/                                    # NEW (v0.36.0) — directive run dirs
+    ├── .gitignore                           # auto-written: *
+    ├── .last                                # cross-block discovery (see below)
+    ├── consult.AbCdEf/                      # one dir per /clone-wars:consult invocation
+    │   ├── args-path.txt
+    │   ├── topic.txt
+    │   ├── art-dir.txt
+    │   └── fastpath-err
+    └── deep-research.GhIjKl/                # one dir per /clone-wars:deep-research invocation
+        ├── args-path.txt
+        ├── topic.txt
+        ├── art-dir.txt
+        ├── topic-dir.txt
+        ├── roster.txt
+        └── repo-hash.txt</code></pre>
+
+<p>Cross-session collisions become structurally impossible:</p>
+
+<ul>
+  <li>Different repos → different <code>cw_state_root</code> → different <code>_run/</code> paths.</li>
+  <li>Same repo, parallel invocations → same <code>_run/</code> parent, but <code>mktemp -d</code> guarantees unique subdirs (<code>&lt;command&gt;.XXXXXX</code>).</li>
+</ul>
+
+<h2 id="approaches-considered">Approaches considered</h2>
+
+<ol>
+  <li><strong>Project-local mktemp dir per invocation (chosen — Option A).</strong> ~50 LoC of new bash; consistent with v0.31.0's <code>_args/</code> precedent. Cross-session collision is structurally impossible — different invocations in any combination of repo × session never share a path.</li>
+  <li><strong>Session-id pointers</strong> (<code>/tmp/cw-${CLAUDE_SESSION_ID:-$$}-...txt</code>). Rejected: (a) Claude Code doesn't expose a stable session-id env var that survives across separate Bash tool invocations within a single session; (b) <code>$$</code> is per-Bash-block (each Bash tool call is a fresh shell — unique PID every call), so it doesn't help.</li>
+  <li><strong>Inline all values via Heredoc / nested <code>$()</code></strong> — what the user did as a workaround. Rejected as a permanent fix because directive Bash blocks have hard length limits and nested <code>$()</code> chains across 25 sites get unreadable fast; also breaks the conventional "one logical step per Bash block" rule.</li>
+  <li><strong>Atomic-rename retrofit on every reader</strong> — rejected. The race is at the <em>writer</em> level (wrong session writes), not the reader. Atomic-rename in walk-assemble already exists (<code>bin/consult-walk-assemble.sh:100</code>) and addresses partial-read windows; it doesn't address whose-content-do-I-flip-to.</li>
+</ol>
+
+<h2 id="layer-a">Layer A — <code>cw_run_dir &lt;command&gt;</code> helper</h2>
+
+<p>
+  New helper in <code>lib/state.sh</code>. Two responsibilities: (1) sweep stale run dirs,
+  (2) mktemp a fresh one and writeback its path to <code>_run/.last</code>.
+</p>
+
+<pre><code># cw_run_dir &lt;command&gt;
+# Resolve a per-invocation directive scratch dir under $state_root/_run/.
+# - Sweeps any sibling _run/&lt;*&gt;/ subdirs whose mtime is &gt;24h old (idempotent;
+#   crash-safe; concurrent live invocations untouched since they have fresh
+#   mtime).
+# - Creates _run/.gitignore = '*' on first call (mirrors v0.31.0's _args/).
+# - Returns absolute path of a fresh mktemp -d _run/&lt;command&gt;.XXXXXX/ via stdout.
+# - Writeback the same path to _run/.last so subsequent Bash blocks within the
+#   same directive can read it without needing /tmp.
+cw_run_dir() {
+  local command="${1:-}" root run_root run_dir
+  [[ -n "$command" ]] || { echo "cw_run_dir: missing &lt;command&gt; arg" &gt;&amp;2; return 2; }
+  root=$(cw_state_root)
+  cw_state_ensure
+  run_root="$root/_run"
+  mkdir -p "$run_root"
+  [[ -f "$run_root/.gitignore" ]] || printf '*\n' &gt; "$run_root/.gitignore"
+
+  # Sweep: remove any sibling subdirs untouched in CW_RUN_SWEEP_S (default 86400s = 24h).
+  local sweep_s="${CW_RUN_SWEEP_S:-86400}"
+  local now d mtime
+  now=$(date +%s)
+  for d in "$run_root"/*/; do
+    [[ -d "$d" ]] || continue
+    mtime=$(stat -c '%Y' "$d" 2&gt;/dev/null || stat -f '%m' "$d" 2&gt;/dev/null || echo 0)
+    if (( mtime &gt; 0 )) &amp;&amp; (( now - mtime &gt; sweep_s )); then
+      rm -rf "$d"
+    fi
+  done
+
+  run_dir=$(mktemp -d -p "$run_root" "$command.XXXXXX") \
+    || { echo "cw_run_dir: mktemp failed under $run_root" &gt;&amp;2; return 1; }
+  printf '%s' "$run_dir" &gt; "$run_root/.last.tmp" \
+    &amp;&amp; mv "$run_root/.last.tmp" "$run_root/.last"
+  printf '%s\n' "$run_dir"
+}
+
+# cw_run_dir_last
+# Read the most-recently-mktemp'd run dir for THIS project (i.e. THIS state_root).
+# Used by directive Bash blocks 2..N to discover the run dir without /tmp.
+# Errors if .last is missing (would mean the directive's first Bash block
+# didn't call cw_run_dir).
+cw_run_dir_last() {
+  local root run_root last
+  root=$(cw_state_root)
+  run_root="$root/_run"
+  last="$run_root/.last"
+  [[ -f "$last" ]] || { echo "cw_run_dir_last: $last missing — first Bash block must call cw_run_dir" &gt;&amp;2; return 1; }
+  cat "$last"
+}</code></pre>
+
+<h3>Why <code>.last</code> works</h3>
+
+<ul>
+  <li><code>cw_state_root</code> is project-local (v0.31.0) → <code>_run/.last</code> is project-local.</li>
+  <li>Two parallel invocations <em>in different repos</em> see different <code>_run/.last</code> files → no collision.</li>
+  <li>Two parallel invocations <em>in the same repo</em> → race on <code>.last</code>. <strong>This is acceptable</strong> because: (a) the same repo running <code>/clone-wars:consult</code> twice in parallel is the same user explicitly doing both, who can serialize them; (b) cross-Bash-block discovery within ONE invocation can't tolerate shared state with another invocation by design — the user's "inline the values" workaround is the only true solution to that pathological case. v0.36.0 fixes the cross-<em>repo</em> race (the actual reported scenario), not the same-repo-parallel race.</li>
+</ul>
+
+<p>
+  If the same-repo-parallel race becomes a real symptom later, v0.37.0 can add a
+  TTY-keyed <code>.last.&lt;tty&gt;</code> shard. v0.36.0 closes the user-reported scenario without
+  that complexity.
+</p>
+
+<h2 id="layer-b">Layer B — directive rewrites (4 files, ~25 sites)</h2>
+
+<p>Pattern:</p>
+
+<p><strong>Before</strong> (consult.md:128-141):</p>
+
+<pre><code>ARGS_DIR="${CLONE_WARS_HOME:-$HOME/.clone-wars}/_args"
+mkdir -p "$ARGS_DIR"
+ARGS_FILE=$(mktemp -p "$ARGS_DIR" -t 'consult.XXXXXX')
+echo "$ARGS_FILE" &gt; /tmp/cw-consult-args-path.txt
+echo "$ARGS_FILE"</code></pre>
+
+<p>later block:</p>
+
+<pre><code>ARGS_FILE=$(cat /tmp/cw-consult-args-path.txt)</code></pre>
+
+<p><strong>After</strong>:</p>
+
+<pre><code>source /home/liupan/CC/clone-wars/lib/log.sh
+source /home/liupan/CC/clone-wars/lib/state.sh
+RUN_DIR=$(cw_run_dir consult)
+ARGS_DIR="$(cw_state_root)/_args"; mkdir -p "$ARGS_DIR"
+ARGS_FILE=$(mktemp -p "$ARGS_DIR" -t 'consult.XXXXXX')
+printf '%s' "$ARGS_FILE" &gt; "$RUN_DIR/args-path.txt"
+echo "$ARGS_FILE"</code></pre>
+
+<p>later block:</p>
+
+<pre><code>source /home/liupan/CC/clone-wars/lib/state.sh
+RUN_DIR=$(cw_run_dir_last)
+ARGS_FILE=$(cat "$RUN_DIR/args-path.txt")</code></pre>
+
+<p>Same shape applies to all 4 directives. The conversion is mechanical:</p>
+
+<ul>
+  <li><code>/tmp/cw-&lt;command&gt;-&lt;key&gt;.txt</code> → <code>$RUN_DIR/&lt;key&gt;.txt</code></li>
+  <li>First Bash block adds <code>RUN_DIR=$(cw_run_dir &lt;command&gt;)</code></li>
+  <li>Subsequent Bash blocks add <code>RUN_DIR=$(cw_run_dir_last)</code></li>
+</ul>
+
+<h3>Files touched</h3>
+
+<table>
+  <thead>
+    <tr><th>File</th><th>Sites</th><th>Notes</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>lib/state.sh</code></td><td>+35 LoC</td><td>New <code>cw_run_dir</code> + <code>cw_run_dir_last</code> helpers</td></tr>
+    <tr><td><code>commands/consult.md</code></td><td>6 sites</td><td>args-path × 3 + fastpath-err × 2 + walk-err × 2 (Step 12 audit-retry, missed in initial survey)</td></tr>
+    <tr><td><code>commands/meditate.md</code></td><td>2 sites</td><td>args-path × 2</td></tr>
+    <tr><td><code>commands/deep-research.md</code></td><td>23 sites</td><td>args-path, topic, art-dir, roster (covers Phase 0 / 1 / 2 / 3a / 3b / 4.a / 6)</td></tr>
+    <tr><td><code>commands/deploy.md</code></td><td>13 sites</td><td>args-path × 6 + init-err × 5 + stashpop-err × 2 (Step 0/5/5a/5b + Step 4 stash-pop). Initial survey said "0–1"; v0.31.0 inventory missed init-err + stashpop-err.</td></tr>
+    <tr><td><code>tests/test_run_dir_helper.sh</code></td><td>NEW</td><td>4 cases</td></tr>
+    <tr><td><code>tests/test_v0_36_0_static_wiring.sh</code></td><td>NEW</td><td>8 invariants</td></tr>
+    <tr><td><code>.claude-plugin/plugin.json</code></td><td>0.35.0 → 0.36.0</td><td></td></tr>
+    <tr><td><code>.claude-plugin/marketplace.json</code></td><td>0.35.0 → 0.36.0</td><td></td></tr>
+    <tr><td><code>CLAUDE.md</code></td><td>+2 lines</td><td>Status row + release-gate row</td></tr>
+  </tbody>
+</table>
+
+<p>Estimated PR size: ~600 LoC (mostly directive prose).</p>
+
+<h2 id="defaults">Defaults</h2>
+
+<table>
+  <thead>
+    <tr><th>Knob</th><th>Default</th><th>Env override</th><th>Meaning</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>CW_RUN_SWEEP_S</code></td><td><code>86400</code> (24h)</td><td><code>CW_RUN_SWEEP_S</code></td><td>Stale threshold — run dirs older than this are swept on next <code>cw_run_dir</code> call</td></tr>
+  </tbody>
+</table>
+
+<p>
+  24h covers v0.34.0 long-session deep-research workflows (typical 4-12h sessions;
+  outliers up to 24h) without preserving multi-day clutter. Crashed sessions get cleaned
+  by the next invocation in the same repo. Active sessions are untouched (they have fresh
+  mtimes).
+</p>
+
+<h2 id="tests">Tests</h2>
+
+<h3><code>test_run_dir_helper.sh</code> (4 cases)</h3>
+
+<ol>
+  <li><code>cw_run_dir consult</code> returns a fresh dir each call (mktemp uniqueness).</li>
+  <li>Stale dir (mtime > <code>CW_RUN_SWEEP_S</code>) gets swept on next call; recent dir survives.</li>
+  <li><code>_run/.gitignore</code> auto-created with <code>*</code> on first call.</li>
+  <li><code>cw_run_dir_last</code> reads the path written by the most-recent <code>cw_run_dir</code> call; errors when <code>.last</code> missing.</li>
+</ol>
+
+<h3><code>test_v0_36_0_static_wiring.sh</code> (8 invariants)</h3>
+
+<p>Standard version-stamped lock with skip-guard:</p>
+
+<ol>
+  <li><code>plugin.json</code> reads <code>0.36.0</code>.</li>
+  <li><code>cw_run_dir()</code> defined in <code>lib/state.sh</code>.</li>
+  <li><code>cw_run_dir_last()</code> defined in <code>lib/state.sh</code>.</li>
+  <li><code>commands/consult.md</code> references <code>cw_run_dir</code> (negative-asserts <code>/tmp/cw-consult-</code>).</li>
+  <li><code>commands/meditate.md</code> references <code>cw_run_dir</code> (negative-asserts <code>/tmp/cw-meditate-</code>).</li>
+  <li><code>commands/deep-research.md</code> references <code>cw_run_dir</code> (negative-asserts <code>/tmp/cw-deep-research-</code>).</li>
+  <li><code>CLAUDE.md</code> has <code>^- \[x\] v0.36.0</code> row.</li>
+  <li><code>CLAUDE.md</code> has <code>^- \[ \] v0.36.0 strict-dogfood</code> row.</li>
+</ol>
+
+<h2 id="out-of-scope">Out of scope</h2>
+
+<ul>
+  <li><strong>Same-repo-parallel invocation</strong> — <code>_run/.last</code> race acknowledged; deferred to v0.37.0 if observed in practice.</li>
+  <li><strong>Atomic-rename retrofit</strong> — <code>bin/consult-walk-assemble.sh:100</code> already does it. Nothing to add.</li>
+  <li><strong>Migration of in-flight v0.35.0 sessions</strong> — directive <code>/tmp/cw-*</code> files are ephemeral within an invocation; an in-flight v0.35.0 session has the relevant pointers in <code>/tmp</code> already. v0.36.0 just adds a NEW directive flow; in-flight sessions keep working until they exit. New invocations after upgrade use the new flow.</li>
+  <li><strong>Backwards-compat for archived <code>/tmp/cw-*</code> files</strong> — none required; these were always ephemeral.</li>
+</ul>
+
+<h2 id="release-gate-dogfood">Release-gate dogfood</h2>
+
+<p>Run two parallel <code>/clone-wars:consult</code> sessions on different topics in different repos. Verify:</p>
+
+<ol>
+  <li>Each session writes to its own <code>&lt;repo&gt;/.clone-wars/_run/consult.XXXXXX/</code> dir (use <code>ls $repoX/.clone-wars/_run/</code> and <code>ls $repoY/.clone-wars/_run/</code> between sessions).</li>
+  <li>Neither session's drill trooper reports "design doc changed on disk."</li>
+  <li>After both sessions complete, <code>_run/.last</code> in each repo points at the session's own dir (not crossed).</li>
+  <li>Run a third <code>/clone-wars:consult</code> in repoX 25 hours later (or with <code>CW_RUN_SWEEP_S=1</code> for fast-test) — the prior session's dir gets swept; new session's dir is fresh.</li>
+  <li><code>git status</code> in both repos shows <code>.clone-wars/</code> ignored (gitignore at <code>.clone-wars/.gitignore</code> from v0.31.0 + <code>_run/.gitignore</code> from v0.36.0).</li>
+  <li><code>/clone-wars:meditate</code> + <code>/clone-wars:deep-research</code> exhibit the same isolation — each invocation gets its own <code>_run/&lt;command&gt;.XXXXXX/</code> dir.</li>
+</ol>
+
+<h2 id="open-questions">Open questions for reviewer</h2>
+
+<ol>
+  <li><strong>24h sweep window</strong> — long enough for your longest deep-research advisor sessions? You've reported up to 18h in past dogfood. 24h gives headroom; bump to 48h via <code>CW_RUN_SWEEP_S=172800</code> if you want more.</li>
+  <li><strong><code>.last</code> race in same-repo parallel invocations</strong> — accepted as deferred. If you actually run two <code>/clone-wars:consult</code> invocations in the <em>same repo</em> at the same time, second one's <code>.last</code> writeback wins and first one's later Bash blocks find the wrong dir. Same symptom as the bug we're fixing, just reduced from cross-repo to same-repo. Is that acceptable for v0.36.0, or should this also be in scope?</li>
+  <li><strong>Verbose <code>RUN_DIR=$(cw_run_dir_last)</code> boilerplate at the top of every Bash block</strong> — 1 source line + 1 helper call per block, ~50 sites total. Could compress with a sourceable shim (<code>source /home/liupan/CC/clone-wars/lib/_directive-prelude.sh</code>) — but that adds an indirection. Status quo is more verbose but explicit. Preference?</li>
+</ol>
+
+<hr>
+
+<p class="meta">
+  <span class="badge">v0.36.0</span> &nbsp;
+  Generated alongside the markdown spec at <code>docs/superpowers/specs/2026-05-16-v0.36.0-run-dir-pointers-design.md</code>.
+</p>
+
+</body>
+</html>

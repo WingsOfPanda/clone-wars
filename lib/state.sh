@@ -132,6 +132,66 @@ cw_atomic_write() {
   trap - RETURN
 }
 
+# cw_run_dir <command>
+# Resolve a per-invocation directive scratch dir under $state_root/_run/.
+# - Sweeps any sibling _run/<*>/ subdirs whose mtime is >24h old (idempotent;
+#   crash-safe; concurrent live invocations untouched since they have fresh
+#   mtime). Sweep window overridable via CW_RUN_SWEEP_S.
+# - Creates _run/.gitignore = '*' on first call (mirrors $state_root/.gitignore
+#   from v0.31.0).
+# - Returns absolute path of a fresh mktemp -d _run/<command>.XXXXXX/ via stdout.
+# - Writeback the same path to _run/.last (atomic) so subsequent Bash blocks
+#   within the same directive can read it without needing /tmp.
+#
+# Closes the v0.36.0 cross-session pointer race: parallel /clone-wars:*
+# invocations in different repos now use distinct _run/ paths (since
+# $state_root is project-local per v0.31.0). See
+# docs/superpowers/specs/2026-05-16-v0.36.0-run-dir-pointers-design.md.
+cw_run_dir() {
+  local command="${1:-}" root run_root run_dir
+  [[ -n "$command" ]] || { echo "cw_run_dir: missing <command> arg" >&2; return 2; }
+  root=$(cw_state_root)
+  cw_state_ensure
+  run_root="$root/_run"
+  mkdir -p "$run_root"
+  [[ -f "$run_root/.gitignore" ]] || printf '*\n' > "$run_root/.gitignore"
+
+  # Sweep stale subdirs.
+  local sweep_s="${CW_RUN_SWEEP_S:-86400}"
+  local now d mtime
+  now=$(date +%s)
+  for d in "$run_root"/*/; do
+    [[ -d "$d" ]] || continue
+    mtime=$(stat -c '%Y' "$d" 2>/dev/null \
+            || stat -f '%m' "$d" 2>/dev/null \
+            || echo 0)
+    if (( mtime > 0 )) && (( now - mtime > sweep_s )); then
+      rm -rf "$d"
+    fi
+  done
+
+  run_dir=$(mktemp -d -p "$run_root" "$command.XXXXXX") \
+    || { echo "cw_run_dir: mktemp failed under $run_root" >&2; return 1; }
+  printf '%s' "$run_dir" | cw_atomic_write "$run_root/.last" \
+    || { echo "cw_run_dir: .last writeback failed" >&2; return 1; }
+  printf '%s\n' "$run_dir"
+}
+
+# cw_run_dir_last
+# Read the most-recently-mktemp'd run dir for THIS project's $state_root.
+# Used by directive Bash blocks 2..N to discover the run dir without /tmp.
+# Errors if .last is missing (would mean the directive's first Bash block
+# didn't call cw_run_dir).
+cw_run_dir_last() {
+  local root run_root last
+  root=$(cw_state_root)
+  run_root="$root/_run"
+  last="$run_root/.last"
+  [[ -f "$last" ]] \
+    || { echo "cw_run_dir_last: $last missing — first Bash block must call cw_run_dir" >&2; return 1; }
+  cat "$last"
+}
+
 # cw_state_archive_dir <art-dir> <archive-base> <slug>
 #
 # Move <art-dir> into <archive-base>/<slug>-<ts>/, with same-second collision

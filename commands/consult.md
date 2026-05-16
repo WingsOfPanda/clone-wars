@@ -120,25 +120,32 @@ fi
 Continue using `$ARG_RAW` for the topic from this point.
 
 1. Resolve a unique args path (v0.31.0: project-local + mktemp per invocation
-   so parallel sessions don't collide on a stable filename):
+   so parallel sessions don't collide on a stable filename) and a per-invocation
+   `RUN_DIR` for cross-Bash-block scratch (v0.36.0: project-local pointer dir;
+   replaces session-global pointer files that collided across parallel runs):
 
    ```
+   source "$CLAUDE_PLUGIN_ROOT/lib/log.sh"
    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+   RUN_DIR=$(cw_run_dir consult)
    ARGS_DIR="$(cw_state_root)/_args"
    mkdir -p "$ARGS_DIR"
    ARGS_FILE=$(mktemp -p "$ARGS_DIR" -t 'consult.XXXXXX')
-   echo "$ARGS_FILE" > /tmp/cw-consult-args-path.txt
+   printf '%s' "$ARGS_FILE" > "$RUN_DIR/args-path.txt"
    echo "$ARGS_FILE"
    ```
 
-2. Write tool: `file_path` = the path printed (read from `/tmp/cw-consult-args-path.txt` in later Bash blocks); `content` = `$ARG_RAW`.
+2. Write tool: `file_path` = the path printed (read in later Bash blocks via
+   `RUN_DIR=$(cw_run_dir_last); ARGS_FILE=$(cat "$RUN_DIR/args-path.txt")`);
+   `content` = `$ARG_RAW`.
 
 3. Initialize the consult topic AND compute the repo hash once:
 
    ```
    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
    source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
-   ARGS_FILE=$(cat /tmp/cw-consult-args-path.txt)
+   RUN_DIR=$(cw_run_dir_last)
+   ARGS_FILE=$(cat "$RUN_DIR/args-path.txt")
    REPO_HASH=$(cw_repo_hash)
    CONSULT_TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/consult-init.sh" "$(cat "$ARGS_FILE")")
    TOPIC_DIR="$(cw_state_root)/state/$REPO_HASH/$CONSULT_TOPIC"
@@ -299,15 +306,16 @@ explanation rather than `_(skipped)_`.
 After all 6 drafts are written, invoke walk-assemble:
 
 ```
-DD_PATH=$("$CLAUDE_PLUGIN_ROOT/bin/consult-walk-assemble.sh" "$CONSULT_TOPIC" 2>/tmp/cw-fastpath-err) || {
-  log_error "fast-path: walk-assemble FAILED — see /tmp/cw-fastpath-err"
+RUN_DIR=$(cw_run_dir_last)
+DD_PATH=$("$CLAUDE_PLUGIN_ROOT/bin/consult-walk-assemble.sh" "$CONSULT_TOPIC" 2>"$RUN_DIR/fastpath-err") || {
+  log_error "fast-path: walk-assemble FAILED — see $RUN_DIR/fastpath-err"
   exit 1
 }
 log_ok "fast-path: design-doc at $DD_PATH"
 ```
 
 If `walk-assemble.sh` exits non-zero (audit FAIL), parse `ISSUE=` lines
-from `/tmp/cw-fastpath-err`, map each via `cw_consult_audit_issue_to_section`,
+from `$RUN_DIR/fastpath-err`, map each via `cw_consult_audit_issue_to_section`,
 re-draft the offending section(s) into `$DRAFT_DIR/<section>.md` (Write
 tool, atomic), and **re-invoke `bin/consult-walk-assemble.sh`**. If the
 re-invocation also exits non-zero (audit still fails after one re-draft),
@@ -903,15 +911,16 @@ Set task `11` → `completed`.
 Set task `12` → `in_progress`.
 
 ```
+RUN_DIR=$(cw_run_dir_last)
 ATTEMPT=1
 MAX_ATTEMPT_PER_SECTION=2
 while :; do
-  if DD_PATH=$("$CLAUDE_PLUGIN_ROOT/bin/consult-walk-assemble.sh" "$CONSULT_TOPIC" 2>/tmp/cw-walk-err); then
+  if DD_PATH=$("$CLAUDE_PLUGIN_ROOT/bin/consult-walk-assemble.sh" "$CONSULT_TOPIC" 2>"$RUN_DIR/walk-err"); then
     log_ok "[step 12] design-doc assembled + audit PASS: $DD_PATH"
     break
   fi
   # Audit FAILED. Parse ISSUE= lines and re-walk the offending section(s).
-  mapfile -t ISSUE_LINES < <(grep '^ISSUE=' /tmp/cw-walk-err || true)
+  mapfile -t ISSUE_LINES < <(grep '^ISSUE=' "$RUN_DIR/walk-err" || true)
   [[ ${#ISSUE_LINES[@]} -gt 0 ]] || { log_error "[step 12] audit FAIL but no ISSUE= lines parsed"; exit 1; }
 
   source "$CLAUDE_PLUGIN_ROOT/lib/consult-walk.sh"

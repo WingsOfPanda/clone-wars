@@ -69,14 +69,18 @@ injection, write it via the Write tool, then invoke sub-scripts.
 Set task `0` → `in_progress`.
 
 1. Resolve a unique args path (v0.31.0: project-local + mktemp per
-   invocation so parallel sessions don't collide):
+   invocation so parallel sessions don't collide) and a per-invocation
+   `RUN_DIR` (v0.36.0: project-local pointer dir; replaces session-global
+   pointer files that collided across parallel runs):
 
    ```
+   source "$CLAUDE_PLUGIN_ROOT/lib/log.sh"
    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
+   RUN_DIR=$(cw_run_dir meditate)
    ARGS_DIR="$(cw_state_root)/_args"
    mkdir -p "$ARGS_DIR"
    ARGS_FILE=$(mktemp -p "$ARGS_DIR" -t 'meditate.XXXXXX')
-   echo "$ARGS_FILE" > /tmp/cw-meditate-args-path.txt
+   printf '%s' "$ARGS_FILE" > "$RUN_DIR/args-path.txt"
    echo "$ARGS_FILE"
    ```
 
@@ -87,7 +91,8 @@ Set task `0` → `in_progress`.
    ```
    source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"
    source "$CLAUDE_PLUGIN_ROOT/lib/consult.sh"
-   ARGS_FILE=$(cat /tmp/cw-meditate-args-path.txt)
+   RUN_DIR=$(cw_run_dir_last)
+   ARGS_FILE=$(cat "$RUN_DIR/args-path.txt")
    REPO_HASH=$(cw_repo_hash)
    MEDITATE_TOPIC=$("$CLAUDE_PLUGIN_ROOT/bin/meditate-init.sh" "$(cat "$ARGS_FILE")")
    TOPIC_DIR="$(cw_state_root)/state/$REPO_HASH/$MEDITATE_TOPIC"
