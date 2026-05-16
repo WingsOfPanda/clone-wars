@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v0.37.0 — portable paths design</title>
+<style>
+  :root {
+    --fg: #1f2328;
+    --muted: #59636e;
+    --bg: #ffffff;
+    --code-bg: #f6f8fa;
+    --border: #d0d7de;
+    --accent: #0969da;
+    --warn: #bf8700;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e6edf3;
+      --muted: #9198a1;
+      --bg: #0d1117;
+      --code-bg: #151b23;
+      --border: #3d444d;
+      --accent: #4493f8;
+      --warn: #d29922;
+    }
+  }
+  html, body { background: var(--bg); color: var(--fg); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans",
+                 Helvetica, Arial, sans-serif;
+    line-height: 1.55; max-width: 880px; margin: 0 auto;
+    padding: 32px 24px 96px; font-size: 16px;
+  }
+  h1, h2, h3 { line-height: 1.25; margin-top: 1.6em; margin-bottom: 0.6em; }
+  h1 { font-size: 1.9em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+  h2 { font-size: 1.45em; border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
+  h3 { font-size: 1.2em; }
+  p { margin: 0.8em 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.88em; background: var(--code-bg);
+    padding: 0.15em 0.35em; border-radius: 4px;
+  }
+  pre {
+    background: var(--code-bg); padding: 14px 16px; border-radius: 6px;
+    overflow-x: auto; font-size: 0.85em; line-height: 1.5;
+    border: 1px solid var(--border);
+  }
+  pre code { background: transparent; padding: 0; font-size: 1em; }
+  table { border-collapse: collapse; margin: 1em 0; font-size: 0.92em; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--code-bg); font-weight: 600; }
+  ul, ol { padding-left: 1.5em; }
+  li { margin: 0.3em 0; }
+  blockquote { border-left: 4px solid var(--border); padding: 0.2em 1em; margin: 1em 0; color: var(--muted); }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2em 0; }
+  .meta { color: var(--muted); font-size: 0.92em; }
+  .meta strong { color: var(--fg); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px;
+           background: var(--code-bg); border: 1px solid var(--border);
+           font-size: 0.82em; font-family: ui-monospace, SFMono-Regular, monospace;
+           color: var(--muted); }
+  .toc { background: var(--code-bg); border: 1px solid var(--border);
+         border-radius: 6px; padding: 12px 20px; margin: 1em 0 2em; font-size: 0.92em; }
+  .toc ul { margin: 0.3em 0; }
+  .toc > strong { color: var(--muted); font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.05em; }
+</style>
+</head>
+<body>
+
+<h1>v0.37.0 — Eliminate hardcoded <code>/home/&lt;user&gt;/</code> paths from runtime plugin code + permanent regression guard</h1>
+
+<p class="meta">
+  <strong>Status:</strong> Spec — pending review &nbsp;·&nbsp;
+  <strong>Date:</strong> 2026-05-16 &nbsp;·&nbsp;
+  <strong>Branch:</strong> <code>feat/v0.37.0-portable-paths</code> (off <code>feat/v0.36.0-run-dir-pointers</code> — stacks on the open v0.36.0 PR)
+</p>
+
+<div class="toc">
+  <strong>Contents</strong>
+  <ul>
+    <li><a href="#problem">Problem</a></li>
+    <li><a href="#goal">Goal</a></li>
+    <li><a href="#scope">Scope</a></li>
+    <li><a href="#audit">Audit</a></li>
+    <li><a href="#approach">Approach summary</a></li>
+    <li><a href="#surface">Surface change inventory</a></li>
+    <li><a href="#tests">Tests</a></li>
+    <li><a href="#out-of-scope">Out of scope</a></li>
+    <li><a href="#release-gate">Release-gate dogfood</a></li>
+    <li><a href="#open-questions">Open questions for reviewer</a></li>
+  </ul>
+</div>
+
+<h2 id="problem">Problem</h2>
+
+<p>
+  <code>commands/deep-research.md</code> (42 sites) and
+  <code>commands/deep-research-resume.md</code> (5 sites) hardcode the author's absolute
+  install path <code>/home/liupan/CC/clone-wars</code> instead of using the canonical
+  <code>${CLAUDE_PLUGIN_ROOT}/&lt;path&gt;</code> form that every other directive uses. Any
+  user who installs the plugin at a different path — i.e. <strong>every user except the
+  author</strong> — gets <code>source: file not found</code> on every Bash block of
+  <code>/clone-wars:deep-research</code> and <code>/clone-wars:deep-research-resume</code>.
+  The plugin's two most-recent flagship features (advisor autoresearch from v0.27.0+ and
+  the Monitor-driven resume handler from v0.28.0+) are completely non-functional for end
+  users.
+</p>
+
+<h3>Why this slipped</h3>
+
+<ul>
+  <li>Author wrote deep-research.md initially via copy-paste from local-dev test invocations that used absolute paths.</li>
+  <li>Every other directive (<code>consult/meditate/deploy/medic/list/teardown</code>) was authored using <code>$CLAUDE_PLUGIN_ROOT</code> and the pattern was never enforced.</li>
+  <li>The plugin's test suite (<code>tests/run.sh</code>) sources <code>lib/*</code> via a test-local <code>PLUGIN_ROOT=$(cd .. &amp;&amp; pwd)</code> discovery, so directive paths are never exercised by CI.</li>
+  <li>Directives are interpreted by Claude in conversation, not run as code — there's no runtime resolution check during development.</li>
+  <li>v0.36.0's T4 mechanically mirrored the existing bad pattern when adding 13 new <code>source</code> lines to deep-research.md, expanding the bug from ~29 sites to 42. (The user spotted this in PR review, which is what surfaced the broader pre-existing issue.)</li>
+</ul>
+
+<h2 id="goal">Goal</h2>
+
+<p>
+  (A) Make the plugin functional when installed at any path. (B) Add a permanent
+  regression-guard test that prevents this entire bug class from re-appearing in any
+  future contribution.
+</p>
+
+<h2 id="scope">Scope</h2>
+
+<table>
+  <thead><tr><th>Layer</th><th>What</th><th>Where</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>A</td>
+      <td>Convert 47 sites to <code>${CLAUDE_PLUGIN_ROOT}/&lt;path&gt;</code></td>
+      <td><code>commands/deep-research.md</code>, <code>commands/deep-research-resume.md</code></td>
+    </tr>
+    <tr>
+      <td>B</td>
+      <td>New permanent lint test (no version skip-guard)</td>
+      <td><code>tests/test_no_hardcoded_paths.sh</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="audit">Audit</h2>
+
+<p>Performed via <code>grep -rn /home/liupan</code> plus directive-specific structural inspection.</p>
+
+<table>
+  <thead><tr><th>File</th><th>Hardcoded sites</th><th>Status</th></tr></thead>
+  <tbody>
+    <tr><td><code>commands/deep-research.md</code></td><td><strong>42</strong></td><td>Production directive — broken for all non-author installs</td></tr>
+    <tr><td><code>commands/deep-research-resume.md</code></td><td><strong>5</strong></td><td>Production directive — broken for all non-author installs</td></tr>
+    <tr><td><code>commands/consult.md</code></td><td>0</td><td>Clean (uses <code>$CLAUDE_PLUGIN_ROOT</code>)</td></tr>
+    <tr><td><code>commands/meditate.md</code></td><td>0</td><td>Clean</td></tr>
+    <tr><td><code>commands/deploy.md</code></td><td>0</td><td>Clean</td></tr>
+    <tr><td><code>commands/medic.md</code></td><td>0</td><td>Clean</td></tr>
+    <tr><td><code>commands/list.md</code></td><td>0</td><td>Clean</td></tr>
+    <tr><td><code>commands/teardown.md</code></td><td>0</td><td>Clean</td></tr>
+    <tr><td><code>bin/*.sh</code> (all)</td><td>0</td><td>Clean (use <code>PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." &amp;&amp; pwd)}"</code> resolution chain)</td></tr>
+    <tr><td><code>lib/*.sh</code> (all)</td><td>0</td><td>Clean (sourced from <code>bin/*.sh</code> with resolved <code>$PLUGIN_ROOT</code>)</td></tr>
+    <tr><td><code>hooks/*.sh</code></td><td>0</td><td>Clean (<code>${CLAUDE_PLUGIN_ROOT}</code> form)</td></tr>
+    <tr><td><code>config/*.yaml</code></td><td>0</td><td>Clean (declarative; no exec paths)</td></tr>
+    <tr><td><code>.claude-plugin/*.json</code></td><td>0</td><td>Clean</td></tr>
+    <tr><td><code>tests/test_deploy_v07_dogfood.sh</code></td><td>2</td><td><strong>Excluded</strong> — <code>printf</code> strings telling user where to <code>cd</code> for a dogfood scenario (<code>/home/liupan/ARS/ars_fleet</code> — example data, not a runtime path)</td></tr>
+    <tr><td><code>tests/test_deploy_dag_capwords_path.sh</code></td><td>2</td><td><strong>Excluded</strong> — test-fixture data for the DAG-parser; synthesized strings, not runtime paths</td></tr>
+    <tr><td><code>docs/superpowers/specs/</code>, <code>docs/superpowers/plans/</code>, <code>CLAUDE.md</code></td><td>many</td><td><strong>Excluded</strong> — historical changelog entries, dogfood references in prose; not runtime code</td></tr>
+  </tbody>
+</table>
+
+<p><strong>Net runtime-broken surface:</strong> 2 files / 47 sites.</p>
+
+<h2 id="approach">Approach summary</h2>
+
+<h3>Layer A — mechanical conversion (47 sites)</h3>
+
+<p>Two forms to handle (matching what <code>commands/consult.md</code>, <code>medic.md</code>, <code>list.md</code>, <code>teardown.md</code> already do):</p>
+
+<p><strong>Inside quoted <code>source</code> lines:</strong></p>
+<pre><code># Before:
+source /home/liupan/CC/clone-wars/lib/state.sh
+# After:
+source "$CLAUDE_PLUGIN_ROOT/lib/state.sh"</code></pre>
+
+<p><strong>Inside unquoted <code>bin/*.sh</code> invocations:</strong></p>
+<pre><code># Before:
+/home/liupan/CC/clone-wars/bin/spawn.sh &lt;commander&gt; codex "$TOPIC"
+# After:
+"${CLAUDE_PLUGIN_ROOT}/bin/spawn.sh" &lt;commander&gt; codex "$TOPIC"</code></pre>
+
+<p>
+  <strong>Recommended:</strong> one global replace per file
+  (<code>/home/liupan/CC/clone-wars</code> → <code>${CLAUDE_PLUGIN_ROOT}</code>). Yields
+  uniform <code>${CLAUDE_PLUGIN_ROOT}</code> throughout. Two diff-sites per file = trivial
+  review.
+</p>
+
+<h3>Layer B — permanent regression-guard test</h3>
+
+<p>
+  New <code>tests/test_no_hardcoded_paths.sh</code> (no <code>if [[ "$PV" != "0.37.0" ]];
+  then pass skip ...</code> gate — runs forever).
+</p>
+
+<pre><code>#!/usr/bin/env bash
+# tests/test_no_hardcoded_paths.sh
+# Permanent lint: runtime plugin code must NOT hardcode /home/&lt;user&gt;/ paths.
+# Plugin gets installed at user-controlled paths via /plugin install;
+# use ${CLAUDE_PLUGIN_ROOT}/&lt;path&gt; (Claude Code docs: plugin-install-path)
+# OR, in bin/*.sh entry scripts, the resolution chain:
+#   PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." &amp;&amp; pwd)}"
+set -euo pipefail
+cd "$(dirname "$0")"
+source lib/assert.sh
+PLUGIN_ROOT="$(cd .. &amp;&amp; pwd)"
+
+LINT_DIRS=(commands bin lib hooks config .claude-plugin)
+FAILED=0
+for d in "${LINT_DIRS[@]}"; do
+  [[ -d "$PLUGIN_ROOT/$d" ]] || continue
+  hits=$(grep -rnE "/home/[a-z][a-zA-Z0-9_-]*/" "$PLUGIN_ROOT/$d" 2&gt;/dev/null || true)
+  if [[ -n "$hits" ]]; then
+    echo "FAIL: hardcoded /home/&lt;user&gt;/ path(s) in $d/:" &gt;&amp;2
+    echo "$hits" &gt;&amp;2
+    FAILED=1
+  fi
+done
+
+if (( FAILED != 0 )); then
+  echo "" &gt;&amp;2
+  echo "Fix: use \${CLAUDE_PLUGIN_ROOT}/&lt;path&gt; instead." &gt;&amp;2
+  exit 1
+fi
+pass "no hardcoded /home/&lt;user&gt;/ paths in: ${LINT_DIRS[*]}"</code></pre>
+
+<p>
+  <strong>Word-bounded regex <code>/home/[a-z][a-zA-Z0-9_-]*/</code></strong> catches any
+  future contributor's home dir, not just <code>/home/liupan</code>. Slightly stricter
+  than literal-string match. False-positive risk in runtime code: near-zero (no legitimate
+  <code>/home/&lt;user&gt;/</code> should appear in shipped plugin code).
+</p>
+
+<h3>Why <code>tests/</code> is excluded from the lint</h3>
+
+<p>Two existing files in <code>tests/</code> legitimately reference <code>/home/liupan/</code> strings:</p>
+
+<ol>
+  <li><code>test_deploy_v07_dogfood.sh:58,67</code> — <code>echo</code> statements telling the user where to <code>cd</code> for dogfood walkthroughs. Prose for human readers, not paths the test executes.</li>
+  <li><code>test_deploy_dag_capwords_path.sh:28,29</code> — DAG-line parser unit test that synthesizes an <code>ARS-</code> slug path. Test fixture data, not a runtime path.</li>
+</ol>
+
+<p>Neither is a portability bug. The lint scope is shipped runtime code only.</p>
+
+<h2 id="surface">Surface change inventory</h2>
+
+<table>
+  <thead><tr><th>File</th><th>Change</th><th>LoC</th></tr></thead>
+  <tbody>
+    <tr><td><code>commands/deep-research.md</code></td><td>42 sites: <code>/home/liupan/CC/clone-wars</code> → <code>${CLAUDE_PLUGIN_ROOT}</code></td><td>42</td></tr>
+    <tr><td><code>commands/deep-research-resume.md</code></td><td>5 sites: same</td><td>5</td></tr>
+    <tr><td><code>tests/test_no_hardcoded_paths.sh</code></td><td>NEW — permanent lint (no skip-guard)</td><td>~40</td></tr>
+    <tr><td><code>tests/test_v0_37_0_static_wiring.sh</code></td><td>NEW — 6 version-locked invariants</td><td>~60</td></tr>
+    <tr><td><code>.claude-plugin/plugin.json</code></td><td>0.36.0 → 0.37.0</td><td>1</td></tr>
+    <tr><td><code>.claude-plugin/marketplace.json</code></td><td>0.36.0 → 0.37.0 (3 sites)</td><td>3</td></tr>
+    <tr><td><code>CLAUDE.md</code></td><td>Add v0.37.0 status row + release-gate row</td><td>2</td></tr>
+  </tbody>
+</table>
+
+<p>Estimated PR size: ~150 LoC.</p>
+
+<h2 id="tests">Tests</h2>
+
+<h3><code>test_no_hardcoded_paths.sh</code> (permanent — no skip-guard)</h3>
+<ul>
+  <li>Runs every release.</li>
+  <li>One pass per lint dir; collects hits; fails with consolidated report + suggested fix.</li>
+  <li>Zero hits required.</li>
+</ul>
+
+<h3><code>test_v0_37_0_static_wiring.sh</code> (version-locked)</h3>
+<ol>
+  <li><code>plugin.json</code> reads <code>0.37.0</code>.</li>
+  <li><code>commands/deep-research.md</code> references <code>CLAUDE_PLUGIN_ROOT</code> (positive grep).</li>
+  <li><code>commands/deep-research-resume.md</code> references <code>CLAUDE_PLUGIN_ROOT</code> (positive grep).</li>
+  <li><code>commands/deep-research.md</code> does NOT contain <code>/home/liupan</code> (literal negative grep, even stricter than the universal lint).</li>
+  <li><code>commands/deep-research-resume.md</code> does NOT contain <code>/home/liupan</code>.</li>
+  <li><code>tests/test_no_hardcoded_paths.sh</code> exists and is executable (the permanent lint is in place).</li>
+</ol>
+
+<h2 id="out-of-scope">Out of scope</h2>
+
+<ul>
+  <li><strong><code>${CLONE_WARS_HOME}</code> literal usage in directives</strong> — should be <code>$(cw_state_root)</code> per v0.31.0. Different bug class. Defer to v0.38 if observed.</li>
+  <li><strong>CI integration</strong> — no CI in the repo today. Adding the lint to a CI job is a separate v0.38+ concern.</li>
+  <li><strong>Author-style guide / CONTRIBUTING.md</strong> — repo has no contributors besides me yet. The lint itself is the documentation (when it fails, the error message tells you the canonical pattern).</li>
+  <li><strong>Documentation prose</strong> (specs, plans, CLAUDE.md changelog) — legitimate historical references; not runtime code.</li>
+</ul>
+
+<h2 id="release-gate">Release-gate dogfood</h2>
+
+<ol>
+  <li>Move plugin to a different path:
+    <pre><code>cp -r /home/liupan/CC/clone-wars /tmp/clone-wars-test
+export CLAUDE_PLUGIN_ROOT=/tmp/clone-wars-test</code></pre>
+  </li>
+  <li>Invoke <code>/clone-wars:deep-research &lt;topic&gt;</code> from a session where the plugin's <code>CLAUDE_PLUGIN_ROOT</code> points at <code>/tmp/clone-wars-test</code>. Verify Phase 0 init runs cleanly — no <code>source: file not found</code> errors.</li>
+  <li>Same for <code>/clone-wars:deep-research-resume</code> re-entry.</li>
+  <li><code>bash tests/test_no_hardcoded_paths.sh</code> exits 0 on the migrated tree.</li>
+  <li>Add a deliberate <code>/home/foo/whatever</code> line to <code>lib/state.sh</code>; re-run the lint → exits 1 with the file:line citation and the suggested-fix message.</li>
+  <li>Remove the deliberate line; lint exits 0 again.</li>
+</ol>
+
+<h2 id="open-questions">Open questions for reviewer</h2>
+
+<ol>
+  <li><strong>PR stacking strategy</strong> — chose to branch v0.37.0 off the open v0.36.0 PR so the path fix builds on v0.36.0's <code>_run/</code> work. Alternative: branch off main, merge v0.36.0 first, then rebase v0.37.0. OK to keep stacked?</li>
+  <li><strong>Word-bounded regex</strong> vs literal <code>/home/liupan</code> — chose word-bounded. Slightly stricter; catches any future contributor's home dir. Zero false-positive risk in runtime code (audited).</li>
+  <li><strong>Permanent test runtime</strong> — <code>test_no_hardcoded_paths.sh</code> runs every suite invocation forever. The grep over ~50 files completes in &lt;100ms. Acceptable overhead.</li>
+</ol>
+
+<hr>
+
+<p class="meta">
+  <span class="badge">v0.37.0</span> &nbsp;
+  Generated alongside the markdown spec at <code>docs/superpowers/specs/2026-05-16-v0.37.0-portable-paths-design.md</code>.
+</p>
+
+</body>
+</html>
