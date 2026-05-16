@@ -518,7 +518,7 @@ Set task `4` → `in_progress`.
 - **3.b (re-entry handler)** — fires on every subsequent turn (triggered by a
   trooper-completion notification OR a user message). Lives in
   `commands/deep-research-resume.md` (loaded via the UserPromptSubmit hook in
-  `hooks/user-prompt-submit-active-session.sh` when active.txt is present).
+  `hooks/user-prompt-submit-active-session.sh` when active-<session-id>.txt is present).
 
 **Architectural principle:** Yoda gives direction, not detailed plans.
 Continuity lives in `session-summary.md` (Recent decisions + Current direction
@@ -567,7 +567,7 @@ trooper's prompt via the `{{TASK_CONTEXT}}` placeholder.
    done
    ```
 
-   (init.sh has already touched `active.txt` at the art-dir root.)
+   (init.sh has already touched `active-${CLAUDE_CODE_SESSION_ID}.txt` at the art-dir root.)
 
 2. **Start one Monitor task per commander.** Each watches its trooper's outbox
    for `done/error/question/heartbeat` events AND fires `stale/stuck` events
@@ -657,7 +657,7 @@ trooper's prompt via the `{{TASK_CONTEXT}}` placeholder.
    - Monitor notifications (trooper events + liveness signals) — `<task-notification>`
      arrives natively.
    - User messages — the UserPromptSubmit hook (`hooks/user-prompt-submit-active-session.sh`)
-     detects `$ART_DIR/active.txt` and injects a context block pointing Yoda
+     detects `$ART_DIR/active-${CLAUDE_CODE_SESSION_ID}.txt` and injects a context block pointing Yoda
      at `commands/deep-research-resume.md`.
 
    Both paths converge on handler 3.b. **Do not loop in this turn.**
