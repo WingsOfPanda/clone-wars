@@ -7,6 +7,33 @@ a design trail.
 
 ---
 
+## v0.40.0 — 2026-05-16 — per-session isolation for same-repo parallel sessions
+
+- Closes the two same-repo cross-session bleed gaps surfaced by the v0.39.0
+  audit of "commands should run in parallel across sessions without conflicting".
+- **Hook session-match.** `hooks/user-prompt-submit-active-session.sh` now reads
+  `.session_id` from stdin JSON (jq with sed fallback), sanitizes via uuid-shape
+  regex, and matches `active-<that-sid>.txt` under
+  `.clone-wars/state/<repo-hash>/<topic>/_deep-research/`. Markers from other
+  Claude Code sessions in the same repo become invisible to this session's hook
+  fire. `bin/deep-research-init.sh` writes the stamped marker;
+  `bin/deep-research-finalize.sh` removes both the stamped form and any legacy
+  bare `active.txt` from pre-v0.40.0 state.
+- **Owner-session disclosure on (topic, commander) collision.**
+  `lib/ipc.sh::cw_state_init` stamps `.session_id` into every fresh trooper
+  state dir. New helper `cw_format_collision_error` in `lib/commanders.sh`
+  reads it on retry; `bin/spawn.sh` routes its rejection through the helper.
+  Two parallel sessions colliding on the same `(topic, commander)` now see
+  `(id=<owner-prefix>…, mine=<my-prefix>…)` so they can disambiguate stale
+  state from a sibling terminal's live state.
+- New permanent lint `tests/test_active_per_session_lint.sh` (no skip-guard,
+  bans bare `active.txt` in `bin/`, `lib/`, `hooks/`) +
+  `tests/test_v0_40_0_static_wiring.sh` (7-invariant version-locked).
+- Strict-dogfood: [ ] v0.40.0 strict-dogfood pass on a real machine (open two
+  terminals in the same clone-wars checkout; one runs
+  `/clone-wars:deep-research`; the other submits prompts that must NOT get
+  injected with resume-handler context).
+
 ## v0.39.0 — 2026-05-16 — directive `${CLAUDE_PLUGIN_ROOT}` brace migration
 
 - Closes first v0.38.0 dogfood finding: 96 unbraced `$CLAUDE_PLUGIN_ROOT`

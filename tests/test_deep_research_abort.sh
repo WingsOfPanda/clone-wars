@@ -13,6 +13,10 @@ export CLONE_WARS_HOME="$SANDBOX/.clone-wars"
 mkdir -p "$CLONE_WARS_HOME"
 trap 'rm -rf "$SANDBOX"' EXIT
 
+# v0.40.0: finalize removes active-<CLAUDE_CODE_SESSION_ID>.txt
+export CLAUDE_CODE_SESSION_ID=cccccccc-abort-test-5555-666666666666
+SID="$CLAUDE_CODE_SESSION_ID"
+
 source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 
@@ -34,7 +38,7 @@ last_event=spawn
 probe_sent_ts=
 EOF
 printf 'fake-task-id-1\nfake-task-id-2\n' > "$ART/monitor-tasks.txt"
-printf '%s\n' "$TOPIC" > "$ART/active.txt"
+printf '%s\n' "$TOPIC" > "$ART/active-${SID}.txt"
 
 # Case 1: happy path
 set +e
@@ -66,10 +70,10 @@ pass "2. finalize ran (## Halt section appended)"
 assert_file_exists "$archived_dir/_deep-research/monitor-tasks.txt" "monitor-tasks.txt preserved in archive"
 pass "3. monitor-tasks.txt preserved in archive"
 
-# active.txt removed (finalize behavior)
-[[ ! -f "$archived_dir/_deep-research/active.txt" ]] \
-  || { echo "FAIL: active.txt should be removed by finalize, still present in archive" >&2; exit 1; }
-pass "4. active.txt removed by finalize step"
+# active-<sid>.txt removed (finalize behavior, v0.40.0)
+[[ ! -f "$archived_dir/_deep-research/active-${SID}.txt" ]] \
+  || { echo "FAIL: active-${SID}.txt should be removed by finalize, still present in archive" >&2; exit 1; }
+pass "4. active-<session-id>.txt removed by finalize step"
 
 # TaskStop hint printed with task IDs
 grep -q 'fake-task-id-1' "$SANDBOX/abort.out" \

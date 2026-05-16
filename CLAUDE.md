@@ -27,11 +27,12 @@ below for the closed-set boundary.
 
 ## Current focus
 
-- **Most recent merge:** v0.39.0 (directive `${CLAUDE_PLUGIN_ROOT}` brace
-  migration — closes the first v0.38.0 dogfood finding).
-- **Next priority:** strict-dogfood passes for v0.31.0 through v0.38.0
-  (release-gate items tracked in `docs/CHANGELOG.md`); v0.38.0 highest
-  priority because it validates the medic→consult chain on fresh installs.
+- **Most recent merge:** v0.40.0 (per-session isolation — closes the two
+  same-repo cross-session bleed gaps surfaced by the v0.39.0 audit).
+- **Next priority:** strict-dogfood passes for v0.31.0 through v0.40.0
+  (release-gate items tracked in `docs/CHANGELOG.md`); v0.40.0 highest
+  priority because it validates parallel-session non-interference on a
+  real machine.
 - **No code freeze.** Feature work in flight should still go through the
   brainstorm → spec → plan → PR loop per `docs/superpowers/`.
 

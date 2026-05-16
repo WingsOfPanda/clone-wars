@@ -13,16 +13,20 @@ export CLONE_WARS_HOME="$TMP/cw"
 mkdir -p "$CLONE_WARS_HOME"
 echo "codex" > "$CLONE_WARS_HOME/providers-available.txt"
 
+# v0.40.0: init writes active-<CLAUDE_CODE_SESSION_ID>.txt
+export CLAUDE_CODE_SESSION_ID=cccccccc-init-test-1111-222222222222
+
 SLUG=$("$PLUGIN_ROOT/bin/deep-research-init.sh" "optimize MNIST classifier accuracy under 100k params")
 
 source "$PLUGIN_ROOT/lib/state.sh"
 REPO_HASH=$(cw_repo_hash)
 ART="$CLONE_WARS_HOME/state/$REPO_HASH/$SLUG/_deep-research"
 
-# active.txt touched, contains the slug
-[[ -f "$ART/active.txt" ]] \
-  || { echo "FAIL: active.txt not touched by init" >&2; exit 1; }
-got_slug=$(cat "$ART/active.txt" | tr -d '\n')
+# active-<session-id>.txt touched, contains the slug (v0.40.0)
+SID=${CLAUDE_CODE_SESSION_ID:-unknown}
+[[ -f "$ART/active-${SID}.txt" ]] \
+  || { echo "FAIL: active-${SID}.txt not touched by init" >&2; exit 1; }
+got_slug=$(cat "$ART/active-${SID}.txt" | tr -d '\n')
 [[ "$got_slug" == "$SLUG" ]] \
-  || { echo "FAIL: active.txt content mismatch (got '$got_slug', expected '$SLUG')" >&2; exit 1; }
-pass "init touches active.txt with topic slug"
+  || { echo "FAIL: active-${SID}.txt content mismatch (got '$got_slug', expected '$SLUG')" >&2; exit 1; }
+pass "init touches active-<session-id>.txt with topic slug"

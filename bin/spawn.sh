@@ -166,8 +166,9 @@ if [[ "$COMMANDER" == "random" ]]; then
 fi
 
 if cw_commander_in_use "$COMMANDER" "$TOPIC"; then
-  log_error "$COMMANDER is already deployed on $TOPIC; pick another commander"
-  log_error "  or run: /clone-wars:teardown $COMMANDER $TOPIC"
+  while IFS= read -r _line; do
+    log_error "$_line"
+  done < <(cw_format_collision_error "$COMMANDER" "$MODEL" "$TOPIC")
   exit 1
 fi
 

@@ -7,7 +7,7 @@
 # 1. Read halt reason from halt.flag (default "unknown").
 # 2. For each trooper currently working/stale/stuck/blocked: phase=incomplete.
 #    For idle/complete: phase=complete. Failed preserved.
-# 3. Remove active.txt (hook stops injecting handler 3.b context).
+# 3. Remove this session's active-<sid>.txt (hook stops injecting handler 3.b context).
 # 4. Append ## Halt section to session-summary.md.
 #
 # Note: monitor task stopping (TaskStop calls) is the directive's job,
@@ -54,8 +54,10 @@ if [[ -f "$ART/troopers.txt" ]]; then
   done < "$ART/troopers.txt"
 fi
 
-# Remove active.txt (hook stops injecting after this)
-rm -f "$ART/active.txt"
+# Remove this session's active marker (hook stops injecting after this)
+session_id="${CLAUDE_CODE_SESSION_ID:-unknown}"
+rm -f "$ART/active-${session_id}.txt"
+rm -f "$ART/active.txt"  # legacy v0.39.0 form — kept for backwards-compat cleanup
 
 # Append Halt section to session-summary.md
 SS="$ART/session-summary.md"
