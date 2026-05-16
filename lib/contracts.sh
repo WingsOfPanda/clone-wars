@@ -3,7 +3,7 @@
 # Sourced. Depends on lib/state.sh.
 
 cw_contracts_path() {
-  printf '%s/contracts.yaml\n' "$(cw_state_root)"
+  printf '%s/contracts.yaml\n' "$(cw_global_state_root)"
 }
 
 cw_contracts_exists() {

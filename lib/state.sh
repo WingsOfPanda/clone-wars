@@ -265,7 +265,7 @@ cw_repo_root() {
 # Used by bin/consult-init.sh and any future consumer that needs to know
 # "which providers should /consult use right now".
 cw_active_providers_path() {
-  local sr; sr="$(cw_state_root)"
+  local sr; sr="$(cw_global_state_root)"
   if [[ -f "$sr/providers-active.txt" ]]; then
     printf '%s\n' "$sr/providers-active.txt"
   else

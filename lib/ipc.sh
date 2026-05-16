@@ -50,7 +50,7 @@ cw_state_archive() {
   src=$(cw_trooper_dir "$commander" "$model" "$topic")
   [[ -d "$src" ]] || return 0
   ts=$(date -u +"%Y%m%dT%H%M%SZ")
-  base="$(cw_state_root)/archive/$(cw_repo_hash)/$topic/${commander}-${model}-${ts}"
+  base="$(cw_global_state_root)/archive/$(cw_repo_hash)/$topic/${commander}-${model}-${ts}"
   [[ -n "$suffix" ]] && base="${base}-${suffix}"
   dst="$base"
   n=2
