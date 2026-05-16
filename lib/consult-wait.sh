@@ -53,9 +53,15 @@ cw_consult_wait() {
   [[ -n "${OFFSET:-}" ]] \
     || { log_error "OFFSET not set in $state_file"; return 1; }
 
-  local timeout
-  timeout="${!timeout_env_var:-$(cw_consult_timeout "$timeout_key")}"
-  log_info "[$kind-wait] $commander offset=$OFFSET timeout=${timeout}s"
+  # v0.35.0 Layer A: apply per-provider timeout_multiplier (default 1.0).
+  # opencode ships 2.5 to absorb DeepSeek V4 Pro's wall-clock slowness;
+  # codex/claude/gemini are 1.0 → byte-equal v0.34.0 numeric behavior.
+  local base_timeout mult timeout
+  base_timeout="${!timeout_env_var:-$(cw_consult_timeout "$timeout_key")}"
+  mult=$(cw_contract_timeout_multiplier "$model")
+  timeout=$(awk -v b="$base_timeout" -v m="$mult" \
+    'BEGIN { printf "%d", b * m + 0.5 }')
+  log_info "[$kind-wait] $commander offset=$OFFSET base=${base_timeout}s × ${mult} = ${timeout}s"
 
   # v0.27.2 BUG #6: wrap one-shot match logic in a stale-event-skipping
   # loop. When kind==experiment, skip done events whose summary lacks the
