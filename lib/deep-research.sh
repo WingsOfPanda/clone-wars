@@ -423,13 +423,17 @@ cw_deep_research_check_completion() {
 
   # Parse metric.md — fields are `**KEY:** VALUE`, so the field separator is `:** `.
   local min_op min_val tgt_op tgt_val K_req plateau_window plateau_threshold
-  min_op=$(awk -F':\\*\\* ' '/^\*\*min_acceptable:/{print $2}' "$m" | awk '{print $1}')
-  min_val=$(awk -F':\\*\\* ' '/^\*\*min_acceptable:/{print $2}' "$m" | awk '{$1=""; sub(/^ /, ""); print}')
-  tgt_op=$(awk -F':\\*\\* ' '/^\*\*target:/{print $2}' "$m" | awk '{print $1}')
-  tgt_val=$(awk -F':\\*\\* ' '/^\*\*target:/{print $2}' "$m" | awk '{$1=""; sub(/^ /, ""); print}')
-  K_req=$(awk -F':\\*\\* ' '/^\*\*K_corroboration:/{print $2}' "$m" | tr -d ' ')
-  plateau_window=$(awk -F':\\*\\* ' '/^\*\*plateau_window:/{print $2}' "$m" | tr -d ' ')
-  plateau_threshold=$(awk -F':\\*\\* ' '/^\*\*plateau_threshold:/{print $2}' "$m" | tr -d ' ')
+  # Single awk pass extracts all 7 metric.md fields and emits shell-eval-ready
+  # `KEY='value'` lines. Single-quoting is mandatory: op-words like `>=` would
+  # otherwise be parsed as redirection by the shell. Safe because metric.md is
+  # repo-controlled (written by the directive) — values never contain `'`.
+  eval "$(awk -F':\\*\\* ' '
+    /^\*\*min_acceptable:/    { split($2, a, " "); printf "min_op='\''%s'\''\nmin_val='\''%s'\''\n", a[1], substr($2, length(a[1])+2) }
+    /^\*\*target:/            { split($2, a, " "); printf "tgt_op='\''%s'\''\ntgt_val='\''%s'\''\n", a[1], substr($2, length(a[1])+2) }
+    /^\*\*K_corroboration:/   { gsub(/ /,"",$2); printf "K_req='\''%s'\''\n", $2 }
+    /^\*\*plateau_window:/    { gsub(/ /,"",$2); printf "plateau_window='\''%s'\''\n", $2 }
+    /^\*\*plateau_threshold:/ { gsub(/ /,"",$2); printf "plateau_threshold='\''%s'\''\n", $2 }
+  ' "$m")"
   K_req="${K_req:-1}"
   plateau_window="${plateau_window:-5}"
   plateau_threshold="${plateau_threshold:-0.01}"
