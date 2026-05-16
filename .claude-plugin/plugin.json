@@ -1,6 +1,6 @@
 {
   "name": "clone-wars",
-  "version": "0.39.0",
+  "version": "0.40.0",
   "description": "Multi-model tmux pane orchestration for Claude Code — spawn codex/gemini/claude TUIs as attachable clone troopers",
   "author": {
     "name": "WingsOfPanda",
