@@ -178,13 +178,20 @@
     <tr><td><code>/tmp/cw-deep-research-topic-dir.txt</code></td><td>~2 sites</td><td><code>commands/deep-research.md</code></td></tr>
     <tr><td><code>/tmp/cw-deep-research-roster.txt</code></td><td>~3 sites</td><td><code>commands/deep-research.md</code></td></tr>
     <tr><td><code>/tmp/cw-deep-research-repo-hash.txt</code></td><td>1 site</td><td><code>commands/deep-research.md</code></td></tr>
+    <tr><td><code>/tmp/cw-deploy-args-path.txt</code></td><td>6 sites</td><td><code>commands/deploy.md</code></td></tr>
+    <tr><td><code>/tmp/cw-init-err</code></td><td>5 sites</td><td><code>commands/deploy.md</code></td></tr>
+    <tr><td><code>/tmp/cw-stashpop-err</code></td><td>2 sites</td><td><code>commands/deploy.md</code></td></tr>
   </tbody>
 </table>
 
 <p>
-  Total ~25 directive sites across 4 files. v0.31.0 partially closed this class (the
-  <em>args files themselves</em> moved to <code>mktemp -p $state_root/_args</code>), but
-  the <em>pointers to the args files</em> stayed at <code>/tmp/cw-*</code>.
+  <strong>Spec correction during implementation (T6):</strong> initial site count was a
+  survey under-estimate. Actual sites by directive: consult.md (6 — included 2
+  <code>walk-err</code> redirects in Step 12 audit-retry that were missed), meditate.md
+  (2), deep-research.md (23), deploy.md (13). <strong>Total ~44 directive sites across
+  4 files.</strong> v0.31.0 partially closed this class (the <em>args files
+  themselves</em> moved to <code>mktemp -p $state_root/_args</code>), but the
+  <em>pointers to the args files</em> stayed at <code>/tmp/cw-*</code>.
 </p>
 
 <h2 id="goal">Goal</h2>
@@ -353,10 +360,10 @@ ARGS_FILE=$(cat "$RUN_DIR/args-path.txt")</code></pre>
   </thead>
   <tbody>
     <tr><td><code>lib/state.sh</code></td><td>+35 LoC</td><td>New <code>cw_run_dir</code> + <code>cw_run_dir_last</code> helpers</td></tr>
-    <tr><td><code>commands/consult.md</code></td><td>4 sites</td><td>args-path × 3 + fastpath-err × 2 (overlap)</td></tr>
+    <tr><td><code>commands/consult.md</code></td><td>6 sites</td><td>args-path × 3 + fastpath-err × 2 + walk-err × 2 (Step 12 audit-retry, missed in initial survey)</td></tr>
     <tr><td><code>commands/meditate.md</code></td><td>2 sites</td><td>args-path × 2</td></tr>
-    <tr><td><code>commands/deep-research.md</code></td><td>~16 sites</td><td>args-path, topic, art-dir, topic-dir, roster, repo-hash</td></tr>
-    <tr><td><code>commands/deploy.md</code></td><td>0–1 sites</td><td>survey for any <code>/tmp/cw-*</code> first; v0.31.0 inventory says none, but verify</td></tr>
+    <tr><td><code>commands/deep-research.md</code></td><td>23 sites</td><td>args-path, topic, art-dir, roster (covers Phase 0 / 1 / 2 / 3a / 3b / 4.a / 6)</td></tr>
+    <tr><td><code>commands/deploy.md</code></td><td>13 sites</td><td>args-path × 6 + init-err × 5 + stashpop-err × 2 (Step 0/5/5a/5b + Step 4 stash-pop). Initial survey said "0–1"; v0.31.0 inventory missed init-err + stashpop-err.</td></tr>
     <tr><td><code>tests/test_run_dir_helper.sh</code></td><td>NEW</td><td>4 cases</td></tr>
     <tr><td><code>tests/test_v0_36_0_static_wiring.sh</code></td><td>NEW</td><td>8 invariants</td></tr>
     <tr><td><code>.claude-plugin/plugin.json</code></td><td>0.35.0 → 0.36.0</td><td></td></tr>
