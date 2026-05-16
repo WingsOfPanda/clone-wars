@@ -7,6 +7,73 @@ a design trail.
 
 ---
 
+## v0.41.0 — 2026-05-16 — simplification sweep
+
+Six mechanical refactor lanes, ~30 LOC net removal, zero behavioral change
+except one strict-monotonic tightening (Lane B).
+
+### Lanes
+
+- **A — deep-research topic helpers.** Add `cw_deep_research_normalize_topic`
+  (auto-prefix variant) and `cw_deep_research_assert_topic` (hard-error
+  variant) in `lib/deep-research.sh`. Migrate 7 callers (4 auto-prefix +
+  3 hard-error).
+- **B — meditate topic helper.** Add `cw_meditate_assert_topic` in
+  `lib/meditate.sh`. Migrate 5 callers. **Behavioral note:** this lane
+  adds a `cw_consult_topic_validate` call that the open-coded form
+  omitted — strict-monotonic tightening (rejects fewer invalid topics,
+  never the reverse).
+- **C — atomic-write stragglers.** The last two `printf > .tmp && mv .tmp dst`
+  sites (`bin/deep-research-refine.sh:45`, `lib/consult-wait.sh:140`)
+  migrated to `cw_atomic_write`.
+- **D — topic-state-dir stragglers.** The last two open-coded
+  `$state_root/state/$repo_hash/$TOPIC` assemblies
+  (`bin/deep-research-{teardown,finalize}.sh`) migrated to
+  `cw_topic_state_dir`. Side effect: `teardown.sh` local var
+  `state_dir` renamed to `TOPIC_DIR` for consistency with downstream
+  references.
+- **E — deploy commander helper.** Add `cw_deploy_assert_commander` in
+  `lib/deploy.sh` (sibling to existing `cw_deploy_assert_topic`).
+  Migrate one caller (`bin/deploy-wave-wait.sh:28`). The four other
+  open-coded commander regexes (spawn.sh + 3 deep-research scripts)
+  stay as-is — they're intentional layered hardening with distinct
+  character classes; see the v0.41.0 spec for the per-site rationale.
+  Spec originally said `cw_consult_assert_commander`; plan deviated
+  because `lib/deploy.sh` does not source `lib/consult.sh`.
+- **F — metric.md awk collapse.** `cw_deep_research_check_completion`
+  previously spawned 6 awks to parse 7 fields from metric.md; collapsed
+  to a single awk pass that emits shell-eval-ready KEY='value' lines
+  (single-quote wrapping prevents op-words like `>=` from being parsed
+  as redirection).
+
+### Explicitly deferred
+
+The simplifier surfaced these but they are NOT v0.41.0 material — listed
+here so future sweeps don't re-propose them without reading the spec.
+
+- **JSON event-extraction helper.** `bin/list.sh:66` and
+  `bin/deploy-turn-send.sh:39` extract different JSON fields from
+  different files; no shared shape worth abstracting.
+- **`consult-walk-assemble.sh` duplicate pipeline.** 2 visible lines in
+  adjacent case-branches; lifting hurts readability.
+- **Test scaffold extraction.** ~80 of 232 test files share a 6-line
+  bootstrap. Mechanical but high churn; needs its own dedicated PR if
+  ever pursued.
+- **`PLUGIN_ROOT` bootstrap × 46.** Each script then sources a different
+  lib subset; sharing saves at most one line per file.
+
+See `docs/superpowers/specs/2026-05-16-v0.41.0-simplification-sweep-design.md`
+for the full design and per-item rationale.
+
+### Release-gate dogfood status
+
+Same as v0.40.0 — strict-dogfood passes for v0.31.0–v0.40.0 still
+pending; v0.41.0 dogfood is the suite-green check (227 ok; documented
+timing-sensitive flakes `test_consult_targets_forces_escalation.sh` and
+`test_deploy_archive.sh` pass standalone retry).
+
+---
+
 ## v0.40.0 — 2026-05-16 — per-session isolation for same-repo parallel sessions
 
 - Closes the two same-repo cross-session bleed gaps surfaced by the v0.39.0

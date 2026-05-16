@@ -27,8 +27,9 @@ below for the closed-set boundary.
 
 ## Current focus
 
-- **Most recent merge:** v0.40.0 (per-session isolation — closes the two
-  same-repo cross-session bleed gaps surfaced by the v0.39.0 audit).
+- **Most recent merge:** v0.41.0 (simplification sweep — 6 mechanical
+  refactor lanes removing ~30 LOC; zero behavioral change except
+  meditate-assert's strict-monotonic validate-add).
 - **Next priority:** strict-dogfood passes for v0.31.0 through v0.40.0
   (release-gate items tracked in `docs/CHANGELOG.md`); v0.40.0 highest
   priority because it validates parallel-session non-interference on a
