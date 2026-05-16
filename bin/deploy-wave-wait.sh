@@ -25,7 +25,7 @@ source "$PLUGIN_ROOT/lib/deploy.sh"
 TOPIC="$1"; COMMANDER="$2"; PROVIDER="$3"
 
 cw_deploy_assert_topic "$TOPIC"
-[[ "$COMMANDER" =~ ^[a-z0-9_-]+$ ]] || { log_error "invalid commander: $COMMANDER"; exit 2; }
+cw_deploy_assert_commander "$COMMANDER"
 [[ "$PROVIDER"  =~ ^[a-z0-9_-]+$ ]] || { log_error "invalid provider: $PROVIDER"; exit 2; }
 
 ART_DIR=$(cw_deploy_art_dir "$TOPIC")
