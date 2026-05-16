@@ -40,6 +40,34 @@ cw_state_ensure() {
   [[ -f "$root/.gitignore" ]] || printf '*\n' > "$root/.gitignore"
 }
 
+# cw_global_state_root — per-MACHINE config root.
+# Always resolves to ${CLONE_WARS_HOME:-$HOME/.clone-wars}, regardless of $PWD.
+# Use for config that is per-install, not per-project: medic's
+# providers-{active,available}.txt, contracts.yaml, commanders.yaml,
+# the archive/ subtree.
+#
+# Contrast with cw_state_root (per-PROJECT state at $PWD/.clone-wars/)
+# for /consult, /deploy, /deep-research, /meditate per-topic work.
+#
+# v0.38.0: introduced to fix the medic→consult break where v0.31.0's
+# project-local default trapped per-machine config under
+# <project>/.clone-wars/, but various scripts kept reading from
+# ~/.clone-wars/ via literal $HOME paths. See
+# docs/superpowers/specs/2026-05-16-v0.38.0-state-root-split-design.md.
+cw_global_state_root() {
+  printf '%s\n' "${CLONE_WARS_HOME:-$HOME/.clone-wars}"
+}
+
+# cw_global_state_ensure — like cw_state_ensure but for the global root.
+# Auto-creates .gitignore = '*' on first call. ~/.clone-wars/ is not
+# usually under git, but the defensive write costs nothing and covers
+# the case where a user nests CLONE_WARS_HOME inside an unrelated repo.
+cw_global_state_ensure() {
+  local root; root=$(cw_global_state_root)
+  mkdir -p "$root"
+  [[ -f "$root/.gitignore" ]] || printf '*\n' > "$root/.gitignore" 2>/dev/null || true
+}
+
 # cw_repo_hash_for <cwd>
 # Same hashing rule as cw_repo_hash but takes an explicit cwd. Used by
 # /clone-wars:deploy when the trooper redirects into a sub-repo and the
