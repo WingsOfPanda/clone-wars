@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v0.35.0 — Trooper liveness design</title>
+<style>
+  :root {
+    --fg: #1f2328;
+    --muted: #59636e;
+    --bg: #ffffff;
+    --code-bg: #f6f8fa;
+    --border: #d0d7de;
+    --accent: #0969da;
+    --warn: #bf8700;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e6edf3;
+      --muted: #9198a1;
+      --bg: #0d1117;
+      --code-bg: #151b23;
+      --border: #3d444d;
+      --accent: #4493f8;
+      --warn: #d29922;
+    }
+  }
+  html, body { background: var(--bg); color: var(--fg); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans",
+                 Helvetica, Arial, sans-serif;
+    line-height: 1.55;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 32px 24px 96px;
+    font-size: 16px;
+  }
+  h1, h2, h3, h4 { line-height: 1.25; margin-top: 1.6em; margin-bottom: 0.6em; }
+  h1 { font-size: 1.9em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+  h2 { font-size: 1.45em; border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
+  h3 { font-size: 1.2em; }
+  h4 { font-size: 1.05em; color: var(--muted); }
+  p { margin: 0.8em 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.88em;
+    background: var(--code-bg);
+    padding: 0.15em 0.35em;
+    border-radius: 4px;
+  }
+  pre {
+    background: var(--code-bg);
+    padding: 14px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 0.85em;
+    line-height: 1.5;
+    border: 1px solid var(--border);
+  }
+  pre code { background: transparent; padding: 0; font-size: 1em; }
+  table {
+    border-collapse: collapse;
+    margin: 1em 0;
+    font-size: 0.92em;
+    width: 100%;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--code-bg); font-weight: 600; }
+  ul, ol { padding-left: 1.5em; }
+  li { margin: 0.3em 0; }
+  blockquote {
+    border-left: 4px solid var(--border);
+    padding: 0.2em 1em;
+    margin: 1em 0;
+    color: var(--muted);
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2em 0; }
+  .meta { color: var(--muted); font-size: 0.92em; }
+  .meta strong { color: var(--fg); }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    font-size: 0.82em;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    color: var(--muted);
+  }
+  .toc {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 20px;
+    margin: 1em 0 2em;
+    font-size: 0.92em;
+  }
+  .toc ul { margin: 0.3em 0; }
+  .toc > strong { color: var(--muted); font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.05em; }
+</style>
+</head>
+<body>
+
+<h1>v0.35.0 — Per-provider timeout multiplier + mtime liveness probe in <code>cw_consult_wait</code></h1>
+
+<p class="meta">
+  <strong>Status:</strong> Spec — pending review &nbsp;·&nbsp;
+  <strong>Date:</strong> 2026-05-16 &nbsp;·&nbsp;
+  <strong>Branch:</strong> <code>feat/v0.35.0-trooper-liveness</code> &nbsp;·&nbsp;
+  <strong>Audience:</strong> writing-plans skill (next step) + dogfood reviewer
+</p>
+
+<div class="toc">
+  <strong>Contents</strong>
+  <ul>
+    <li><a href="#problem">Problem</a></li>
+    <li><a href="#goal">Goal</a></li>
+    <li><a href="#approach-summary">Approach summary</a></li>
+    <li><a href="#approaches-considered">Approaches considered</a></li>
+    <li><a href="#layer-a">Layer A — per-provider timeout multiplier</a></li>
+    <li><a href="#layer-b">Layer B — mtime-based liveness probe</a></li>
+    <li><a href="#surface-change-inventory">Surface change inventory</a></li>
+    <li><a href="#tests">Tests</a></li>
+    <li><a href="#out-of-scope">Out of scope</a></li>
+    <li><a href="#release-gate-dogfood">Release-gate dogfood</a></li>
+    <li><a href="#versioning--git-mechanics">Versioning + git mechanics</a></li>
+    <li><a href="#open-questions">Open questions for reviewer</a></li>
+  </ul>
+</div>
+
+<h2 id="problem">Problem</h2>
+
+<p>
+  <code>cw_consult_wait</code> (<code>lib/consult-wait.sh</code>) writes
+  <code>&lt;state_key&gt;=timeout</code> to the per-trooper state file purely on
+  wall-clock elapsed past <code>cw_consult_timeout(&lt;kind&gt;)</code> — defaults
+  <code>research=600</code>, <code>verify=300</code>, <code>adversary=600</code>,
+  <code>experiment=1800</code>. It never asks "is the trooper still making
+  progress?"
+</p>
+
+<p>Symptom observed during the most recent <code>/clone-wars:consult</code> run:</p>
+<ul>
+  <li>Wolffe (opencode / DeepSeek V4 Pro) recorded <code>FS=timeout</code>.</li>
+  <li><code>findings-wolffe.md</code> was 18 KB (active research output).</li>
+  <li><code>tmux</code> showed the wolffe pane still working.</li>
+</ul>
+
+<p>
+  opencode is consistently slower than codex/claude in wall-clock terms.
+  v0.13.0 already partially acknowledged this (<code>bootstrap_sleep_s 8 → 20</code>
+  on the cold-start path), but the per-phase research/verify/adversary budgets
+  still treat all providers identically.
+</p>
+
+<h2 id="goal">Goal</h2>
+
+<p>
+  Stop false-positive <code>*S=timeout</code> writes for slow troopers without
+  sacrificing the safety-net for genuinely wedged ones. Two complementary layers,
+  both opt-in via configuration with sensible defaults.
+</p>
+
+<h2 id="approach-summary">Approach summary</h2>
+
+<table>
+  <thead>
+    <tr><th>Layer</th><th>What</th><th>Where</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>A</td>
+      <td>Per-provider <code>timeout_multiplier</code> field (default <code>1.0</code>); opencode ships <code>2.5</code></td>
+      <td><code>config/contracts.yaml</code> + new helper in <code>lib/contracts.sh</code></td>
+    </tr>
+    <tr>
+      <td>B</td>
+      <td>mtime-based liveness probe before declaring timeout; extends deadline if outbox was touched recently, capped by hard ceiling</td>
+      <td><code>lib/consult-wait.sh</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>
+  Layer A alone closes the simple case (opencode just needs more time). Layer B
+  closes the harder case (a slow trooper that bursts past even its multiplied
+  baseline but is provably still writing). Together they cover both axes.
+</p>
+
+<h2 id="approaches-considered">Approaches considered</h2>
+
+<ol>
+  <li>
+    <strong>Multiplier + mtime liveness probe (chosen)</strong> — small
+    contracts.yaml change + ~15-line addition to consult-wait's poll loop.
+    Universal across providers, parallels the proven
+    <code>bin/deep-research-monitor.sh</code> pattern (which already uses outbox
+    mtime against <code>PROBE_S</code> / <code>STUCK_S</code> thresholds).
+  </li>
+  <li>
+    <strong>Trooper-emitted heartbeat events</strong> — change
+    <code>identity-template.md</code> to require periodic
+    <code>{event:"heartbeat"}</code> JSONL. More accurate, but troopers don't
+    always follow instructions. opencode in particular has skipped emit
+    obligations before. Higher risk for the same outcome.
+    <strong>Deferred to a future brainstorm if mtime proves insufficient.</strong>
+  </li>
+  <li>
+    <strong>Per-provider absolute timeout overrides</strong> (e.g.
+    <code>consult.research_timeout_s.opencode: 1500</code>) — simpler math,
+    noisier config (4 timeout keys × 4 providers up to 16 fields). Multiplier
+    wins on config discipline. <strong>Rejected.</strong>
+  </li>
+</ol>
+
+<h2 id="layer-a">Layer A — per-provider timeout multiplier</h2>
+
+<h3>Config change (<code>config/contracts.yaml</code>)</h3>
+
+<p>
+  Add an optional <code>timeout_multiplier</code> field per provider row.
+  Default <code>1.0</code> when absent (current behavior preserved for installs
+  that don't re-copy the shipped contracts.yaml).
+</p>
+
+<pre><code>codex:
+  ...                  # implicit multiplier 1.0
+
+opencode:
+  ...
+  timeout_multiplier: 2.5   # DeepSeek V4 Pro is wall-clock slower</code></pre>
+
+<p>
+  Three other providers (codex, gemini, claude) get the implicit <code>1.0</code>
+  and ship without the field. <code>gemini</code> and <code>claude</code> can
+  grow their own multiplier later if dogfood data shows they need one.
+</p>
+
+<h3>New helper (<code>lib/contracts.sh</code>)</h3>
+
+<pre><code># cw_contract_timeout_multiplier &lt;provider&gt;
+# Print the timeout_multiplier field for &lt;provider&gt;. Default "1.0" when
+# the field is absent or malformed (non-positive, non-numeric).
+cw_contract_timeout_multiplier() {
+  local provider="$1" v
+  v=$(_cw_contract_field "$provider" timeout_multiplier)
+  # Accept positive int (1, 2) or simple decimal (1.5, 2.5).
+  if [[ -n "$v" ]] &amp;&amp; [[ "$v" =~ ^[0-9]+(\.[0-9]+)?$ ]] &amp;&amp; \
+     awk -v x="$v" 'BEGIN { exit !(x &gt; 0) }'; then
+    printf '%s\n' "$v"
+  else
+    printf '1.0\n'
+  fi
+}</code></pre>
+
+<p>
+  Reuses the private <code>_cw_contract_field</code> helper added in v0.24.0
+  (simplification sweep cluster 4).
+</p>
+
+<h3>Wire-up in <code>cw_consult_wait</code></h3>
+
+<p>Currently:</p>
+
+<pre><code>timeout="${!timeout_env_var:-$(cw_consult_timeout "$timeout_key")}"</code></pre>
+
+<p>Becomes:</p>
+
+<pre><code>local base_timeout
+base_timeout="${!timeout_env_var:-$(cw_consult_timeout "$timeout_key")}"
+local mult
+mult=$(cw_contract_timeout_multiplier "$model")
+timeout=$(awk -v b="$base_timeout" -v m="$mult" 'BEGIN { printf "%d", b * m + 0.5 }')
+log_info "[$kind-wait] $commander base=${base_timeout}s × ${mult} = ${timeout}s"</code></pre>
+
+<p>
+  <code>$model</code> is already in scope (4th positional arg of
+  <code>cw_consult_wait</code>). The integer-rounded result is what every
+  existing downstream check uses, so no further changes are needed.
+</p>
+
+<h3>Effective timeouts after Layer A</h3>
+
+<table>
+  <thead>
+    <tr><th>Provider</th><th>research (base 600)</th><th>verify (base 300)</th><th>adversary (base 600)</th><th>experiment (base 1800)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>codex</td>    <td>600</td>  <td>300</td> <td>600</td>  <td>1800</td></tr>
+    <tr><td>gemini</td>   <td>600</td>  <td>300</td> <td>600</td>  <td>1800</td></tr>
+    <tr><td>claude</td>   <td>600</td>  <td>300</td> <td>600</td>  <td>1800</td></tr>
+    <tr><td>opencode</td> <td><strong>1500</strong></td> <td><strong>750</strong></td> <td><strong>1500</strong></td> <td><strong>4500</strong></td></tr>
+  </tbody>
+</table>
+
+<h2 id="layer-b">Layer B — mtime-based liveness probe</h2>
+
+<h3>What and why</h3>
+
+<p>
+  Before writing <code>&lt;state_key&gt;=timeout</code>, check the trooper's
+  <code>outbox.jsonl</code> mtime. If it was touched within
+  <code>LIVENESS_PROBE_S</code> seconds of now, the trooper is provably still
+  writing — extend the deadline by <code>LIVENESS_GRACE_S</code>. Cap by a hard
+  ceiling (<code>MAX_DEADLINE_FACTOR × baseline</code>) so a stuck-but-noisy
+  trooper still hits a real timeout eventually.
+</p>
+
+<p>
+  Outbox mtime is the universal "trooper is doing something" signal. The same
+  heuristic powers <code>bin/deep-research-monitor.sh</code> (see
+  <code>PROBE_S</code> / <code>STUCK_S</code> defaults of 900s / 1800s there).
+  One probe site covers all four <code>kind</code>s (research / verify /
+  adversary / experiment) without per-kind file lookups.
+</p>
+
+<h3>Defaults</h3>
+
+<table>
+  <thead>
+    <tr><th>Knob</th><th>Default</th><th>Env override</th><th>Meaning</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>LIVENESS_PROBE_S</code></td><td>120</td><td><code>CW_CONSULT_LIVENESS_PROBE_S</code></td><td>"Recent activity" window — outbox touched within this long counts as alive</td></tr>
+    <tr><td><code>LIVENESS_GRACE_S</code></td><td>180</td><td><code>CW_CONSULT_LIVENESS_GRACE_S</code></td><td>How long to extend on each successful liveness probe</td></tr>
+    <tr><td><code>MAX_DEADLINE_FACTOR</code></td><td>2</td><td><code>CW_CONSULT_MAX_DEADLINE_FACTOR</code></td><td>Multiplier × <code>timeout</code> (post Layer A) for the absolute hard cap</td></tr>
+  </tbody>
+</table>
+
+<p>
+  These are intentionally tighter than deep-research-monitor's defaults (900s /
+  1800s) because consult phases are shorter-lived and bursty — findings.md tends
+  to grow in 30-60s pulses, not 5-min ones.
+</p>
+
+<h3>Effective hard caps after Layer A + Layer B</h3>
+
+<table>
+  <thead>
+    <tr><th>Provider</th><th>research</th><th>verify</th><th>adversary</th><th>experiment</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>codex</td>    <td>1200 (20m)</td> <td>600 (10m)</td> <td>1200 (20m)</td> <td>3600 (60m)</td></tr>
+    <tr><td>opencode</td> <td><strong>3000 (50m)</strong></td> <td><strong>1500 (25m)</strong></td> <td><strong>3000 (50m)</strong></td> <td><strong>9000 (150m)</strong></td></tr>
+  </tbody>
+</table>
+
+<p>
+  For experiment kind, deep-research already has its own Monitor-driven
+  liveness via <code>bin/deep-research-monitor.sh</code>, so the cap mostly
+  serves as a fallback if the conductor isn't using Monitor (e.g. a wait shim
+  called directly from a test).
+</p>
+
+<h3>Code change (<code>lib/consult-wait.sh</code>)</h3>
+
+<p>Insert before the existing <code>(( remaining &gt; 0 )) || { matched="";...;break; }</code>:</p>
+
+<pre><code>local probe_s="${CW_CONSULT_LIVENESS_PROBE_S:-120}"
+local grace_s="${CW_CONSULT_LIVENESS_GRACE_S:-180}"
+local cap_factor="${CW_CONSULT_MAX_DEADLINE_FACTOR:-2}"
+local hard_deadline=$(( $(date +%s) + timeout * cap_factor ))
+
+while :; do
+  local now=$(date +%s)
+  local remaining=$(( poll_deadline - now ))
+  if (( remaining &lt;= 0 )); then
+    # Layer B: liveness probe before declaring timeout.
+    local mtime delta
+    mtime=$(stat -c '%Y' "$outbox" 2&gt;/dev/null || echo 0)
+    delta=$(( now - mtime ))
+    if (( mtime &gt; 0 )) &amp;&amp; (( delta &lt;= probe_s )) &amp;&amp; (( now &lt; hard_deadline )); then
+      poll_deadline=$(( now + grace_s ))
+      (( poll_deadline &gt; hard_deadline )) &amp;&amp; poll_deadline=$hard_deadline
+      log_info "[$kind-wait] $commander alive (outbox mtime ${delta}s ago); +${grace_s}s grace, hard cap in $(( hard_deadline - now ))s"
+      continue
+    fi
+    matched=""; new_offset="$OFFSET"; event=""; break
+  fi
+
+  # ...existing poll body unchanged...
+done</code></pre>
+
+<p>
+  <code>stat -c '%Y'</code> is GNU stat (Linux). macOS uses
+  <code>stat -f '%m'</code>. Wrap with platform detection (mirror what
+  <code>lib/state.sh</code> already does for <code>stat</code>-style calls), or
+  use a single <code>stat -c '%Y' "$f" 2&gt;/dev/null || stat -f '%m' "$f" 2&gt;/dev/null || echo 0</code>
+  chain. <strong>Decision: use the chained fallback</strong> — keeps the code in
+  one place, costs a single fork-exec of stat that errors out fast on the wrong
+  platform.
+</p>
+
+<h2 id="surface-change-inventory">Surface change inventory</h2>
+
+<table>
+  <thead>
+    <tr><th>File</th><th>Change</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>config/contracts.yaml</code></td><td>Add <code>timeout_multiplier: 2.5</code> to opencode block</td></tr>
+    <tr><td><code>lib/contracts.sh</code></td><td>New helper <code>cw_contract_timeout_multiplier</code> (~12 LoC)</td></tr>
+    <tr><td><code>lib/consult-wait.sh</code></td><td>Apply multiplier + add liveness probe block (~20 LoC)</td></tr>
+    <tr><td><code>tests/test_contract_timeout_multiplier.sh</code></td><td>New (4 cases)</td></tr>
+    <tr><td><code>tests/test_consult_wait_liveness_probe.sh</code></td><td>New (3 cases)</td></tr>
+    <tr><td><code>tests/test_v0_35_0_static_wiring.sh</code></td><td>New (8 invariants)</td></tr>
+    <tr><td><code>.claude-plugin/plugin.json</code></td><td>Bump 0.34.0 → 0.35.0</td></tr>
+    <tr><td><code>.claude-plugin/marketplace.json</code></td><td>Bump 0.34.0 → 0.35.0</td></tr>
+    <tr><td><code>CLAUDE.md</code></td><td>Add v0.35.0 status row + release-gate row</td></tr>
+  </tbody>
+</table>
+
+<p>
+  Zero directive-prose changes. The three liveness knobs are power-user env
+  vars; documented in this spec but not surfaced in
+  <code>commands/consult.md</code>.
+</p>
+
+<h2 id="tests">Tests</h2>
+
+<h3><code>test_contract_timeout_multiplier.sh</code> (4 cases)</h3>
+
+<ol>
+  <li>Default <code>1.0</code> when field is absent (codex / claude).</li>
+  <li><code>2.5</code> when set on opencode.</li>
+  <li>Default <code>1.0</code> when value is malformed (<code>abc</code>, <code>0</code>, negative).</li>
+  <li>Decimal accepted (<code>1.5</code>, <code>3.0</code>).</li>
+</ol>
+
+<h3><code>test_consult_wait_liveness_probe.sh</code> (3 cases)</h3>
+
+<ol>
+  <li>Stale outbox at deadline → real timeout (<code>*S=timeout</code> written).</li>
+  <li>Fresh outbox at deadline → grace extension (log line emitted, no <code>timeout</code> write yet); subsequent stale outbox → real timeout.</li>
+  <li>Repeated grace extensions hit hard cap → real timeout fires regardless of further activity (anti-stuck-noisy-trooper safety).</li>
+</ol>
+
+<p>
+  These tests synthesize outbox.jsonl files with controlled mtimes via
+  <code>touch -d '@&lt;epoch&gt;'</code>. They use
+  <code>CW_CONSULT_LIVENESS_PROBE_S=2</code> /
+  <code>CW_CONSULT_LIVENESS_GRACE_S=2</code> /
+  <code>CW_CONSULT_MAX_DEADLINE_FACTOR=2</code> and
+  <code>CW_CONSULT_RESEARCH_TIMEOUT_OVERRIDE=2</code> so the test runs in
+  single-digit seconds.
+</p>
+
+<h3><code>test_v0_35_0_static_wiring.sh</code> (8 invariants)</h3>
+
+<p>Standard version-stamped lock with skip-guard. Asserts:</p>
+
+<ol>
+  <li><code>plugin.json</code> reads <code>0.35.0</code>.</li>
+  <li><code>cw_contract_timeout_multiplier</code> defined in <code>lib/contracts.sh</code>.</li>
+  <li><code>cw_consult_wait</code> references <code>cw_contract_timeout_multiplier</code>.</li>
+  <li><code>cw_consult_wait</code> references <code>CW_CONSULT_LIVENESS_PROBE_S</code>.</li>
+  <li><code>cw_consult_wait</code> references <code>CW_CONSULT_MAX_DEADLINE_FACTOR</code>.</li>
+  <li><code>config/contracts.yaml</code> has <code>timeout_multiplier: 2.5</code> under the <code>opencode:</code> block (and not under any other provider).</li>
+  <li><code>CLAUDE.md</code> has <code>^- \[x\] v0.35.0</code> row.</li>
+  <li><code>CLAUDE.md</code> has <code>^- \[ \] v0.35.0 strict-dogfood</code> row.</li>
+</ol>
+
+<h2 id="out-of-scope">Out of scope</h2>
+
+<ul>
+  <li><strong>Trooper-emitted heartbeat events</strong> (Approach 2 above) — separate brainstorm if mtime-based probing proves insufficient.</li>
+  <li><strong>deep-research's <code>bin/deep-research-monitor.sh</code></strong> — already mtime-aware via <code>PROBE_S</code> / <code>STUCK_S</code>. v0.35.0 leaves it untouched.</li>
+  <li><strong>Per-kind multipliers</strong> (e.g. opencode adversary 2× but research 3×) — YAGNI; one multiplier per provider is enough until evidence says otherwise.</li>
+  <li><strong>Multipliers on <code>gemini</code> / <code>claude</code></strong> — they ship at <code>1.0</code> until dogfood data motivates a change.</li>
+</ul>
+
+<h2 id="release-gate-dogfood">Release-gate dogfood</h2>
+
+<p>
+  Re-run <code>/clone-wars:consult</code> with wolffe in the roster on a topic
+  that previously timed out. Verify:
+</p>
+
+<ol>
+  <li>Wolffe's research phase logs <code>base=600s × 2.5 = 1500s</code> at start.</li>
+  <li>When wolffe is 600s in but writing every ~30s to findings, the wait-shim log shows <code>+180s grace, hard cap in &lt;N&gt;s</code> lines, not <code>FS=timeout</code>.</li>
+  <li>When wolffe truly wedges past the hard cap (3000s for research), <code>FS=timeout</code> fires correctly and the trooper is torn down.</li>
+  <li><code>CW_CONSULT_LIVENESS_PROBE_S=0</code> env var disables the probe (forces v0.34-style behavior) — useful as an escape hatch for tests.</li>
+  <li>Codex / claude troopers behave byte-equal to v0.34.0 (multiplier defaults to <code>1.0</code>, no probe extension fires unless their outbox mtime is within <code>LIVENESS_PROBE_S</code> of deadline).</li>
+</ol>
+
+<h2 id="versioning--git-mechanics">Versioning + git mechanics</h2>
+
+<ul>
+  <li>Branch: <code>feat/v0.35.0-trooper-liveness</code></li>
+  <li>Spec commit: <code>docs(spec): v0.35.0 trooper-liveness design + html render</code></li>
+  <li>Implementation commits: per-task TDD per the writing-plans output</li>
+  <li>Release commit: <code>chore(release): v0.35.0 — per-provider timeout multiplier + mtime liveness probe</code></li>
+  <li>PR title: <code>feat: v0.35.0 — per-provider timeout multiplier + mtime liveness probe</code></li>
+</ul>
+
+<h2 id="open-questions">Open questions for reviewer</h2>
+
+<ol>
+  <li>
+    <strong>Multiplier value for opencode</strong> — <code>2.5</code> chosen
+    empirically from the wolffe symptom (18 KB findings at 600s deadline implies
+    real work continues for some unknown additional time; 2.5× = 1500s is a
+    plausible upper bound for typical research). Adjust to <code>2.0</code> or
+    <code>3.0</code> if you have better data.
+  </li>
+  <li>
+    <strong><code>LIVENESS_PROBE_S=120</code> and
+    <code>LIVENESS_GRACE_S=180</code></strong> — the ratio matters more than the
+    absolute values. 120/180 says "if you wrote in the last 2 min, you get 3
+    more min." Could be <code>60/120</code> (more responsive but more frequent
+    log noise) or <code>300/600</code> (matches deep-research-monitor's PROBE_S;
+    quieter but slower to react).
+  </li>
+  <li>
+    <strong>Hard cap of <code>2×</code></strong> — this is the one knob a
+    malicious / runaway trooper can't escape. If it's wrong, increasing it is a
+    one-line contracts.yaml edit (no code change).
+  </li>
+  <li>
+    <strong>Should the multiplier also apply to
+    <code>cw_contract_ready_timeout</code></strong> (the spawn-time wait)?
+    Probably yes for symmetry, but that's a separate code path and adds blast
+    radius. <strong>Spec defers this to v0.36.0</strong> if dogfood shows
+    ready-timeouts still fire on opencode.
+  </li>
+</ol>
+
+<hr>
+
+<p class="meta">
+  <span class="badge">v0.35.0</span> &nbsp;
+  Generated alongside the markdown spec at <code>docs/superpowers/specs/2026-05-16-v0.35.0-trooper-liveness-design.md</code>.
+</p>
+
+</body>
+</html>

@@ -94,6 +94,22 @@ cw_contract_bootstrap_sleep() {
   printf '%s\n' "${v:-$default}"
 }
 
+# cw_contract_timeout_multiplier <provider>
+# Print the timeout_multiplier field for <provider>. Default "1.0" when
+# the field is absent or malformed (non-positive, non-numeric).
+# Used by cw_consult_wait (lib/consult-wait.sh) to scale per-kind base
+# timeouts for slow providers like opencode (DeepSeek V4 Pro).
+cw_contract_timeout_multiplier() {
+  local provider="$1" v
+  v=$(_cw_contract_field "$provider" timeout_multiplier)
+  if [[ -n "$v" ]] && [[ "$v" =~ ^[0-9]+(\.[0-9]+)?$ ]] \
+     && awk -v x="$v" 'BEGIN { exit !(x > 0) }'; then
+    printf '%s\n' "$v"
+  else
+    printf '1.0\n'
+  fi
+}
+
 # cw_consult_timeout <kind>
 # Print the configured timeout for <kind> ∈ {research, verify, adversary, experiment}.
 # Reads the consult: block in contracts.yaml; falls back to per-kind defaults

@@ -53,9 +53,15 @@ cw_consult_wait() {
   [[ -n "${OFFSET:-}" ]] \
     || { log_error "OFFSET not set in $state_file"; return 1; }
 
-  local timeout
-  timeout="${!timeout_env_var:-$(cw_consult_timeout "$timeout_key")}"
-  log_info "[$kind-wait] $commander offset=$OFFSET timeout=${timeout}s"
+  # v0.35.0 Layer A: apply per-provider timeout_multiplier (default 1.0).
+  # opencode ships 2.5 to absorb DeepSeek V4 Pro's wall-clock slowness;
+  # codex/claude/gemini are 1.0 → byte-equal v0.34.0 numeric behavior.
+  local base_timeout mult timeout
+  base_timeout="${!timeout_env_var:-$(cw_consult_timeout "$timeout_key")}"
+  mult=$(cw_contract_timeout_multiplier "$model")
+  timeout=$(awk -v b="$base_timeout" -v m="$mult" \
+    'BEGIN { printf "%d", b * m + 0.5 }')
+  log_info "[$kind-wait] $commander offset=$OFFSET base=${base_timeout}s × ${mult} = ${timeout}s"
 
   # v0.27.2 BUG #6: wrap one-shot match logic in a stale-event-skipping
   # loop. When kind==experiment, skip done events whose summary lacks the
@@ -66,9 +72,41 @@ cw_consult_wait() {
   outbox=$(cw_outbox_path "$commander" "$model" "$topic")
   local poll_deadline=$(( $(date +%s) + timeout ))
 
+  # v0.35.0 Layer B: mtime liveness probe before declaring timeout.
+  # Knobs (env-overridable):
+  #   CW_CONSULT_LIVENESS_PROBE_S    — "recent activity" window (default 120s)
+  #                                    set to 0 to disable the probe entirely
+  #                                    (v0.34 escape hatch for tests/debug)
+  #   CW_CONSULT_LIVENESS_GRACE_S    — extension granted on each successful
+  #                                    probe (default 180s)
+  #   CW_CONSULT_MAX_DEADLINE_FACTOR — multiplier × multiplied baseline for
+  #                                    the absolute hard cap (default 2)
+  local probe_s="${CW_CONSULT_LIVENESS_PROBE_S:-120}"
+  local grace_s="${CW_CONSULT_LIVENESS_GRACE_S:-180}"
+  local cap_factor="${CW_CONSULT_MAX_DEADLINE_FACTOR:-2}"
+  local hard_deadline=$(( $(date +%s) + timeout * cap_factor ))
+
   while :; do
-    local remaining=$(( poll_deadline - $(date +%s) ))
-    (( remaining > 0 )) || { matched=""; new_offset="$OFFSET"; event=""; break; }
+    local now remaining
+    now=$(date +%s)
+    remaining=$(( poll_deadline - now ))
+    if (( remaining <= 0 )); then
+      # Liveness probe: outbox.jsonl mtime check.
+      # GNU stat (Linux) -c '%Y' falls through to BSD stat (macOS) -f '%m'.
+      local mtime delta
+      mtime=$(stat -c '%Y' "$outbox" 2>/dev/null \
+              || stat -f '%m' "$outbox" 2>/dev/null \
+              || echo 0)
+      delta=$(( now - mtime ))
+      if (( probe_s > 0 )) && (( mtime > 0 )) \
+         && (( delta <= probe_s )) && (( now < hard_deadline )); then
+        poll_deadline=$(( now + grace_s ))
+        (( poll_deadline > hard_deadline )) && poll_deadline=$hard_deadline
+        log_info "[$kind-wait] $commander alive (outbox mtime ${delta}s ago); +${grace_s}s grace, hard cap in $(( hard_deadline - now ))s"
+        continue
+      fi
+      matched=""; new_offset="$OFFSET"; event=""; break
+    fi
 
     cw_outbox_wait_since "$commander" "$model" "$topic" "$OFFSET" \
       "done" "error" "question" "$remaining" >/dev/null || true
@@ -107,7 +145,9 @@ cw_consult_wait() {
       fi
     fi
 
-    break
+    # v0.35.0: only break on a real match — empty matched falls through so
+    # the top of the next iteration runs the liveness probe + timeout check.
+    [[ -n "$matched" ]] && break
   done
 
   case "$event" in
