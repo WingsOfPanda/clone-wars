@@ -18,6 +18,30 @@
 #       — single-field read; preserves embedded '='; rc=1 on missing state.txt
 #   cw_deep_research_check_time_budget <budget-path> <session-start-path>
 #       — rc=0 if elapsed >= budget seconds; rc=1 on 'none' or not yet hit
+#   cw_deep_research_normalize_topic <topic-var-name>
+#       — auto-prefix bare slug with 'deep-research-'; mutates named variable;
+#         exits 2 on invalid topic (validates via cw_consult_topic_validate).
+#   cw_deep_research_assert_topic <topic>
+#       — require explicit 'deep-research-' prefix; exits 2 on invalid topic.
+
+# cw_deep_research_normalize_topic <topic-var-name>
+# Auto-prefix bare slug with 'deep-research-' if missing, then validate.
+# Mutates the named variable in place. Exits 2 on validation failure.
+cw_deep_research_normalize_topic() {
+  local _var="$1"
+  local _val="${!_var}"
+  [[ "$_val" == deep-research-* ]] || _val="deep-research-$_val"
+  cw_consult_topic_validate "$_val" || { log_error "invalid topic: $_val"; exit 2; }
+  printf -v "$_var" '%s' "$_val"
+}
+
+# cw_deep_research_assert_topic <topic>
+# Require explicit 'deep-research-' prefix. Exits 2 on invalid topic.
+cw_deep_research_assert_topic() {
+  [[ "$1" == deep-research-* ]] \
+    || { log_error "topic must start with 'deep-research-': $1"; exit 2; }
+  cw_consult_topic_validate "$1" || { log_error "invalid topic: $1"; exit 2; }
+}
 
 # Canonical metric vocabulary. Whole-word case-insensitive match in topic
 # text; first-by-position wins.

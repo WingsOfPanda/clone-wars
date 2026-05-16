@@ -13,14 +13,12 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && p
 source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/consult.sh"
+source "$PLUGIN_ROOT/lib/deep-research.sh"
 source "$PLUGIN_ROOT/lib/tmux.sh"
 
 [[ $# -eq 1 ]] || { echo "Usage: $0 <topic>" >&2; exit 2; }
 TOPIC="$1"
-[[ "$TOPIC" == deep-research-* ]] \
-  || { log_error "topic must start with 'deep-research-': $TOPIC"; exit 2; }
-cw_consult_topic_validate "$TOPIC" \
-  || { log_error "invalid topic: $TOPIC"; exit 2; }
+cw_deep_research_assert_topic "$TOPIC"
 
 state_root=$(cw_state_root)
 repo_hash=$(cw_repo_hash)

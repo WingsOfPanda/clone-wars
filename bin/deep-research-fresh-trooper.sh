@@ -21,9 +21,7 @@ source "$PLUGIN_ROOT/lib/deep-research.sh"
 TOPIC="$1"
 COMMANDER="$2"
 
-# Auto-prefix common typo (parallel v0.32.0 experiment-send.sh #7)
-[[ "$TOPIC" == deep-research-* ]] || TOPIC="deep-research-$TOPIC"
-cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 2; }
+cw_deep_research_normalize_topic TOPIC
 
 [[ "$COMMANDER" =~ ^[a-z][a-z0-9-]*$ ]] \
   || { log_error "commander must match [a-z][a-z0-9-]*; got '$COMMANDER'"; exit 2; }

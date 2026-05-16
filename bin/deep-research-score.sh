@@ -18,9 +18,7 @@ source "$PLUGIN_ROOT/lib/deep-research.sh"
 
 [[ $# -eq 1 ]] || { log_error "Usage: $0 <topic>"; exit 2; }
 TOPIC="$1"
-[[ "$TOPIC" == deep-research-* ]] \
-  || { log_error "topic must start with 'deep-research-': $TOPIC"; exit 2; }
-cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 2; }
+cw_deep_research_assert_topic "$TOPIC"
 
 state_root=$(cw_state_root)
 repo_hash=$(cw_repo_hash)

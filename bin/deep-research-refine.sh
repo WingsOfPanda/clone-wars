@@ -15,6 +15,7 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && p
 source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/consult.sh"
+source "$PLUGIN_ROOT/lib/deep-research.sh"
 
 [[ $# -eq 4 ]] || { log_error "Usage: $0 <topic> <commander> <exp-id> <refinement-text>"; exit 2; }
 TOPIC="$1"
@@ -22,8 +23,7 @@ COMMANDER="$2"
 EXP_ID="$3"
 TEXT="$4"
 
-[[ "$TOPIC" == deep-research-* ]] || TOPIC="deep-research-$TOPIC"
-cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 2; }
+cw_deep_research_normalize_topic TOPIC
 
 [[ "$COMMANDER" =~ ^[a-z][a-z0-9-]*$ ]] \
   || { log_error "commander must match [a-z][a-z0-9-]*; got '$COMMANDER'"; exit 2; }
