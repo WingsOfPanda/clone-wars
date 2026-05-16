@@ -25,7 +25,7 @@ TOPIC="$1"
 cw_consult_assert_topic "$TOPIC"
 
 REPO_HASH=$(cw_repo_hash)
-TD="${CLONE_WARS_HOME:-$HOME/.clone-wars}/state/$REPO_HASH/$TOPIC"
+TD="$(cw_state_root)/state/$REPO_HASH/$TOPIC"
 ART="$TD/_deep-research"
 [[ -d "$ART" ]] || { log_error "finalize: art-dir missing: $ART"; exit 1; }
 

@@ -53,7 +53,7 @@ while IFS=$'\t' read -r wave step repo path desc; do
 done < "$WAVES_FILE"
 
 # Read commander pool from commanders.yaml
-COMMANDERS_YAML="${CLONE_WARS_HOME:-$HOME/.clone-wars}/commanders.yaml"
+COMMANDERS_YAML="$(cw_global_state_root)/commanders.yaml"
 [[ -f "$COMMANDERS_YAML" ]] || COMMANDERS_YAML="$PLUGIN_ROOT/config/commanders.yaml"
 [[ -f "$COMMANDERS_YAML" ]] || { log_error "commanders.yaml not found"; exit 1; }
 mapfile -t POOL < <(awk '/^[[:space:]]*-[[:space:]]+/ { gsub(/^[[:space:]]*-[[:space:]]+/, ""); print }' "$COMMANDERS_YAML")
