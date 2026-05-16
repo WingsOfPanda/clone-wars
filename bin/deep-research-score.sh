@@ -34,6 +34,21 @@ OK_ROWS=$(mktemp)
 FAIL_ROWS=$(mktemp)
 trap 'rm -f "$SB_TMP" "$OK_ROWS" "$FAIL_ROWS"' EXIT
 
+# v0.33.0 D1: read metric.md primary_metric once for the loop. Used as the
+# expected metric_name in the v033 validator. If metric.md is absent or its
+# primary_metric line is empty (mid-init state, legacy archives, or test
+# fixtures that synthesize state directly), fall back to the base validator
+# without metric_name enforcement.
+METRIC_MD="$ART_DIR/metric.md"
+expected_metric=""
+if [[ -f "$METRIC_MD" ]]; then
+  expected_metric=$(awk '
+    /^\*\*Primary metric:\*\*/ {
+      sub(/^\*\*Primary metric:\*\*[[:space:]]+/, ""); print; exit
+    }
+  ' "$METRIC_MD")
+fi
+
 # v0.28.0: per-trooper layout. Iterate _deep-research/troopers/<cmdr>/experiments/<exp-id>/.
 # Commander comes from the parent dir; exp-id is the leaf basename.
 shopt -s nullglob
@@ -45,9 +60,24 @@ for branch_dir in "$TROOPERS_DIR"/*/experiments/*/; do
   exp_id=$(basename "$branch_dir")                                # exp-007
   cmdr=$(basename "$(dirname "$(dirname "$branch_dir")")")        # rex
 
-  # Validate schema (sets stderr message on failure)
-  (cd "$branch_dir" && cw_deep_research_validate_result_json result.json) 2>/dev/null \
-    || { log_warn "result.json schema invalid: $result (skipping)"; continue; }
+  # v0.33.0 D1+D2: mandatory metric_name match (when metric.md is present)
+  # + per-experiment audit file on validation failure. Row still omitted
+  # from scoreboard.md on failure; trooper sees the file on its next inbox
+  # read. When metric.md is absent, fall back to the base validator (no
+  # metric_name enforcement; back-compat with mid-init / legacy archives).
+  if [[ -n "$expected_metric" ]]; then
+    validation_err=$( ( cd "$branch_dir" && cw_deep_research_validate_result_json_v033 result.json "$expected_metric" ) 2>&1 )
+  else
+    validation_err=$( ( cd "$branch_dir" && cw_deep_research_validate_result_json result.json ) 2>&1 )
+  fi
+  if [[ -z "$validation_err" ]]; then
+    rm -f "$branch_dir/result-validation.txt"
+  else
+    printf 'FAILED at %s: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$validation_err" \
+      > "$branch_dir/result-validation.txt"
+    log_warn "result.json invalid: $result (see $branch_dir/result-validation.txt)"
+    continue
+  fi
 
   # Extract fields (prefer jq, fall back to grep)
   if command -v jq >/dev/null 2>&1; then
@@ -55,6 +85,7 @@ for branch_dir in "$TROOPERS_DIR"/*/experiments/*/; do
     status=$(jq -r '.status' "$result")
     runtime=$(jq -r '.runtime_s' "$result")
     label=$(jq -r '.approach_label' "$result")
+    metric_name=$(jq -r '.metric_name' "$result")
   else
     metric=$(grep -oE '"metric_value"[[:space:]]*:[[:space:]]*[^,}]+' "$result" \
       | sed 's/.*:[[:space:]]*//' | tr -d ' "')
@@ -64,31 +95,34 @@ for branch_dir in "$TROOPERS_DIR"/*/experiments/*/; do
       | sed 's/.*:[[:space:]]*//')
     label=$(grep -oE '"approach_label"[[:space:]]*:[[:space:]]*"[^"]*"' "$result" \
       | sed 's/.*"\([^"]*\)"/\1/')
+    metric_name=$(grep -oE '"metric_name"[[:space:]]*:[[:space:]]*"[^"]*"' "$result" \
+      | sed 's/.*"\([^"]*\)"/\1/')
   fi
 
+  # v0.33.0 D1: scoreboard.md gains metric_name column (8th).
   if [[ "$status" == "ok" ]]; then
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$metric" "$exp_id" "$cmdr" "$status" "$runtime" "$label" >> "$OK_ROWS"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$metric" "$exp_id" "$cmdr" "$status" "$runtime" "$label" "$metric_name" >> "$OK_ROWS"
   else
-    printf '%s\t%s\t%s\t%s\t%s\n' "$exp_id" "$cmdr" "$status" "$runtime" "$label" >> "$FAIL_ROWS"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$exp_id" "$cmdr" "$status" "$runtime" "$label" "$metric_name" >> "$FAIL_ROWS"
   fi
 done
 
 {
   printf '# Scoreboard\n\n'
-  printf '| Rank | Experiment | Commander | Metric | Status | Runtime | Approach |\n'
-  printf '|---|---|---|---|---|---|---|\n'
+  printf '| Rank | Experiment | Commander | Metric | Status | Runtime | Approach | metric_name |\n'
+  printf '|---|---|---|---|---|---|---|---|\n'
   rank=1
   if [[ -s "$OK_ROWS" ]]; then
-    while IFS=$'\t' read -r metric exp cmdr status runtime label; do
-      printf '| %d | %s | %s | %s | %s | %ss | %s |\n' \
-        "$rank" "$exp" "$cmdr" "$metric" "$status" "$runtime" "$label"
+    while IFS=$'\t' read -r metric exp cmdr status runtime label metric_name; do
+      printf '| %d | %s | %s | %s | %s | %ss | %s | %s |\n' \
+        "$rank" "$exp" "$cmdr" "$metric" "$status" "$runtime" "$label" "$metric_name"
       rank=$((rank + 1))
     done < <(sort -t$'\t' -k1,1 -rn "$OK_ROWS")
   fi
   if [[ -s "$FAIL_ROWS" ]]; then
-    while IFS=$'\t' read -r exp cmdr status runtime label; do
-      printf '| %d | %s | %s | n/a | %s | %ss | %s |\n' \
-        "$rank" "$exp" "$cmdr" "$status" "$runtime" "$label"
+    while IFS=$'\t' read -r exp cmdr status runtime label metric_name; do
+      printf '| %d | %s | %s | n/a | %s | %ss | %s | %s |\n' \
+        "$rank" "$exp" "$cmdr" "$status" "$runtime" "$label" "$metric_name"
       rank=$((rank + 1))
     done < <(sort -t$'\t' -k1,1 "$FAIL_ROWS")
   fi

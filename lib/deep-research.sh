@@ -6,6 +6,8 @@
 #       — heuristic metric name extraction; empty string if ambiguous
 #   cw_deep_research_validate_result_json <relative-path>
 #       — schema check; rc=0 valid; rc>0 invalid (stderr); call from branch dir
+#   cw_deep_research_validate_result_json_v033 <relative-path> <expected-metric-name>
+#       — v0.33.0 D1: base schema + mandatory metric_name match check
 #   cw_deep_research_extract_approaches <landscape-md-path>
 #       — TSV "label\tbrief\n" from meditate landscape ## Approaches section
 #   cw_deep_research_pick_roster <N>
@@ -221,6 +223,26 @@ cw_deep_research_extract_approaches() {
   ' "$path"
 }
 
+# cw_deep_research_validate_result_json_v033 <relative-path> <expected-metric-name>
+# v0.33.0 D1: extends grep-fallback validation with mandatory metric_name match
+# against metric.md's primary_metric. Caller must have cd'd to the branch dir
+# (log_paths are relative). rc=0 valid; rc=1 invalid (stderr message).
+cw_deep_research_validate_result_json_v033() {
+  local path="${1:-}" expected_metric="${2:-}"
+  [[ -n "$expected_metric" ]] \
+    || { echo "expected-metric-name required" >&2; return 1; }
+  # Run base validator first (handles missing fields, status enum, log_paths)
+  _cw_deep_research_validate_result_grep "$path" || return 1
+  # Now the metric_name match
+  local actual_metric
+  actual_metric=$(grep -oE '"metric_name"[[:space:]]*:[[:space:]]*"[^"]*"' "$path" \
+    | head -1 \
+    | sed -E 's/.*"([^"]*)"$/\1/')
+  [[ "$actual_metric" == "$expected_metric" ]] \
+    || { echo "metric_name '$actual_metric' != metric.md primary '$expected_metric'" >&2; return 1; }
+  return 0
+}
+
 _cw_deep_research_validate_result_grep() {
   local path="$1"
   local body; body=$(<"$path")
@@ -388,6 +410,16 @@ cw_deep_research_check_completion() {
   plateau_window="${plateau_window:-5}"
   plateau_threshold="${plateau_threshold:-0.01}"
 
+  # v0.33.0 D1: read primary_metric to filter scoreboard rows by metric_name.
+  # When the scoreboard lacks the metric_name column (legacy / test fixtures
+  # using the 7-col shape), row_metric is empty and the filter is a no-op.
+  local primary_metric
+  primary_metric=$(awk '
+    /^\*\*Primary metric:\*\*/ {
+      sub(/^\*\*Primary metric:\*\*[[:space:]]+/, ""); print; exit
+    }
+  ' "$m")
+
   # Helper: numeric compare $1 (op) $2 against threshold $3 via awk.
   # File-scope-prefixed name; defined inside the function for context-locality
   # but bash hoists it to file scope. Caller uses _cw_deep_research_cmp.
@@ -415,8 +447,15 @@ cw_deep_research_check_completion() {
     [[ "$line" =~ ^\|[[:space:]]+[0-9]+[[:space:]]+\|[[:space:]]+exp- ]] || continue
     metric=$(printf '%s' "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $5); print $5}')
     status=$(printf '%s' "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $6); print $6}')
+    row_metric=$(printf '%s' "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $9); print $9}')
     [[ "$status" == "ok" ]] || continue
     [[ "$metric" =~ ^[0-9.]+$ ]] || continue
+    # v0.33.0 D1: drop rows whose metric_name disagrees with metric.md's
+    # primary_metric. row_metric is empty when the scoreboard lacks the
+    # metric_name column → filter is a no-op (back-compat).
+    if [[ -n "$primary_metric" && -n "$row_metric" && "$row_metric" != "$primary_metric" ]]; then
+      continue
+    fi
     metrics+=("$metric")
     if [[ -n "$min_op" && -n "$min_val" ]] && _cw_deep_research_cmp "$metric" "$min_op" "$min_val"; then
       floor_met=yes

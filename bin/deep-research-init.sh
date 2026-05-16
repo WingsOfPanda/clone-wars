@@ -26,6 +26,7 @@ TOPIC=""
 
 TIME_BUDGET=""
 METRIC_KV=""
+SLUG_OVERRIDE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --seed-from)     SEED_FROM="$2"; shift 2 ;;
@@ -34,8 +35,10 @@ while [[ $# -gt 0 ]]; do
     --time-budget=*) TIME_BUDGET="${1#*=}"; shift ;;
     --metric)        METRIC_KV="$2"; shift 2 ;;
     --metric=*)      METRIC_KV="${1#*=}"; shift ;;
+    --slug)          SLUG_OVERRIDE="$2"; shift 2 ;;
+    --slug=*)        SLUG_OVERRIDE="${1#*=}"; shift ;;
     --) shift; TOPIC="$*"; break ;;
-    -*) log_error "unknown flag: $1 (v0.32.0 added --time-budget + --metric; v0.27.0 dropped --max-rounds, --branches-per-round, --cost-warning, --allow-net)"; exit 2 ;;
+    -*) log_error "unknown flag: $1 (v0.34.0 added --slug; v0.32.0 added --time-budget + --metric; v0.27.0 dropped --max-rounds, --branches-per-round, --cost-warning, --allow-net)"; exit 2 ;;
     *)  TOPIC="$*"; break ;;
   esac
 done
@@ -81,14 +84,21 @@ if [[ -n "$SEED_FROM" ]]; then
   [[ -f "$SEED_FROM" ]] || { log_error "--seed-from path not found: $SEED_FROM"; exit 1; }
 fi
 
-# Slug from topic — cap 18 chars so 'deep-research-' + slug ≤ 32 chars
-# (BLOCKER #1 fix; matches bin/spawn.sh:143 topic regex).
-SLUG_BASE=$(printf '%s' "$TOPIC" \
-  | tr '[:upper:]' '[:lower:]' \
-  | tr -c 'a-z0-9-' '-' \
-  | sed 's/--*/-/g; s/^-//; s/-$//' \
-  | cut -c1-18 \
-  | sed 's/-$//')
+# v0.34.0: --slug override (strict regex). Otherwise auto-derive from topic
+# with a 18-char cap so 'deep-research-' + slug ≤ 32 chars (BLOCKER #1 fix;
+# matches bin/spawn.sh:143 topic regex).
+if [[ -n "$SLUG_OVERRIDE" ]]; then
+  [[ "$SLUG_OVERRIDE" =~ ^[a-z][a-z0-9-]{0,17}$ ]] \
+    || { log_error "--slug must match ^[a-z][a-z0-9-]{0,17}\$; got '$SLUG_OVERRIDE'"; exit 2; }
+  SLUG_BASE="$SLUG_OVERRIDE"
+else
+  SLUG_BASE=$(printf '%s' "$TOPIC" \
+    | tr '[:upper:]' '[:lower:]' \
+    | tr -c 'a-z0-9-' '-' \
+    | sed 's/--*/-/g; s/^-//; s/-$//' \
+    | cut -c1-18 \
+    | sed 's/-$//')
+fi
 [[ -n "$SLUG_BASE" ]] || { log_error "topic produced empty slug; provide alphanumerics"; exit 2; }
 
 TOPIC_NAME="deep-research-$SLUG_BASE"

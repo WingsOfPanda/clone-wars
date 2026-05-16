@@ -274,6 +274,16 @@ Set task `2` → `in_progress`.
    > single optimum (test accuracy) and a tight constraint
    > (<100k params). N=3 would split focus without adding signal."
 
+   **Approach diversity — prefer different pipelines over identical ones
+   (v0.34.0).** Three troopers running the same pipeline produce three
+   identical results — no triangulation signal. Three troopers running
+   DIFFERENT pipelines (e.g. single-pass VLM / page-typed routing /
+   OCR+VLM hybrid) provide real cross-validation. When you assign
+   initial approaches in Phase 4, prefer diverse strategies that probe
+   the problem from different angles. Note the diversity rationale in
+   the first round's `session-summary.md` `## Current direction`
+   section.
+
 2. **Time limit AskUserQuestion (UNCONDITIONAL when `$ART_DIR/time-budget.txt` absent — v0.28.2 + v0.32.0 #23):**
 
    **Skip this AskUserQuestion if `$ART_DIR/time-budget.txt` already exists.**
@@ -486,10 +496,17 @@ Set task `4` → `in_progress`.
   `commands/deep-research-resume.md` (loaded via the UserPromptSubmit hook in
   `hooks/user-prompt-submit-active-session.sh` when active.txt is present).
 
-**Architectural principle:** Yoda gives direction, not detailed plans. Each
-per-experiment dispatch is 1-2 sentences of strategic intent (~50 tokens).
+**Architectural principle:** Yoda gives direction, not detailed plans.
 Continuity lives in `session-summary.md` (Recent decisions + Current direction
 sections), not in re-derived per-turn context.
+
+**Brief length (v0.34.0):** Briefs may be 1-2 sentences for simple tasks
+or 1-2 paragraphs for complex ones. Anything past ~300 tokens should go
+in a per-experiment `task_context.md` file (pass via
+`bin/deep-research-experiment-send.sh --context-file=<path>`). Long
+inline briefs pollute `session-summary.md` and make `scoreboard.md`
+hard to scan. The `--context-file` content is interpolated into the
+trooper's prompt via the `{{TASK_CONTEXT}}` placeholder.
 
 #### 4.a — Initial entry (this turn only)
 
@@ -569,6 +586,17 @@ sections), not in re-derived per-turn context.
    For each dispatch, also fire a TaskCreate sub-row with subject
    `4.001 <Rank> <Commander> on <approach-label>` (use `cw_cmdr_rank` for the
    rank prefix).
+
+   **Asymmetric-framing convergence — leverage observed quality gaps
+   (v0.34.0).** When dispatching subsequent rounds (not the first one),
+   if one trooper consistently produces lower-quality outputs across
+   multiple experiments (visible in `scoreboard.md` or `consensus.md`'s
+   `## Contested` section), explicitly frame the next direction to
+   defer: "Trooper X has been more accurate on this task; for this
+   experiment, use their values as a baseline unless you have strong
+   contrary evidence." This converges the laggard faster than uniform
+   direction. Document the asymmetry in `session-summary.md`'s
+   `## Recent decisions` section.
 
 5. **Render initial status brief (v0.28.2).** After dispatching the first
    round, render the status brief so the user sees the format that will

@@ -79,6 +79,21 @@ if ! cw_pane_alive "$PANE"; then
   exit 1
 fi
 
+# ------------------------------------------------------------ v0.33.0 D5: soft warning
+# When target is a mid-experiment deep-research trooper, surface a warning.
+# Real fix (per-experiment inbox files) deferred to architectural brainstorm B.
+# Heuristic: deep-research troopers have state.txt under
+# $TOPIC_DIR/_deep-research/troopers/<cmdr>/state.txt. Consult/meditate panes
+# lack this file; warning silently doesn't fire.
+_DR_STATE_FILE="$TOPIC_DIR/_deep-research/troopers/$COMMANDER/state.txt"
+if [[ -f "$_DR_STATE_FILE" ]]; then
+  _DR_PHASE=$(grep '^phase=' "$_DR_STATE_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
+  if [[ "$_DR_PHASE" == "working" ]]; then
+    _DR_CUR=$(grep '^current_exp_id=' "$_DR_STATE_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
+    log_warn "trooper $COMMANDER is mid-experiment (phase=working, current_exp_id=$_DR_CUR); prefer bin/deep-research-experiment-send.sh after the next done event. Sending anyway."
+  fi
+fi
+
 # ------------------------------------------------------------ Resolve task body
 
 if [[ "$MSG_OR_FILE" == @* ]]; then
