@@ -22,6 +22,13 @@ cw_deploy_assert_topic() {
     || { log_error "invalid topic slug: '$1' (must match ^[a-z0-9][a-z0-9-]{0,31}\$)"; exit 2; }
 }
 
+# cw_deploy_assert_commander <name>
+# Same shape as cw_consult_assert_commander; deploy uses the permissive form
+# (allows underscores). Exits 2 on invalid commander.
+cw_deploy_assert_commander() {
+  [[ "$1" =~ ^[a-z0-9_-]+$ ]] || { log_error "invalid commander: $1"; exit 2; }
+}
+
 # cw_deploy_derive_topic <design-path>
 # Strip leading YYYY-MM-DD- and trailing -design.md (or .md). Print slug.
 cw_deploy_derive_topic() {

@@ -140,7 +140,7 @@ cw_consult_wait() {
         {
           printf 'OFFSET=%s\n' "$OFFSET"
           printf 'EXP_ID=%s\n' "$exp_id_expected"
-        } > "$state_file.tmp" && mv "$state_file.tmp" "$state_file"
+        } | cw_atomic_write "$state_file"
         continue
       fi
     fi

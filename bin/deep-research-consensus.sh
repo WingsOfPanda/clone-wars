@@ -18,6 +18,7 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && p
 source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/consult.sh"
+source "$PLUGIN_ROOT/lib/deep-research.sh"
 
 EPSILON=0.01
 TOPIC=""
@@ -31,9 +32,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$TOPIC" ]] || { log_error "Usage: $0 <topic> [--epsilon=<float>]"; exit 2; }
-[[ "$TOPIC" == deep-research-* ]] \
-  || { log_error "topic must start with 'deep-research-': $TOPIC"; exit 2; }
-cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 2; }
+cw_deep_research_assert_topic "$TOPIC"
 
 TOPIC_DIR="$(cw_topic_state_dir "$TOPIC")"
 ART="$TOPIC_DIR/_deep-research"

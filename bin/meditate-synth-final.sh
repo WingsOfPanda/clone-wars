@@ -19,7 +19,7 @@ source "$PLUGIN_ROOT/lib/meditate.sh"
 
 [[ $# -eq 1 ]] || { echo "Usage: $0 <meditate-topic>" >&2; exit 2; }
 TOPIC="$1"
-[[ "$TOPIC" == meditate-* ]] || { log_error "topic must start with 'meditate-': $TOPIC"; exit 2; }
+cw_meditate_assert_topic "$TOPIC"
 
 ART_DIR="$(cw_meditate_art_dir "$TOPIC")"
 [[ -d "$ART_DIR" ]] || { log_error "$ART_DIR not found"; exit 1; }

@@ -5,11 +5,22 @@
 #   cw_meditate_art_dir <topic>           — print absolute _meditate/ path
 #   cw_meditate_classify_topic <topic>    — print ON or OFF (keyword scan)
 #   cw_meditate_lit_keywords              — print the keyword list, one per line
+#   cw_meditate_assert_topic <topic>      — require 'meditate-' prefix + validate; exits 2 on invalid
 
 # cw_meditate_art_dir <topic>
 # Same shape as cw_consult_art_dir but under /_meditate.
 cw_meditate_art_dir() {
   printf '%s/_meditate\n' "$(cw_topic_state_dir "$1")"
+}
+
+# cw_meditate_assert_topic <topic>
+# Require explicit 'meditate-' prefix + cw_consult_topic_validate.
+# Strict-monotonic tightening vs the open-coded prefix-only check at callers
+# (v0.41.0). Exits 2 on invalid topic.
+cw_meditate_assert_topic() {
+  [[ "$1" == meditate-* ]] \
+    || { log_error "topic must start with 'meditate-': $1"; exit 2; }
+  cw_consult_topic_validate "$1" || { log_error "invalid topic: $1"; exit 2; }
 }
 
 # cw_meditate_lit_keywords — case-insensitive keyword list.

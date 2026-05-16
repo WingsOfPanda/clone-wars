@@ -19,7 +19,7 @@ source "$PLUGIN_ROOT/lib/meditate.sh"
 
 [[ $# -eq 3 ]] || { echo "Usage: $0 <meditate-topic> <commander> <model>" >&2; exit 2; }
 TOPIC="$1"; COMMANDER="$2"; MODEL="$3"
-[[ "$TOPIC" == meditate-* ]] || { log_error "topic must start with 'meditate-': $TOPIC"; exit 2; }
+cw_meditate_assert_topic "$TOPIC"
 cw_consult_assert_topic "$TOPIC"
 cw_consult_assert_commander "$COMMANDER"
 [[ "$MODEL" =~ ^[a-z0-9_-]+$ ]] || { log_error "invalid model: $MODEL"; exit 2; }

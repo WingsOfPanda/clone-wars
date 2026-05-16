@@ -46,9 +46,7 @@ EXP_ID="$3"
 APPROACH_LABEL="$4"
 APPROACH_BRIEF="$5"
 
-# v0.32.0 #7: auto-prefix common typo (passing commander name as topic)
-[[ "$TOPIC" == deep-research-* ]] || TOPIC="deep-research-$TOPIC"
-cw_consult_topic_validate "$TOPIC" || { log_error "invalid topic: $TOPIC"; exit 2; }
+cw_deep_research_normalize_topic TOPIC
 
 # exp-id must match exp-NNN (1+ digit; 3-digit zero-padded suggested)
 [[ "$EXP_ID" =~ ^exp-[0-9]+$ ]] \

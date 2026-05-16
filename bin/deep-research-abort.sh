@@ -30,10 +30,7 @@ source "$PLUGIN_ROOT/lib/deep-research.sh"
 TOPIC="$1"
 REASON="${2:-unspecified}"
 
-# v0.32.0 #7-aligned: auto-prefix missing prefix
-[[ "$TOPIC" == deep-research-* ]] || TOPIC="deep-research-$TOPIC"
-cw_consult_topic_validate "$TOPIC" \
-  || { log_error "invalid topic: $TOPIC"; exit 2; }
+cw_deep_research_normalize_topic TOPIC
 
 state_root=$(cw_state_root)
 repo_hash=$(cw_repo_hash)

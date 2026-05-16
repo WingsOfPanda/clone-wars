@@ -18,6 +18,30 @@
 #       — single-field read; preserves embedded '='; rc=1 on missing state.txt
 #   cw_deep_research_check_time_budget <budget-path> <session-start-path>
 #       — rc=0 if elapsed >= budget seconds; rc=1 on 'none' or not yet hit
+#   cw_deep_research_normalize_topic <topic-var-name>
+#       — auto-prefix bare slug with 'deep-research-'; mutates named variable;
+#         exits 2 on invalid topic (validates via cw_consult_topic_validate).
+#   cw_deep_research_assert_topic <topic>
+#       — require explicit 'deep-research-' prefix; exits 2 on invalid topic.
+
+# cw_deep_research_normalize_topic <topic-var-name>
+# Auto-prefix bare slug with 'deep-research-' if missing, then validate.
+# Mutates the named variable in place. Exits 2 on validation failure.
+cw_deep_research_normalize_topic() {
+  local _var="$1"
+  local _val="${!_var}"
+  [[ "$_val" == deep-research-* ]] || _val="deep-research-$_val"
+  cw_consult_topic_validate "$_val" || { log_error "invalid topic: $_val"; exit 2; }
+  printf -v "$_var" '%s' "$_val"
+}
+
+# cw_deep_research_assert_topic <topic>
+# Require explicit 'deep-research-' prefix. Exits 2 on invalid topic.
+cw_deep_research_assert_topic() {
+  [[ "$1" == deep-research-* ]] \
+    || { log_error "topic must start with 'deep-research-': $1"; exit 2; }
+  cw_consult_topic_validate "$1" || { log_error "invalid topic: $1"; exit 2; }
+}
 
 # Canonical metric vocabulary. Whole-word case-insensitive match in topic
 # text; first-by-position wins.
@@ -399,13 +423,17 @@ cw_deep_research_check_completion() {
 
   # Parse metric.md — fields are `**KEY:** VALUE`, so the field separator is `:** `.
   local min_op min_val tgt_op tgt_val K_req plateau_window plateau_threshold
-  min_op=$(awk -F':\\*\\* ' '/^\*\*min_acceptable:/{print $2}' "$m" | awk '{print $1}')
-  min_val=$(awk -F':\\*\\* ' '/^\*\*min_acceptable:/{print $2}' "$m" | awk '{$1=""; sub(/^ /, ""); print}')
-  tgt_op=$(awk -F':\\*\\* ' '/^\*\*target:/{print $2}' "$m" | awk '{print $1}')
-  tgt_val=$(awk -F':\\*\\* ' '/^\*\*target:/{print $2}' "$m" | awk '{$1=""; sub(/^ /, ""); print}')
-  K_req=$(awk -F':\\*\\* ' '/^\*\*K_corroboration:/{print $2}' "$m" | tr -d ' ')
-  plateau_window=$(awk -F':\\*\\* ' '/^\*\*plateau_window:/{print $2}' "$m" | tr -d ' ')
-  plateau_threshold=$(awk -F':\\*\\* ' '/^\*\*plateau_threshold:/{print $2}' "$m" | tr -d ' ')
+  # Single awk pass extracts all 7 metric.md fields and emits shell-eval-ready
+  # `KEY='value'` lines. Single-quoting is mandatory: op-words like `>=` would
+  # otherwise be parsed as redirection by the shell. Safe because metric.md is
+  # repo-controlled (written by the directive) — values never contain `'`.
+  eval "$(awk -F':\\*\\* ' '
+    /^\*\*min_acceptable:/    { split($2, a, " "); printf "min_op='\''%s'\''\nmin_val='\''%s'\''\n", a[1], substr($2, length(a[1])+2) }
+    /^\*\*target:/            { split($2, a, " "); printf "tgt_op='\''%s'\''\ntgt_val='\''%s'\''\n", a[1], substr($2, length(a[1])+2) }
+    /^\*\*K_corroboration:/   { gsub(/ /,"",$2); printf "K_req='\''%s'\''\n", $2 }
+    /^\*\*plateau_window:/    { gsub(/ /,"",$2); printf "plateau_window='\''%s'\''\n", $2 }
+    /^\*\*plateau_threshold:/ { gsub(/ /,"",$2); printf "plateau_threshold='\''%s'\''\n", $2 }
+  ' "$m")"
   K_req="${K_req:-1}"
   plateau_window="${plateau_window:-5}"
   plateau_threshold="${plateau_threshold:-0.01}"
