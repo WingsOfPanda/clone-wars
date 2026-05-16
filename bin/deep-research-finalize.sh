@@ -24,8 +24,7 @@ source "$PLUGIN_ROOT/lib/deep-research.sh"
 TOPIC="$1"
 cw_consult_assert_topic "$TOPIC"
 
-REPO_HASH=$(cw_repo_hash)
-TD="$(cw_state_root)/state/$REPO_HASH/$TOPIC"
+TD="$(cw_topic_state_dir "$TOPIC")"
 ART="$TD/_deep-research"
 [[ -d "$ART" ]] || { log_error "finalize: art-dir missing: $ART"; exit 1; }
 
