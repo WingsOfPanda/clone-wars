@@ -61,6 +61,13 @@ opencode:
   # bootstrap_sleep_s: matches tracer scaffold; conservative initial value.
   bootstrap_sleep_s: 15
   identity_injection: send-keys-paste
+  # v0.35.0: DeepSeek V4 Pro is wall-clock slower than codex/claude; multiply
+  # per-kind consult timeouts by this factor before the liveness probe kicks in.
+  # Closes the false-FS=timeout symptom hit during /clone-wars:consult when
+  # wolffe recorded timeout while findings.md was 18 KB and the pane was
+  # visibly working. See docs/superpowers/specs/2026-05-16-v0.35.0-trooper-
+  # liveness-design.md for the full design.
+  timeout_multiplier: 2.5
 
 consult:
   research_timeout_s: 600   # 10 min
