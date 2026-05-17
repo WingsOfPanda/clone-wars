@@ -27,13 +27,14 @@ below for the closed-set boundary.
 
 ## Current focus
 
-- **Most recent merge:** v0.41.0 (simplification sweep — 6 mechanical
-  refactor lanes removing ~30 LOC; zero behavioral change except
-  meditate-assert's strict-monotonic validate-add).
-- **Next priority:** strict-dogfood passes for v0.31.0 through v0.40.0
-  (release-gate items tracked in `docs/CHANGELOG.md`); v0.40.0 highest
-  priority because it validates parallel-session non-interference on a
-  real machine.
+- **Most recent merge:** v0.42.0 (deploy git-repo discipline — stay on
+  current branch, pre-deploy WIP snapshot + post-deploy sweep per target
+  repo, per-repo summary block at Step 4; opt-in feat/deploy-<topic>
+  sandbox via `--branch`).
+- **Next priority:** strict-dogfood passes for v0.31.0 through v0.42.0
+  (release-gate items tracked in `docs/CHANGELOG.md`); v0.42.0 highest
+  priority because the default behavior shift needs real-machine
+  validation on both single-repo and hub-mode deploys.
 - **No code freeze.** Feature work in flight should still go through the
   brainstorm → spec → plan → PR loop per `docs/superpowers/`.
 

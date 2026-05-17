@@ -1143,37 +1143,6 @@ After all bugs resolved (or given up on), set task `3d` → `completed`.
 
 Set task `4` → `in_progress`.
 
-**Sub-step 4.0 — Pre-deploy stash unwind (v0.30.0 item 3).**
-
-If a `pre-deploy-stash.txt` exists from Step 0's intercept, attempt to
-restore the stashed WIP onto the user's working tree:
-
-```
-source "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
-RUN_DIR=$(cw_run_dir_last)
-TARGET_CWD=$(cat "$ART_DIR/target_cwd.txt")
-if [[ -f "$ART_DIR/pre-deploy-stash.txt" ]]; then
-  STASH_SHA=$(awk -F= '/^sha=/{print $2; exit}' "$ART_DIR/pre-deploy-stash.txt")
-  if [[ -n "$STASH_SHA" ]]; then
-    if git -C "$TARGET_CWD" stash pop "$STASH_SHA" 2>"$RUN_DIR/stashpop-err"; then
-      log_ok "popped pre-deploy stash $STASH_SHA back onto working tree"
-      printf 'status=popped\nsha=%s\n' "$STASH_SHA" \
-        | cw_atomic_write "$ART_DIR/post-deploy-stash-pop.txt"
-    else
-      log_warn "stash pop conflict; stash $STASH_SHA preserved for manual recovery"
-      log_warn "  recovery: cd $TARGET_CWD && git stash apply $STASH_SHA"
-      log_warn "  conflict detail in $RUN_DIR/stashpop-err"
-      printf 'status=conflict\nsha=%s\n' "$STASH_SHA" \
-        | cw_atomic_write "$ART_DIR/post-deploy-stash-pop.txt"
-    fi
-  fi
-fi
-
-# Note: pre-deploy-commit.txt has no special unwind — the WIP commit lives
-# on the feature branch alongside deploy work. User can `git rebase -i`
-# post-merge.
-```
-
 **Sub-step 4.1 — Verify sibling baseline (v0.30.0 item 2).**
 
 Re-read each sibling's HEAD vs the baseline captured in Step 0.
