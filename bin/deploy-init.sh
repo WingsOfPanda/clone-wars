@@ -118,7 +118,11 @@ printf '%s\n' "$TARGET_CWD" | cw_atomic_write "$ART_DIR/target_cwd.txt" \
 # Branch — runs in TARGET_CWD so the branch lands in the sub-repo. Subshell
 # `cd` is fine because branch-create is a one-shot git operation, not a
 # long-lived process; the conductor never inherits the cd.
-if (( NO_BRANCH == 0 )); then
+#
+# v0.42.0: default is "stay on current branch" — the auto-branch path only
+# fires when --branch is explicitly passed (BRANCH_OVERRIDE non-empty). The
+# --no-branch flag remains a no-op back-compat surface.
+if (( NO_BRANCH == 0 )) && [[ -n "$BRANCH_OVERRIDE" ]]; then
   branch=$( cd "$TARGET_CWD" && cw_deploy_branch_create "$TOPIC" "$BRANCH_OVERRIDE" )
   branch_rc=$?
   if (( branch_rc == 0 )); then

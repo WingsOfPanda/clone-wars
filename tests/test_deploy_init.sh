@@ -36,8 +36,9 @@ Unit tests.
 MD
 ( cd "$REPO" && git add . && git commit --quiet -m "spec: foo-bar" )
 
-# 1. Happy path — derives slug, creates _deploy/, copies design.md, creates branch.
-( cd "$REPO" && bash "$BIN" "$DDOC" ) > "$TMP/topic.txt" 2>"$TMP/err.log"
+# 1. Happy path with explicit --branch — creates feat/deploy-<topic> in opt-in mode.
+# v0.42.0: default is "stay on current branch"; --branch is required to opt into auto-branch.
+( cd "$REPO" && bash "$BIN" --branch feat/deploy-foo-bar "$DDOC" ) > "$TMP/topic.txt" 2>"$TMP/err.log"
 TOPIC=$(cat "$TMP/topic.txt" | tr -d '\r\n')
 assert_eq "$TOPIC" "foo-bar" "init prints derived slug"
 RH=$(bash -c "cd $REPO && source $LIB_STATE && cw_repo_hash")
@@ -46,8 +47,8 @@ assert_file_exists "$ART/design.md" "design.md copied into _deploy/"
 assert_file_exists "$ART/topic.txt" "topic.txt written"
 got=$(cat "$ART/topic.txt"); assert_eq "$got" "foo-bar" "topic.txt content"
 got=$( cd "$REPO" && git rev-parse --abbrev-ref HEAD )
-assert_eq "$got" "feat/deploy-foo-bar" "branch created"
-pass "init happy path"
+assert_eq "$got" "feat/deploy-foo-bar" "branch created via --branch opt-in"
+pass "init happy path (--branch creates sandbox branch)"
 
 # 2. --no-branch skips branch creation.
 ( cd "$REPO" && git checkout --quiet main && git branch -D feat/deploy-foo-bar >/dev/null )
@@ -91,14 +92,16 @@ echo "$out" | grep -q '\-\-topic requires a value' \
   || { echo "FAIL: --topic error msg missing: $out" >&2; exit 1; }
 pass "--topic requires a value"
 
-# 8. Branch-creation failure auto-rollbacks _deploy/.
-# Stage a dirty tree to make branch_create refuse, then confirm _deploy/ is gone after exit.
+# 8. Branch-creation failure auto-rollbacks _deploy/ (opt-in --branch mode only).
+# v0.42.0: dirty-tree rc=7 is gated behind --branch; default mode just stays on the
+# current branch (pre-snapshot ceremony handles WIP). Pass --branch to engage the
+# auto-rollback codepath.
 ( cd "$REPO" && git checkout --quiet main && echo dirt > scratch.txt )   # dirty tree
-( cd "$REPO" && bash "$BIN" --topic rollback-test "$DDOC" 2>"$TMP/rb.err" ) && rc=0 || rc=$?
-[[ "$rc" -ne 0 ]] || { echo "FAIL: dirty-tree should refuse" >&2; exit 1; }
+( cd "$REPO" && bash "$BIN" --topic rollback-test --branch feat/deploy-rollback-test "$DDOC" 2>"$TMP/rb.err" ) && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] || { echo "FAIL: dirty-tree should refuse under --branch" >&2; exit 1; }
 [[ ! -d "$CLONE_WARS_HOME/state/$RH/rollback-test/_deploy" ]] \
   || { echo "FAIL: _deploy/ not rolled back after branch failure" >&2; exit 1; }
-pass "branch failure auto-rollbacks _deploy/"
+pass "branch failure auto-rollbacks _deploy/ (--branch opt-in)"
 ( cd "$REPO" && rm -f scratch.txt )   # clean up the dirty marker
 
 # 9. auto_provider.txt: codex case (no .claude-plugin/plugin.json at repo root).
