@@ -171,6 +171,16 @@ When all three phases are done AND the test suite is green AND
 $verify_out exists with a VERDICT line, emit:
   {"event":"done","summary":"Round 1 complete","ts":"<iso>"}
 
+BRANCH DISCIPLINE (hard rule):
+- You are operating on the conductor's current branch in the target
+  repository. Do NOT run 'git checkout', 'git switch',
+  'git branch -m', or create new branches.
+- Commit per task with Conventional Commits prefixes on the current
+  branch (rule already stated above).
+- If your work genuinely needs a fresh branch, abort with
+  {"event":"error","reason":"branch-discipline: needed new branch"}
+  and let the conductor decide.
+
 END_OF_INSTRUCTION
 EOF
 }
@@ -230,6 +240,16 @@ After all issues are addressed AND the test suite is green:
 When done, emit:
   {"event":"done","summary":"Round $round complete","ts":"<iso>"}
 
+BRANCH DISCIPLINE (hard rule):
+- You are operating on the conductor's current branch in the target
+  repository. Do NOT run 'git checkout', 'git switch',
+  'git branch -m', or create new branches.
+- Commit per task with Conventional Commits prefixes on the current
+  branch (rule already stated above).
+- If your work genuinely needs a fresh branch, abort with
+  {"event":"error","reason":"branch-discipline: needed new branch"}
+  and let the conductor decide.
+
 END_OF_INSTRUCTION
 EOF
 }
@@ -272,6 +292,16 @@ Run the full superpowers ceremony for your sub-repo:
 Report status via outbox: emit {"event":"done"} when all tasks are
 complete and verified. Emit {"event":"error", "reason":"..."} on any
 unrecoverable failure.
+
+BRANCH DISCIPLINE (hard rule):
+- You are operating on the current branch in sub-repo "$slug".
+  Do NOT run 'git checkout', 'git switch', 'git branch -m', or
+  create new branches.
+- Commit per task with Conventional Commits prefixes on the current
+  branch.
+- If your work genuinely needs a fresh branch, abort with
+  {"event":"error","reason":"branch-discipline: needed new branch"}
+  and let the conductor decide.
 
 END_OF_INSTRUCTION
 EOF
