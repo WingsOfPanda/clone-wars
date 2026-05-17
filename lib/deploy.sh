@@ -399,3 +399,18 @@ cw_deploy_resolve_hub() {
   printf '%s\n' "$repo_root"
 }
 
+# cw_deploy_iter_targets <topic>
+# Single source of truth for "which repos does this deploy touch?".
+# Emits TSV `<slug>\t<cwd>` rows. Hub mode reads troopers.txt; single-repo
+# synthesizes one row with slug 'main' from target_cwd.txt.
+# rc=0 always; empty stdout if neither file exists.
+cw_deploy_iter_targets() {
+  local art
+  art="$(cw_deploy_art_dir "$1")"
+  if [[ -f "$art/troopers.txt" ]]; then
+    awk -F'\t' '{print $1"\t"$2}' "$art/troopers.txt"
+  elif [[ -f "$art/target_cwd.txt" ]]; then
+    printf 'main\t%s\n' "$(cat "$art/target_cwd.txt")"
+  fi
+}
+
