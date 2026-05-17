@@ -492,3 +492,101 @@ cw_deploy_pre_snapshot() {
   } | cw_atomic_write "$baseline"
 }
 
+# cw_deploy_post_sweep <baseline-file> <topic> <post-file>
+# Mirror of cw_deploy_pre_snapshot for the post-deploy phase. Reads
+# the baseline TSV to find target cwd; runs the sweep; writes the
+# post TSV.
+#
+# - Dirty tree (leftover trooper work): commit as
+#   "chore: post-deploy leftovers for <topic>", state=swept.
+# - Clean: no commit, state=no-leftovers.
+# - Hook-blocked: warn, state=sweep-failed, rc=0 (deploy still completes).
+# - branch_changed = (baseline.branch != current.branch), bool.
+# Always rc=0.
+cw_deploy_post_sweep() {
+  local baseline="$1" topic="$2" post="$3"
+  local cwd slug base_branch dirty state ts post_branch post_sha changed
+  cwd=$(grep -E '^cwd=' "$baseline" | head -1 | cut -d= -f2-)
+  slug=$(grep -E '^slug=' "$baseline" | head -1 | cut -d= -f2-)
+  base_branch=$(grep -E '^branch=' "$baseline" | head -1 | cut -d= -f2-)
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  post_branch=$(git -C "$cwd" symbolic-ref --short HEAD 2>/dev/null) || post_branch="(detached)"
+  dirty=$(git -C "$cwd" status --porcelain)
+  if [[ -z "$dirty" ]]; then
+    state=no-leftovers
+  else
+    if git -C "$cwd" add -A \
+        && git -C "$cwd" commit -m "chore: post-deploy leftovers for $topic" -q; then
+      state=swept
+    else
+      log_warn "post_sweep: commit hook blocked sweep in $cwd"
+      state=sweep-failed
+    fi
+  fi
+  post_sha=$(git -C "$cwd" rev-parse HEAD 2>/dev/null) || post_sha=""
+  if [[ "$base_branch" == "$post_branch" ]]; then
+    changed=false
+  else
+    changed=true
+  fi
+  {
+    printf 'slug=%s\n'           "$slug"
+    printf 'cwd=%s\n'            "$cwd"
+    printf 'branch=%s\n'         "$post_branch"
+    printf 'post_sha=%s\n'       "$post_sha"
+    printf 'state=%s\n'          "$state"
+    printf 'branch_changed=%s\n' "$changed"
+    printf 'sweep_ts=%s\n'       "$ts"
+  } | cw_atomic_write "$post"
+}
+
+# cw_deploy_format_summary_block <baseline-file> <post-file>
+# Pure formatter — reads baseline + post TSVs and prints one per-repo
+# block to stdout. No git calls inside (input-driven for unit-testability).
+# Always rc=0.
+cw_deploy_format_summary_block() {
+  local baseline="$1" post="$2"
+  local slug cwd base_branch baseline_sha base_state post_branch post_sha post_state changed
+  slug=$(grep -E '^slug=' "$baseline"           | head -1 | cut -d= -f2-)
+  cwd=$(grep -E '^cwd=' "$baseline"             | head -1 | cut -d= -f2-)
+  base_branch=$(grep -E '^branch=' "$baseline"  | head -1 | cut -d= -f2-)
+  baseline_sha=$(grep -E '^baseline_sha=' "$baseline" | head -1 | cut -d= -f2-)
+  base_state=$(grep -E '^state=' "$baseline"    | head -1 | cut -d= -f2-)
+  post_branch=$(grep -E '^branch=' "$post"      | head -1 | cut -d= -f2-)
+  post_sha=$(grep -E '^post_sha=' "$post"       | head -1 | cut -d= -f2-)
+  post_state=$(grep -E '^state=' "$post"        | head -1 | cut -d= -f2-)
+  changed=$(grep -E '^branch_changed=' "$post"  | head -1 | cut -d= -f2-)
+
+  printf '═══ %s [%s] ═══\n' "$slug" "$cwd"
+  if [[ "$changed" == "true" ]]; then
+    printf '  [WARNING: branch changed from %s to %s]\n' "$base_branch" "$post_branch"
+  fi
+  if [[ "$base_state" == "hook-blocked" ]]; then
+    printf '  [WARNING: pre-deploy snapshot hook-blocked; baseline = pre-attempt HEAD]\n'
+  fi
+  if [[ "$post_state" == "sweep-failed" ]]; then
+    printf '  [WARNING: post-deploy sweep hook-blocked; leftovers remain in working tree]\n'
+  fi
+  if [[ "$base_branch" == "(detached)" ]]; then
+    printf '  [WARNING: baseline branch detached]\n'
+  fi
+  printf '  branch:     %s\n' "$post_branch"
+  printf '  baseline:   %s   %s   (%s)\n' "$baseline_sha" "$base_branch" "$base_state"
+  printf '  HEAD:       %s   %s\n' "$post_sha" "$post_branch"
+  local stat
+  stat=$(git -C "$cwd" diff --shortstat "$baseline_sha..HEAD" 2>/dev/null | sed -E 's/^[[:space:]]+//')
+  if [[ -n "$stat" ]]; then
+    printf '  diff stat:  %s\n' "$stat"
+  else
+    printf '  diff stat:  (no changes since baseline)\n'
+  fi
+  printf '  commits (oldest → newest):\n'
+  local commits
+  commits=$(git -C "$cwd" log --reverse --oneline "$baseline_sha..HEAD" 2>/dev/null)
+  if [[ -n "$commits" ]]; then
+    printf '%s\n' "$commits" | sed -E 's/^/    /'
+  else
+    printf '    (no commits since baseline)\n'
+  fi
+}
+

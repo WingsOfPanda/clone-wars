@@ -12,17 +12,18 @@ source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/deploy.sh"
 
 SANDBOX=$(mktemp -d)
-trap 'rm -rf "$SANDBOX"' EXIT
+STATE_DIR=$(mktemp -d)   # outside the repo so baseline/post are invisible to git status (mirrors production .clone-wars/ gitignore)
+trap 'rm -rf "$SANDBOX" "$STATE_DIR"' EXIT
 cd "$SANDBOX"
 git init -q
 git config user.email t@t; git config user.name T
 echo c > seed.txt; git add seed.txt; git commit -qm seed
 PRE_SHA=$(git rev-parse HEAD)
 
-BASELINE="$SANDBOX/baseline.tsv"
+BASELINE="$STATE_DIR/baseline.tsv"
 cw_deploy_pre_snapshot "$SANDBOX" demo-topic main "$BASELINE"
 
-POST="$SANDBOX/post.tsv"
+POST="$STATE_DIR/post.tsv"
 cw_deploy_post_sweep "$BASELINE" demo-topic "$POST"
 assert_file_exists "$POST"
 grep -qE '^state=no-leftovers$' "$POST" || { echo "FAIL: state not 'no-leftovers'" >&2; cat "$POST" >&2; exit 1; }
