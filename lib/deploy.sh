@@ -414,3 +414,51 @@ cw_deploy_iter_targets() {
   fi
 }
 
+# cw_deploy_pre_snapshot <target-cwd> <topic> <slug> <baseline-file>
+# Pre-deploy ceremony for one target. Writes a TSV baseline file the
+# post-deploy phase reads later.
+#
+# - Dirty tree (modified OR untracked): commits as
+#   "chore: WIP before deploy <topic>", baseline.sha = new HEAD,
+#   state=wip-committed.
+# - Clean tree: no commit, baseline.sha = current HEAD, state=clean.
+# - Pre-commit hook blocks the WIP commit: warn, baseline.sha =
+#   pre-attempt HEAD, state=hook-blocked, rc=0 (proceed).
+# - Detached HEAD: branch field literal "(detached)"; ceremony still
+#   runs.
+# - Not a git repo: log error, rc=2 (abort entire deploy).
+cw_deploy_pre_snapshot() {
+  local cwd="$1" topic="$2" slug="$3" baseline="$4"
+  local branch pre_sha new_sha state ts dirty
+  if ! git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1; then
+    log_error "pre_snapshot: not a git repository: $cwd"
+    return 2
+  fi
+  branch=$(git -C "$cwd" symbolic-ref --short HEAD 2>/dev/null) || branch="(detached)"
+  pre_sha=$(git -C "$cwd" rev-parse HEAD 2>/dev/null) || pre_sha=""
+  dirty=$(git -C "$cwd" status --porcelain)
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  if [[ -z "$dirty" ]]; then
+    state=clean
+    new_sha="$pre_sha"
+  else
+    if git -C "$cwd" add -A \
+        && git -C "$cwd" commit -m "chore: WIP before deploy $topic" -q; then
+      state=wip-committed
+      new_sha=$(git -C "$cwd" rev-parse HEAD)
+    else
+      log_warn "pre_snapshot: commit hook blocked WIP commit in $cwd; baseline = pre-attempt HEAD"
+      state=hook-blocked
+      new_sha="$pre_sha"
+    fi
+  fi
+  {
+    printf 'slug=%s\n'         "$slug"
+    printf 'cwd=%s\n'          "$cwd"
+    printf 'branch=%s\n'       "$branch"
+    printf 'baseline_sha=%s\n' "$new_sha"
+    printf 'state=%s\n'        "$state"
+    printf 'snapshot_ts=%s\n'  "$ts"
+  } | cw_atomic_write "$baseline"
+}
+
