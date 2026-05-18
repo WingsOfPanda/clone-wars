@@ -7,6 +7,85 @@ a design trail.
 
 ---
 
+## v0.43.0 — 2026-05-18 — deep-research improvements bundle
+
+**Eight quality-of-life closes** for `/clone-wars:deep-research`
+distilled from the 2026-05-17 dogfood retrospective. Items 4 (GPU
+scheduling) and 5 (inter-trooper visibility) deferred; #5 prioritized
+next.
+
+### Lanes
+
+- **A — finalize re-renders session-summary on halt.**
+  `bin/deep-research-finalize.sh` now calls
+  `cw_deep_research_render_summary` unconditionally before appending
+  the `## Halt` section. Previously the summary was only rebuilt when
+  absent, leaving stale Yoda-written Status rows in archived runs.
+- **B — shared/ orphan sweep + winner symlink in teardown.**
+  `bin/deep-research-teardown.sh` sweeps `shared/*.tmp` + `shared/*.lock`
+  before the archive `mv`, and creates a relative
+  `_deep-research/winner -> troopers/<cmdr>/experiments/<exp-id>/code`
+  symlink when scoreboard.md has at least one ok row. The landscape
+  doc's "Suggested next" command line shortens from ~300 to ~50 chars.
+- **C — optional `--smoke-test <script>` pre-flight in experiment-send.**
+  When passed, the script runs in the trooper's `experiments/<exp-id>/code/`
+  dir with `CW_SMOKE_TEST=1` set, before any state mutation. Non-zero
+  exit aborts dispatch with rc=2 and captures stderr to `smoke-test.err`
+  (only persisted on failure). Timeout: 60s (hard-kill via
+  `timeout -k 1`). Omission preserves byte-equal v0.42.0 behavior.
+- **D — formal `phase=abandoned` lane-abandon signal.** New helper
+  `cw_deep_research_lane_abandon` transitions a trooper. `resume.md`
+  Step 5 abandon-decision: ≥ 3 completed experiments AND last 3 all
+  sub-floor AND ≥ 5×plateau_threshold behind the leader. Surfaces in
+  session-summary's Status table as `phase=abandoned`.
+- **E — halt.flag structured `key=value` format + Item 9 directive note.**
+  All three writers (abort.sh, resume.md Step 6, future synthesis-time
+  Yoda-halt) emit `halted_by=` + `halted_at=` + `reason=` lines plus
+  optional Yoda-side keys (`target_met`, `floor_met`, `k_so_far`, …).
+  Readers awk-parse and tolerate legacy free-form prose. Phase 4
+  prose gains a v0.43.0 clarification: per-experiment context belongs
+  in `prompt.md` via `--context-file`, not in a separately-written
+  `<cmdr>/exp-NNN-context.md`.
+
+### Tests added
+
+- 14 new unit/integration tests across the 5 lanes.
+- 1 permanent directive lint (halt.flag spec + Item 9 note).
+- 1 version-stamped static-wiring lock
+  (`tests/test_v0_43_0_static_wiring.sh`, 9 invariants).
+
+### Migration (back-compat preserved)
+
+- `halt.flag` readers tolerate both new structured format and legacy
+  free-form prose from pre-v0.43.0 archives. No data migration.
+- `--smoke-test` is opt-in. Omitting it preserves v0.42.0 dispatch
+  byte-equal behavior.
+- `phase=abandoned` is a new sentinel value; existing state.txt files
+  have no `phase=abandoned`, so the default dispatch flow is unchanged.
+- One pre-existing test (`test_deep_research_abort.sh`) migrated to
+  assert the new halt.flag key=value shape.
+
+### Out of scope (explicit)
+
+GPU resource scheduling (Item 4); inter-trooper visibility (Item 5,
+next priority); reversible lane-abandon (manual edit only);
+trooper-prompt-side smoke-test (chose skill-side flag);
+multi-winner symlinks (one symlink, top-1 only); JSON halt.flag
+format (chose key=value for awk parse simplicity).
+
+### Dogfood gate (release-gate)
+
+- [ ] Run /clone-wars:deep-research on a real topic to confirm winner
+  symlink resolves correctly post-archive.
+- [ ] Configure a trooper with a deliberately-failing smoke-test script;
+  confirm dispatch refuses with rc=2 and `smoke-test.err` is captured.
+- [ ] Trigger an abandon-lane scenario (≥ 3 sub-floor runs); confirm
+  resume.md Step 5 writes phase=abandoned and stops dispatching.
+- [ ] Confirm session-summary.md after halt reflects final per-trooper
+  state (no stale `working exp-NNN` rows).
+
+---
+
 ## v0.42.0 — 2026-05-17 — deploy git-repo discipline
 
 **Rule.** `/clone-wars:deploy` now operates on the conductor's current

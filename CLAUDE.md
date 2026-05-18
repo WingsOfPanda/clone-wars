@@ -27,16 +27,16 @@ below for the closed-set boundary.
 
 ## Current focus
 
-- **Most recent merge:** v0.42.0 (deploy git-repo discipline — stay on
-  current branch, pre-deploy WIP snapshot + post-deploy sweep per target
-  repo, per-repo summary block at Step 4; opt-in feat/deploy-<topic>
-  sandbox via `--branch`).
-- **Next priority:** strict-dogfood passes for v0.31.0 through v0.42.0
-  (release-gate items tracked in `docs/CHANGELOG.md`); v0.42.0 highest
-  priority because the default behavior shift needs real-machine
-  validation on both single-repo and hub-mode deploys.
-- **No code freeze.** Feature work in flight should still go through the
-  brainstorm → spec → plan → PR loop per `docs/superpowers/`.
+- **Most recent merge:** v0.43.0 (deep-research improvements bundle —
+  re-render session-summary on halt, sweep shared/ orphans, winner
+  symlink, optional `--smoke-test` pre-flight, formal `phase=abandoned`
+  lane-abandon, halt.flag structured key=value format).
+- **Next priority:** inter-trooper visibility (Item 5 from the
+  2026-05-17 retrospective) — planned next-major per
+  [[project_inter_trooper_messaging]]; GPU resource scheduling (Item 4)
+  also pending but secondary.
+- **No code freeze.** Feature work in flight should still go through
+  the brainstorm → spec → plan → PR loop per `docs/superpowers/`.
 
 ## Repository layout
 
