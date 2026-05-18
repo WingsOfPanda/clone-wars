@@ -54,9 +54,12 @@ ARCHIVE_BASE="$CLONE_WARS_HOME/archive/$REPO_HASH"
 archived_dir=$(ls -d "$ARCHIVE_BASE/${TOPIC}-"* 2>/dev/null | head -1)
 [[ -n "$archived_dir" ]] || { echo "FAIL: archive dir not created under $ARCHIVE_BASE/" >&2; ls -laR "$ARCHIVE_BASE/" 2>/dev/null >&2; exit 1; }
 assert_file_exists "$archived_dir/_deep-research/halt.flag" "halt.flag preserved in archive"
-grep -q 'user-aborted via bin/deep-research-abort.sh' "$archived_dir/_deep-research/halt.flag" \
-  || { echo "FAIL: halt.flag body missing expected marker:" >&2; cat "$archived_dir/_deep-research/halt.flag" >&2; exit 1; }
-grep -q 'reason=test reason' "$archived_dir/_deep-research/halt.flag" \
+# v0.43.0 Lane E: halt.flag is structured key=value (was prose "user-aborted via bin/deep-research-abort.sh at <ts>").
+grep -qE '^halted_by=user$' "$archived_dir/_deep-research/halt.flag" \
+  || { echo "FAIL: halt.flag missing halted_by=user:" >&2; cat "$archived_dir/_deep-research/halt.flag" >&2; exit 1; }
+grep -qE '^halted_at=20[0-9]{2}-' "$archived_dir/_deep-research/halt.flag" \
+  || { echo "FAIL: halt.flag missing halted_at=<ISO>:" >&2; cat "$archived_dir/_deep-research/halt.flag" >&2; exit 1; }
+grep -q '^reason=test reason' "$archived_dir/_deep-research/halt.flag" \
   || { echo "FAIL: halt.flag body missing reason text:" >&2; cat "$archived_dir/_deep-research/halt.flag" >&2; exit 1; }
 pass "1. happy path: halt.flag + archive + reason recorded"
 
