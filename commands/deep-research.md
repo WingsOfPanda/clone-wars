@@ -42,12 +42,13 @@ absent from `providers-available.txt`. Medic active-set is IGNORED
 
 Spec: `docs/superpowers/specs/2026-05-12-v0.27.0-deep-research-advisor-rewrite-design.md`.
 
-## Task list (TaskCreate × 8 BEFORE Phase 0)
+## Task list (TaskCreate × 9 BEFORE Phase 0)
 
 | # | subject | activeForm |
 |---|---|---|
 | 0 | 0 Args + init (no budget flags) [yoda]            | Staging args |
 | 1 | 1 Metric discussion [yoda + user]                 | Discussing metric |
+| 1.5 | 1.5 SOTA sweep [yoda]                           | Sweeping SOTA |
 | 2 | 2 Preflight (roster + time limit) [yoda + user]   | Picking roster + time limit |
 | 3 | 3 Spawn roster (parallel) [yoda]                  | Spawning troopers |
 | 4 | 4 Research loop (advisor-driven) [yoda]           | Running research loop |
@@ -261,6 +262,90 @@ header for details.
    - `Cancel` → archive topic via teardown.sh, exit directive.
 
 Set task `1` → `completed`.
+
+### Phase 1.5 — SOTA sweep
+
+Set task `1.5` → `in_progress`.
+
+One round of dual-search to seed a shared SOTA reference for the
+session. Always runs (cost is ~30-90s wall-clock + 4 web calls); no
+skip flag. Write-once at this phase; do not mutate `sota.md` after
+this step (mid-session refresh deferred to v0.45.0 candidate).
+
+#### Security note
+
+Web access in this phase relies on:
+- Yoda's `WebSearch` + `mcp__tavily__tavily-search` tool availability
+  (Claude Code default in 2026).
+- Trooper-side net access, permitted-by-default since v0.27.0
+  (sandboxing is honor-system; not enforced).
+
+If you need hard-block, do it at OS/firewall/network-namespace level
+before invoking `/clone-wars:deep-research`. The skill does not expose
+an opt-out flag.
+
+1. Read the locked metric to seed search terms:
+
+   ```bash
+   source ${CLAUDE_PLUGIN_ROOT}/lib/log.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
+   ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
+   DEEP_TOPIC=$(cat /tmp/cw-deep-research-topic.txt)
+   TOPIC_TEXT=$(cat "$ART_DIR/topic.txt")
+   PRIMARY_METRIC=$(grep -E '^\*\*Primary metric:' "$ART_DIR/metric.md" | sed -E 's/.*: //')
+   HARD_CONSTRAINT=$(grep -E '^\*\*Hard constraints:' "$ART_DIR/metric.md" | sed -E 's/.*: //' || true)
+   echo "PRIMARY_METRIC=$PRIMARY_METRIC"
+   echo "HARD_CONSTRAINT=$HARD_CONSTRAINT"
+   ```
+
+2. Fire dual-search in **one tool-call message** (4 calls parallel):
+   - `WebSearch`: `SOTA <PRIMARY_METRIC> <TOPIC_TEXT>`
+   - `WebSearch`: `<TOPIC_TEXT> under <HARD_CONSTRAINT>` (skip if no
+     hard_constraint in metric.md)
+   - `mcp__tavily__tavily-search`: `SOTA <PRIMARY_METRIC> <TOPIC_TEXT>`
+   - `mcp__tavily__tavily-search`: `<TOPIC_TEXT> under <HARD_CONSTRAINT>`
+     (skip if no hard_constraint)
+
+3. Merge result sets per the global dual-search rule:
+   - Dedupe by URL.
+   - On overlapping hits, prefer Tavily's longer paragraph-level
+     snippet.
+   - Surface unique results from each engine.
+
+4. Curate **≤7 most relevant references** — variety over completeness;
+   prefer one row per approach family (CNN, transformer, kernel
+   method, etc.). If the merged set is smaller, write fewer rows;
+   if it has nothing usable, write zero rows and let the helper emit
+   the empty-table fallback.
+
+5. Write `sota.md` via the helper (atomic tmp + mv):
+
+   ```bash
+   source ${CLAUDE_PLUGIN_ROOT}/lib/log.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/state.sh
+   source ${CLAUDE_PLUGIN_ROOT}/lib/deep-research.sh
+   ART_DIR=$(cat /tmp/cw-deep-research-art-dir.txt)
+   SWEEP_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+   TOPIC_TEXT=$(cat "$ART_DIR/topic.txt")
+   PRIMARY_METRIC=$(grep -E '^\*\*Primary metric:' "$ART_DIR/metric.md" | sed -E 's/.*: //')
+   cw_deep_research_format_sota_block <<EOF > "$ART_DIR/sota.md.tmp"
+   topic=$TOPIC_TEXT
+   metric=$PRIMARY_METRIC
+   sweep_date=$SWEEP_DATE
+   queries=<comma-separated list of queries you actually fired>
+   ref_1=<family>|<result>|<fits or over by N>|<URL>|<one-line notes>
+   ref_2=...
+   EOF
+   mv "$ART_DIR/sota.md.tmp" "$ART_DIR/sota.md"
+   cat "$ART_DIR/sota.md"
+   ```
+
+   Substitute real ref_N rows from the curated dual-search results. If
+   zero usable references emerged, omit all ref_N lines — the helper
+   emits the empty-table fallback note saying trooper-side web search
+   remains available.
+
+Set task `1.5` → `completed`.
 
 ### Phase 2 — Preflight (roster + time limit)
 
@@ -539,6 +624,15 @@ The skill writes `prompt.md` from the experiment template with
 `{{TASK_CONTEXT}}` interpolated; a separately-authored
 `exp-NNN-context.md` drifts from the actual dispatch payload and
 causes confusion at archive time.
+
+**SOTA reference inlined into every prompt.md (v0.44.0):**
+When `$ART_DIR/sota.md` exists (written once at Phase 1.5),
+`bin/deep-research-experiment-send.sh` inlines its contents into the
+dispatched `prompt.md` under a `## Reference: SOTA` section followed
+by a "Web search affordance" two-liner authorizing curl/pip/arXiv
+lookups when the trooper hits a plateau or before scale-up. When
+sota.md is absent (legacy session, manual test harness, etc.) the
+section is omitted entirely — back-compat preserved.
 
 #### 4.a — Initial entry (this turn only)
 
