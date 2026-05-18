@@ -142,7 +142,11 @@ If this turn was triggered by a user message (not solely a notification):
 
 - **Halt intent** ("stop", "halt", "we're done", "end research", "call it"):
   ```bash
-  echo "user-halted at $(date -u +%H:%M:%SZ)" > "$ART_DIR/halt.flag"
+  {
+    printf 'halted_by=user\n'
+    printf 'halted_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf 'reason=%s\n' "user-halted via slash directive"
+  } > "$ART_DIR/halt.flag"
   ```
   Jump to Step 2.
 - **Direction-change intent** ("focus on Y for rex", "stop exploring X"):
