@@ -569,6 +569,19 @@ trooper's prompt via the `{{TASK_CONTEXT}}` placeholder.
 
    (init.sh has already touched `active-${CLAUDE_CODE_SESSION_ID}.txt` at the art-dir root.)
 
+   **Trooper `phase` values** (set in `state.txt`):
+   - `idle` — between experiments; eligible for dispatch via Step 5.
+   - `working` — currently executing an experiment.
+   - `stale` / `stuck` — Monitor probe escalation (no outbox events past threshold).
+   - `blocked` — trooper emitted a `question` event; awaiting user direction.
+   - `failed` — run errored; manual recovery required.
+   - `complete` / `incomplete` — terminal states set by `finalize.sh`.
+   - `abandoned` (v0.43.0) — Yoda retired the lane via
+     `cw_deep_research_lane_abandon`; criteria documented in
+     `commands/deep-research-resume.md` Step 5. Reason recorded in
+     `lane_abandon_reason`. Dispatch refuses (`bin/deep-research-experiment-send.sh`
+     exits rc=2).
+
 2. **Start one Monitor task per commander.** Each watches its trooper's outbox
    for `done/error/question/heartbeat` events AND fires `stale/stuck` events
    when outbox mtime exceeds `CW_DEEP_RESEARCH_PROBE_S` / `_STUCK_S` thresholds.

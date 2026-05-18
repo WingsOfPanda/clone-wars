@@ -96,6 +96,33 @@ If decision = stop, touch halt.flag with reason text, jump to Step 2.
 
 For each trooper where `phase=idle` AND halt.flag absent:
 
+**v0.43.0 Lane D — Abandon-lane decision (run first per trooper):**
+
+Before dispatching, check whether this trooper's lane should be abandoned.
+ALL three criteria must hold:
+
+1. Trooper has ≥ 3 completed experiments (count `status=ok` rows for this
+   commander in `$ART_DIR/scoreboard.md`).
+2. None of this trooper's **last 3** experiments scored ≥
+   `min_acceptable` (from `metric.md`).
+3. Trooper's best metric is ≥ **5 × `plateau_threshold`** BELOW the
+   current overall leader's metric.
+
+When all three hold, transition the trooper and skip dispatch:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/deep-research.sh"
+cw_deep_research_lane_abandon "$ART_DIR" "<cmdr>" "<short reason>"
+```
+
+The helper writes `phase=abandoned` + `lane_abandon_reason` +
+`lane_abandon_ts` to `troopers/<cmdr>/state.txt`. The outer
+`phase=idle` filter excludes the trooper from future dispatch rounds
+automatically. Surface the abandonment in chat ("rex lane retired:
+…") so the user sees it.
+
+**Dispatch (when NOT abandoning):**
+
 1. Compose a 1-2 sentence direction (~50 tokens max) informed by:
    - `$ART_DIR/session-summary.md` (Recent decisions, Current direction)
    - `$ART_DIR/scoreboard.md` recent rows

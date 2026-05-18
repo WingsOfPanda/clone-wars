@@ -93,6 +93,10 @@ STATE_FILE="$ART_DIR/troopers/$COMMANDER/state.txt"
 [[ -f "$STATE_FILE" ]] \
   || { log_error "trooper state.txt missing: $STATE_FILE (directive Phase 4.a must run before first dispatch)"; exit 1; }
 cur_phase=$(cw_deep_research_trooper_state_field "$ART_DIR" "$COMMANDER" phase)
+if [[ "$cur_phase" == "abandoned" ]]; then
+  log_error "trooper $COMMANDER lane is abandoned; not dispatching (see lane_abandon_reason in state.txt)"
+  exit 2
+fi
 [[ "$cur_phase" == "idle" ]] \
   || { log_error "trooper $COMMANDER not idle (phase=$cur_phase) — wait for completion or finalize first."; exit 1; }
 
