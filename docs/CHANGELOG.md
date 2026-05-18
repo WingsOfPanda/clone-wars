@@ -7,6 +7,81 @@ a design trail.
 
 ---
 
+## v0.42.0 — 2026-05-17 — deploy git-repo discipline
+
+**Rule.** `/clone-wars:deploy` now operates on the conductor's current
+branch in every affected repo (single-repo and hub mode). The auto-branch
+`feat/deploy-<topic>` becomes opt-in via `--branch [name]`. Pre-deploy
+WIP is committed automatically; post-deploy leftovers are swept;
+per-repo summary blocks land in chat at Step 4 before archive.
+
+### New surface
+
+- **`lib/deploy.sh`**: 4 new helpers — `cw_deploy_iter_targets`,
+  `cw_deploy_pre_snapshot`, `cw_deploy_post_sweep`,
+  `cw_deploy_format_summary_block`.
+- **`bin/deploy-pre-snapshot.sh`**: walks `cw_deploy_iter_targets <topic>`,
+  writes per-target baselines under `$ART_DIR/baselines/<slug>.tsv`.
+- **`bin/deploy-summary.sh`**: walks targets, sweeps leftovers
+  (`$ART_DIR/posts/<slug>.tsv`), prints one summary block per target.
+- **BRANCH DISCIPLINE stanza** appended to all 3 deploy prompt builders
+  (round1, fix, dag-unit) — instruction-level trooper enforcement.
+- **`tests/test_deploy_branch_pin_lint.sh`**: permanent lint guarding
+  stanza presence.
+
+### Default behavior shift (migration)
+
+- `/clone-wars:deploy <doc>` no longer creates `feat/deploy-<topic>` by
+  default. Stays on current branch; commits pre-deploy WIP as
+  `chore: WIP before deploy <topic>`; runs trooper turns; sweeps
+  post-deploy leftovers as `chore: post-deploy leftovers for <topic>`;
+  prints per-repo summary block.
+- `/clone-wars:deploy --no-branch` becomes a no-op (kept for one
+  release for back-compat; may be removed in v0.43.0).
+- `/clone-wars:deploy --branch [name]` preserves the old sandbox-branch
+  flow; the snapshot/sweep ceremony still applies.
+- Old sub-step 5a (`Stash and continue` / `Commit first` /
+  `Abort` AskUserQuestion) removed. `pre-deploy-stash.txt` artifact
+  removed. Old `test_deploy_dirty_intercept_directive.sh` removed.
+- `bin/deploy-init.sh` rc=7 only fires when `--branch` is present.
+
+### Failure modes (warn + proceed, except not-a-repo)
+
+| Condition | Behavior |
+|---|---|
+| Pre-snapshot commit hook blocks | Warn, baseline.state=hook-blocked, proceed |
+| Pre-snapshot target not a git repo | Abort deploy (rc=2) |
+| Pre-snapshot detached HEAD | Warn, branch=`(detached)`, proceed |
+| Trooper switches branch | Detected; WARNING in summary; deploy completes |
+| Post-sweep hook blocks | Warn, post.state=sweep-failed, deploy completes |
+
+### Tests added
+
+- 13 new unit/integration tests (iter_targets, pre_snapshot×6,
+  post_sweep×3, format_summary_block, e2e single + hub).
+- 1 permanent lint (`test_deploy_branch_pin_lint.sh`).
+- 1 version-stamped static-wiring lock
+  (`test_v0_42_0_static_wiring.sh`, 8 invariants).
+
+### Dogfood gate (release-gate)
+
+- [ ] Single-repo deploy on a dirty branch completes with snapshot
+  + summary; no AskUserQuestion fires.
+- [ ] Hub-mode deploy (≥2 sub-repos) produces N summary blocks
+  back-to-back with correct per-repo branches and diffs.
+- [ ] `/clone-wars:deploy --branch sandbox <doc>` still creates
+  `sandbox` branch and applies snapshot/sweep.
+- [ ] User with a pre-commit hook sees WARNING in summary; deploy
+  still completes.
+
+### Out of scope (explicit)
+
+Stash mode; per-task summary granularity; atomic cross-repo rollback;
+summary persistence to file; auto-recovery from branch-pin violations;
+`--summary-file` flag.
+
+---
+
 ## v0.41.0 — 2026-05-16 — simplification sweep
 
 Six mechanical refactor lanes, ~30 LOC net removal, zero behavioral change

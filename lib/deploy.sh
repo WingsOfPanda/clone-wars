@@ -171,6 +171,16 @@ When all three phases are done AND the test suite is green AND
 $verify_out exists with a VERDICT line, emit:
   {"event":"done","summary":"Round 1 complete","ts":"<iso>"}
 
+BRANCH DISCIPLINE (hard rule):
+- You are operating on the conductor's current branch in the target
+  repository. Do NOT run 'git checkout', 'git switch',
+  'git branch -m', or create new branches.
+- Commit per task with Conventional Commits prefixes on the current
+  branch (rule already stated above).
+- If your work genuinely needs a fresh branch, abort with
+  {"event":"error","reason":"branch-discipline: needed new branch"}
+  and let the conductor decide.
+
 END_OF_INSTRUCTION
 EOF
 }
@@ -230,6 +240,16 @@ After all issues are addressed AND the test suite is green:
 When done, emit:
   {"event":"done","summary":"Round $round complete","ts":"<iso>"}
 
+BRANCH DISCIPLINE (hard rule):
+- You are operating on the conductor's current branch in the target
+  repository. Do NOT run 'git checkout', 'git switch',
+  'git branch -m', or create new branches.
+- Commit per task with Conventional Commits prefixes on the current
+  branch (rule already stated above).
+- If your work genuinely needs a fresh branch, abort with
+  {"event":"error","reason":"branch-discipline: needed new branch"}
+  and let the conductor decide.
+
 END_OF_INSTRUCTION
 EOF
 }
@@ -272,6 +292,16 @@ Run the full superpowers ceremony for your sub-repo:
 Report status via outbox: emit {"event":"done"} when all tasks are
 complete and verified. Emit {"event":"error", "reason":"..."} on any
 unrecoverable failure.
+
+BRANCH DISCIPLINE (hard rule):
+- You are operating on the current branch in sub-repo "$slug".
+  Do NOT run 'git checkout', 'git switch', 'git branch -m', or
+  create new branches.
+- Commit per task with Conventional Commits prefixes on the current
+  branch.
+- If your work genuinely needs a fresh branch, abort with
+  {"event":"error","reason":"branch-discipline: needed new branch"}
+  and let the conductor decide.
 
 END_OF_INSTRUCTION
 EOF
@@ -397,5 +427,166 @@ cw_deploy_resolve_hub() {
   [[ -n "$doc"       ]] || { log_error "cw_deploy_resolve_hub: missing design-doc-path arg"; return 2; }
   [[ -n "$repo_root" ]] || { log_error "cw_deploy_resolve_hub: missing repo-root arg"; return 2; }
   printf '%s\n' "$repo_root"
+}
+
+# cw_deploy_iter_targets <topic>
+# Single source of truth for "which repos does this deploy touch?".
+# Emits TSV `<slug>\t<cwd>` rows. Hub mode reads troopers.txt; single-repo
+# synthesizes one row with slug 'main' from target_cwd.txt.
+# rc=0 always; empty stdout if neither file exists.
+cw_deploy_iter_targets() {
+  local art
+  art="$(cw_deploy_art_dir "$1")"
+  if [[ -f "$art/troopers.txt" ]]; then
+    awk -F'\t' '{print $1"\t"$2}' "$art/troopers.txt"
+  elif [[ -f "$art/target_cwd.txt" ]]; then
+    printf 'main\t%s\n' "$(cat "$art/target_cwd.txt")"
+  fi
+}
+
+# cw_deploy_pre_snapshot <target-cwd> <topic> <slug> <baseline-file>
+# Pre-deploy ceremony for one target. Writes a TSV baseline file the
+# post-deploy phase reads later.
+#
+# - Dirty tree (modified OR untracked): commits as
+#   "chore: WIP before deploy <topic>", baseline.sha = new HEAD,
+#   state=wip-committed.
+# - Clean tree: no commit, baseline.sha = current HEAD, state=clean.
+# - Pre-commit hook blocks the WIP commit: warn, baseline.sha =
+#   pre-attempt HEAD, state=hook-blocked, rc=0 (proceed).
+# - Detached HEAD: branch field literal "(detached)"; ceremony still
+#   runs.
+# - Not a git repo: log error, rc=2 (abort entire deploy).
+cw_deploy_pre_snapshot() {
+  local cwd="$1" topic="$2" slug="$3" baseline="$4"
+  local branch pre_sha new_sha state ts dirty
+  if ! git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1; then
+    log_error "pre_snapshot: not a git repository: $cwd"
+    return 2
+  fi
+  branch=$(git -C "$cwd" symbolic-ref --short HEAD 2>/dev/null) || branch="(detached)"
+  pre_sha=$(git -C "$cwd" rev-parse HEAD 2>/dev/null) || pre_sha=""
+  dirty=$(git -C "$cwd" status --porcelain)
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  if [[ -z "$dirty" ]]; then
+    state=clean
+    new_sha="$pre_sha"
+  else
+    if git -C "$cwd" add -A \
+        && git -C "$cwd" commit -m "chore: WIP before deploy $topic" -q; then
+      state=wip-committed
+      new_sha=$(git -C "$cwd" rev-parse HEAD)
+    else
+      log_warn "pre_snapshot: commit hook blocked WIP commit in $cwd; baseline = pre-attempt HEAD"
+      state=hook-blocked
+      new_sha="$pre_sha"
+    fi
+  fi
+  {
+    printf 'slug=%s\n'         "$slug"
+    printf 'cwd=%s\n'          "$cwd"
+    printf 'branch=%s\n'       "$branch"
+    printf 'baseline_sha=%s\n' "$new_sha"
+    printf 'state=%s\n'        "$state"
+    printf 'snapshot_ts=%s\n'  "$ts"
+  } | cw_atomic_write "$baseline"
+}
+
+# cw_deploy_post_sweep <baseline-file> <topic> <post-file>
+# Mirror of cw_deploy_pre_snapshot for the post-deploy phase. Reads
+# the baseline TSV to find target cwd; runs the sweep; writes the
+# post TSV.
+#
+# - Dirty tree (leftover trooper work): commit as
+#   "chore: post-deploy leftovers for <topic>", state=swept.
+# - Clean: no commit, state=no-leftovers.
+# - Hook-blocked: warn, state=sweep-failed, rc=0 (deploy still completes).
+# - branch_changed = (baseline.branch != current.branch), bool.
+# Always rc=0.
+cw_deploy_post_sweep() {
+  local baseline="$1" topic="$2" post="$3"
+  local cwd slug base_branch dirty state ts post_branch post_sha changed
+  cwd=$(grep -E '^cwd=' "$baseline" | head -1 | cut -d= -f2-)
+  slug=$(grep -E '^slug=' "$baseline" | head -1 | cut -d= -f2-)
+  base_branch=$(grep -E '^branch=' "$baseline" | head -1 | cut -d= -f2-)
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  post_branch=$(git -C "$cwd" symbolic-ref --short HEAD 2>/dev/null) || post_branch="(detached)"
+  dirty=$(git -C "$cwd" status --porcelain)
+  if [[ -z "$dirty" ]]; then
+    state=no-leftovers
+  else
+    if git -C "$cwd" add -A \
+        && git -C "$cwd" commit -m "chore: post-deploy leftovers for $topic" -q; then
+      state=swept
+    else
+      log_warn "post_sweep: commit hook blocked sweep in $cwd"
+      state=sweep-failed
+    fi
+  fi
+  post_sha=$(git -C "$cwd" rev-parse HEAD 2>/dev/null) || post_sha=""
+  if [[ "$base_branch" == "$post_branch" ]]; then
+    changed=false
+  else
+    changed=true
+  fi
+  {
+    printf 'slug=%s\n'           "$slug"
+    printf 'cwd=%s\n'            "$cwd"
+    printf 'branch=%s\n'         "$post_branch"
+    printf 'post_sha=%s\n'       "$post_sha"
+    printf 'state=%s\n'          "$state"
+    printf 'branch_changed=%s\n' "$changed"
+    printf 'sweep_ts=%s\n'       "$ts"
+  } | cw_atomic_write "$post"
+}
+
+# cw_deploy_format_summary_block <baseline-file> <post-file>
+# Pure formatter — reads baseline + post TSVs and prints one per-repo
+# block to stdout. No git calls inside (input-driven for unit-testability).
+# Always rc=0.
+cw_deploy_format_summary_block() {
+  local baseline="$1" post="$2"
+  local slug cwd base_branch baseline_sha base_state post_branch post_sha post_state changed
+  slug=$(grep -E '^slug=' "$baseline"           | head -1 | cut -d= -f2-)
+  cwd=$(grep -E '^cwd=' "$baseline"             | head -1 | cut -d= -f2-)
+  base_branch=$(grep -E '^branch=' "$baseline"  | head -1 | cut -d= -f2-)
+  baseline_sha=$(grep -E '^baseline_sha=' "$baseline" | head -1 | cut -d= -f2-)
+  base_state=$(grep -E '^state=' "$baseline"    | head -1 | cut -d= -f2-)
+  post_branch=$(grep -E '^branch=' "$post"      | head -1 | cut -d= -f2-)
+  post_sha=$(grep -E '^post_sha=' "$post"       | head -1 | cut -d= -f2-)
+  post_state=$(grep -E '^state=' "$post"        | head -1 | cut -d= -f2-)
+  changed=$(grep -E '^branch_changed=' "$post"  | head -1 | cut -d= -f2-)
+
+  printf '═══ %s [%s] ═══\n' "$slug" "$cwd"
+  if [[ "$changed" == "true" ]]; then
+    printf '  [WARNING: branch changed from %s to %s]\n' "$base_branch" "$post_branch"
+  fi
+  if [[ "$base_state" == "hook-blocked" ]]; then
+    printf '  [WARNING: pre-deploy snapshot hook-blocked; baseline = pre-attempt HEAD]\n'
+  fi
+  if [[ "$post_state" == "sweep-failed" ]]; then
+    printf '  [WARNING: post-deploy sweep hook-blocked; leftovers remain in working tree]\n'
+  fi
+  if [[ "$base_branch" == "(detached)" ]]; then
+    printf '  [WARNING: baseline branch detached]\n'
+  fi
+  printf '  branch:     %s\n' "$post_branch"
+  printf '  baseline:   %s   %s   (%s)\n' "$baseline_sha" "$base_branch" "$base_state"
+  printf '  HEAD:       %s   %s\n' "$post_sha" "$post_branch"
+  local stat
+  stat=$(git -C "$cwd" diff --shortstat "$baseline_sha..HEAD" 2>/dev/null | sed -E 's/^[[:space:]]+//')
+  if [[ -n "$stat" ]]; then
+    printf '  diff stat:  %s\n' "$stat"
+  else
+    printf '  diff stat:  (no changes since baseline)\n'
+  fi
+  printf '  commits (oldest → newest):\n'
+  local commits
+  commits=$(git -C "$cwd" log --reverse --oneline "$baseline_sha..HEAD" 2>/dev/null)
+  if [[ -n "$commits" ]]; then
+    printf '%s\n' "$commits" | sed -E 's/^/    /'
+  else
+    printf '    (no commits since baseline)\n'
+  fi
 }
 

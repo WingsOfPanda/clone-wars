@@ -98,9 +98,10 @@ None.
 - [ ] Pass
 EOFSPEC
 set +e
-out=$("$PLUGIN_ROOT/bin/deploy-init.sh" --topic dirty-init "$SPEC" 2>&1); rc=$?
+# v0.42.0: rc=7 only fires when --branch flag is present (opt-in sandbox-branch mode).
+out=$("$PLUGIN_ROOT/bin/deploy-init.sh" --topic dirty-init --branch sandbox-branch "$SPEC" 2>&1); rc=$?
 set -e
 [[ "$rc" -eq 7 ]] || { echo "FAIL: bin/deploy-init.sh on dirty tree returned $rc, expected 7" >&2; echo "$out" >&2; exit 1; }
-pass "6. bin/deploy-init.sh propagates rc=7 from branch_create"
+pass "6. bin/deploy-init.sh propagates rc=7 from branch_create when --branch is passed"
 
 echo "test_deploy_init_dirty_tree_rc7: 6 cases passed"
