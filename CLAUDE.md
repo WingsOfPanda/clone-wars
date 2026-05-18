@@ -27,10 +27,11 @@ below for the closed-set boundary.
 
 ## Current focus
 
-- **Most recent merge:** v0.43.0 (deep-research improvements bundle —
-  re-render session-summary on halt, sweep shared/ orphans, winner
-  symlink, optional `--smoke-test` pre-flight, formal `phase=abandoned`
-  lane-abandon, halt.flag structured key=value format).
+- **Most recent merge:** v0.44.0 (deep-research SOTA web access —
+  Yoda runs one dual-search SOTA sweep at Phase 1.5 right after metric
+  lock and writes `_deep-research/sota.md`; every per-experiment
+  dispatch inlines sota.md into prompt.md with an explicit web-search
+  liberty clause).
 - **Next priority:** inter-trooper visibility (Item 5 from the
   2026-05-17 retrospective) — planned next-major per
   [[project_inter_trooper_messaging]]; GPU resource scheduling (Item 4)
