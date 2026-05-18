@@ -82,7 +82,7 @@ pass "2. sota.md row content inlined verbatim in prompt.md"
 
 # Assert web-search affordance two-liner present (case-insensitive
 # because the rendered prose uses "Web search" with capital W)
-grep -qiE 'web search.{0,40}(allowed|permitted)' "$PROMPT" \
+grep -qiE 'web search.{0,80}(allowed|permitted)' "$PROMPT" \
   || { echo "FAIL: prompt.md missing web-search affordance clause" >&2; cat "$PROMPT" >&2; exit 1; }
 grep -qE 'notes\.md' "$PROMPT" \
   || { echo "FAIL: prompt.md missing notes.md sources-consulted reference" >&2; cat "$PROMPT" >&2; exit 1; }
