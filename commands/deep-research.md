@@ -722,7 +722,7 @@ the experiment log".>
 
 Productionize the winner:
 
-    /clone-wars:deploy <archive-root>/_deep-research/experiments/exp-NNN-<cmdr>/code/
+    /clone-wars:deploy <archive-root>/_deep-research/winner/
 ```
 
 Set task `5` → `completed`.
