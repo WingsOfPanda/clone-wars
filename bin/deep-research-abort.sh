@@ -47,10 +47,13 @@ if [[ -f "$ART_DIR/monitor-tasks.txt" ]]; then
   done < "$ART_DIR/monitor-tasks.txt"
 fi
 
-# Write halt.flag
+# Write halt.flag (v0.43.0 Lane E — structured key=value format)
 now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-printf 'user-aborted via bin/deep-research-abort.sh at %s reason=%s\n' \
-  "$now" "$REASON" > "$ART_DIR/halt.flag"
+{
+  printf 'halted_by=user\n'
+  printf 'halted_at=%s\n' "$now"
+  printf 'reason=%s\n' "$REASON"
+} > "$ART_DIR/halt.flag"
 log_info "halt.flag written ($REASON)"
 
 # Finalize (renders ## Halt section into session-summary.md; idempotent)

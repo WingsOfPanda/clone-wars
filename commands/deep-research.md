@@ -532,6 +532,14 @@ inline briefs pollute `session-summary.md` and make `scoreboard.md`
 hard to scan. The `--context-file` content is interpolated into the
 trooper's prompt via the `{{TASK_CONTEXT}}` placeholder.
 
+**Context belongs in prompt.md (v0.43.0 clarification — Item 9):**
+Per-experiment context belongs in `prompt.md` via `--context-file`.
+Do NOT write per-trooper `context.md` files in `troopers/<cmdr>/`.
+The skill writes `prompt.md` from the experiment template with
+`{{TASK_CONTEXT}}` interpolated; a separately-authored
+`exp-NNN-context.md` drifts from the actual dispatch payload and
+causes confusion at archive time.
+
 #### 4.a — Initial entry (this turn only)
 
 1. **Seed per-trooper state.** For each commander in `troopers.txt`:
@@ -568,6 +576,19 @@ trooper's prompt via the `{{TASK_CONTEXT}}` placeholder.
    ```
 
    (init.sh has already touched `active-${CLAUDE_CODE_SESSION_ID}.txt` at the art-dir root.)
+
+   **Trooper `phase` values** (set in `state.txt`):
+   - `idle` — between experiments; eligible for dispatch via Step 5.
+   - `working` — currently executing an experiment.
+   - `stale` / `stuck` — Monitor probe escalation (no outbox events past threshold).
+   - `blocked` — trooper emitted a `question` event; awaiting user direction.
+   - `failed` — run errored; manual recovery required.
+   - `complete` / `incomplete` — terminal states set by `finalize.sh`.
+   - `abandoned` (v0.43.0) — Yoda retired the lane via
+     `cw_deep_research_lane_abandon`; criteria documented in
+     `commands/deep-research-resume.md` Step 5. Reason recorded in
+     `lane_abandon_reason`. Dispatch refuses (`bin/deep-research-experiment-send.sh`
+     exits rc=2).
 
 2. **Start one Monitor task per commander.** Each watches its trooper's outbox
    for `done/error/question/heartbeat` events AND fires `stale/stuck` events
@@ -722,7 +743,7 @@ the experiment log".>
 
 Productionize the winner:
 
-    /clone-wars:deploy <archive-root>/_deep-research/experiments/exp-NNN-<cmdr>/code/
+    /clone-wars:deploy <archive-root>/_deep-research/winner/
 ```
 
 Set task `5` → `completed`.
@@ -774,6 +795,40 @@ Show the user:
 - One-line outcome summary: outcome + best-metric + delta vs first exp.
 
 Set task `7` → `completed`.
+
+## halt.flag format
+
+v0.43.0 standardizes `$ART_DIR/halt.flag` as a structured `key=value`
+file (one entry per line), readable via `awk -F=`. All three writers —
+`bin/deep-research-abort.sh`, `commands/deep-research-resume.md`
+Step 6 (user-halt), and Yoda's synthesis-time halt — emit this shape.
+
+**Required keys (every write site):**
+
+```
+halted_by=user|yoda
+halted_at=<ISO-8601-UTC>
+reason=<short prose, single line>
+```
+
+**Optional keys (Yoda's target-met / corroboration halt SHOULD include):**
+
+```
+target_met=yes|no
+floor_met=yes|no
+k_so_far=<N>
+k_required=<N>
+plateau=yes|no
+plateau_window=<N>
+final_leader=<cmdr>/<exp-id>
+final_leader_metric=<value>
+architectures_corroborated=<comma-separated-labels>
+```
+
+Readers (`bin/deep-research-finalize.sh`, the existence checks in
+`commands/deep-research-resume.md`) parse via awk and tolerate
+legacy free-form prose from pre-v0.43.0 archives — single-line bodies
+without `=` fall through gracefully.
 
 ## Intervention patterns
 

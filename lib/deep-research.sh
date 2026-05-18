@@ -845,3 +845,20 @@ cw_deep_research_write_preflight_sidecar() {
     done
   } | cw_atomic_write "$art_dir/troopers-preflight.txt"
 }
+
+# cw_deep_research_lane_abandon <art-dir> <commander> <reason>
+# v0.43.0 Lane D: atomically transition a trooper to phase=abandoned with
+# a recorded reason + ISO-8601 timestamp. Step 5 dispatch in
+# commands/deep-research-resume.md's `phase=idle` filter naturally
+# excludes abandoned troopers from future rounds. rc=2 on bad args.
+cw_deep_research_lane_abandon() {
+  local art_dir="${1:-}" commander="${2:-}" reason="${3:-}"
+  [[ -n "$art_dir" && -n "$commander" && -n "$reason" ]] \
+    || { echo "cw_deep_research_lane_abandon: usage: <art-dir> <commander> <reason>" >&2; return 2; }
+  local ts
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  cw_deep_research_trooper_state_write "$art_dir" "$commander" \
+    phase=abandoned \
+    lane_abandon_reason="$reason" \
+    lane_abandon_ts="$ts"
+}

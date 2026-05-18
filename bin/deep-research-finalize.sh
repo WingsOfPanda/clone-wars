@@ -58,11 +58,12 @@ session_id="${CLAUDE_CODE_SESSION_ID:-unknown}"
 rm -f "$ART/active-${session_id}.txt"
 rm -f "$ART/active.txt"  # legacy v0.39.0 form — kept for backwards-compat cleanup
 
-# Append Halt section to session-summary.md
+# Append Halt section to session-summary.md.
+# v0.43.0 Lane A: unconditional re-render so the summary reflects the
+# FINAL per-trooper state (post Step-2 phase normalization above), not
+# whatever Yoda last wrote pre-halt. Idempotent atomic write.
 SS="$ART/session-summary.md"
-if [[ ! -f "$SS" ]]; then
-  cw_deep_research_render_summary "$ART" > "$SS"
-fi
+cw_deep_research_render_summary "$ART" | cw_atomic_write "$SS"
 # Idempotency: don't duplicate Halt section
 if ! grep -q '^## Halt$' "$SS"; then
   cat >> "$SS" <<EOF

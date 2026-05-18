@@ -28,18 +28,21 @@ source "$PLUGIN_ROOT/lib/deep-research.sh"
 # omitting them preserves v0.33.0 behavior (no probe, empty {{TASK_CONTEXT}}).
 INPUTS=""
 CONTEXT_FILE=""
+SMOKE_TEST=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --inputs=*)        INPUTS="${1#*=}";       shift ;;
     --inputs)          INPUTS="$2";            shift 2 ;;
     --context-file=*)  CONTEXT_FILE="${1#*=}"; shift ;;
     --context-file)    CONTEXT_FILE="$2";      shift 2 ;;
+    --smoke-test=*)    SMOKE_TEST="${1#*=}";   shift ;;
+    --smoke-test)      SMOKE_TEST="$2";        shift 2 ;;
     --) shift; break ;;
     *)  break ;;
   esac
 done
 
-[[ $# -eq 5 ]] || { log_error "Usage: $0 [--inputs=<paths>] [--context-file=<path>] <topic> <commander> <exp-id> <approach-label> <approach-brief>"; exit 2; }
+[[ $# -eq 5 ]] || { log_error "Usage: $0 [--inputs=<paths>] [--context-file=<path>] [--smoke-test=<script>] <topic> <commander> <exp-id> <approach-label> <approach-brief>"; exit 2; }
 TOPIC="$1"
 COMMANDER="$2"
 EXP_ID="$3"
@@ -64,6 +67,15 @@ if [[ -n "$INPUTS" ]]; then
   done
 fi
 
+# v0.43.0 Lane C: --smoke-test pre-flight validation. Optional. When passed,
+# the script is invoked AFTER --inputs probe but BEFORE any state mutation
+# (branch dir creation, state.txt update). Non-zero exit aborts with rc=2.
+# Validation here: script must exist and be executable.
+if [[ -n "$SMOKE_TEST" ]]; then
+  [[ -x "$SMOKE_TEST" ]] \
+    || { log_error "smoke-test: script not executable: $SMOKE_TEST"; exit 2; }
+fi
+
 state_root=$(cw_state_root)
 repo_hash=$(cw_repo_hash)
 TOPIC_DIR="$state_root/state/$repo_hash/$TOPIC"
@@ -81,12 +93,40 @@ STATE_FILE="$ART_DIR/troopers/$COMMANDER/state.txt"
 [[ -f "$STATE_FILE" ]] \
   || { log_error "trooper state.txt missing: $STATE_FILE (directive Phase 4.a must run before first dispatch)"; exit 1; }
 cur_phase=$(cw_deep_research_trooper_state_field "$ART_DIR" "$COMMANDER" phase)
+if [[ "$cur_phase" == "abandoned" ]]; then
+  log_error "trooper $COMMANDER lane is abandoned; not dispatching (see lane_abandon_reason in state.txt)"
+  exit 2
+fi
 [[ "$cur_phase" == "idle" ]] \
   || { log_error "trooper $COMMANDER not idle (phase=$cur_phase) — wait for completion or finalize first."; exit 1; }
 
 # v0.28.0: per-trooper branch dir at troopers/<cmdr>/experiments/<exp-id>/
 BRANCH_DIR="$ART_DIR/troopers/$COMMANDER/experiments/$EXP_ID"
 mkdir -p "$BRANCH_DIR/code"
+
+# v0.43.0 Lane C: execute --smoke-test in the freshly-created branch code dir.
+# Captures stderr to smoke-test.err on failure (atomic). State.txt is NOT
+# transitioned to phase=working until smoke-test passes.
+# Timeout: 60s fixed (CW_SMOKE_TEST_TIMEOUT_OVERRIDE for tests).
+if [[ -n "$SMOKE_TEST" ]]; then
+  SMOKE_TIMEOUT="${CW_SMOKE_TEST_TIMEOUT_OVERRIDE:-60}"
+  SMOKE_ERR="$BRANCH_DIR/smoke-test.err"
+  SMOKE_TMP=$(mktemp)
+  if ( cd "$BRANCH_DIR/code" && CW_SMOKE_TEST=1 timeout -k 1 "$SMOKE_TIMEOUT" "$SMOKE_TEST" ) 2>"$SMOKE_TMP"; then
+    rm -f "$SMOKE_TMP"
+    log_ok "smoke-test passed for $COMMANDER/$EXP_ID"
+  else
+    SMOKE_RC=$?
+    mv "$SMOKE_TMP" "$SMOKE_ERR"
+    log_error "smoke-test failed (rc=$SMOKE_RC) for $COMMANDER/$EXP_ID; stderr → $SMOKE_ERR"
+    if [[ -s "$SMOKE_ERR" ]]; then
+      log_error "--- smoke-test stderr ---"
+      cat "$SMOKE_ERR" >&2
+      log_error "--- end smoke-test stderr ---"
+    fi
+    exit 2
+  fi
+fi
 
 # Trooper pane: trooper outbox must exist (means trooper was spawned)
 OUTBOX="$TOPIC_DIR/$COMMANDER-codex/outbox.jsonl"
