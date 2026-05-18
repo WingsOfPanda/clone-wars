@@ -30,7 +30,7 @@ echo "$out" | grep -qE '^> \*\*Queries fired:\*\* SOTA accuracy MNIST, MNIST und
   || { echo "FAIL: missing queries frontmatter" >&2; echo "$out" >&2; exit 1; }
 echo "$out" | grep -qE '^\| Approach family \| Best known \| Constraint compliance \| Source \| Notes \|$' \
   || { echo "FAIL: missing table header row" >&2; echo "$out" >&2; exit 1; }
-row_count=$(echo "$out" | grep -cE '^\| [A-Z][^|]*\|.*\|.*\|http')
+row_count=$(echo "$out" | grep -cE '^\|.*https?://' || true)
 [[ "$row_count" == "3" ]] \
   || { echo "FAIL: expected 3 data rows, got $row_count" >&2; echo "$out" >&2; exit 1; }
 echo "$out" | grep -qE '^\| Depthwise CNN \| 99\.84% \| over by 60k params \| https://example\.org/a \| Caps-Net variant \|$' \
@@ -49,7 +49,7 @@ echo "$out" | grep -qE '^# SOTA reference — novel domain$' \
   || { echo "FAIL: missing H1 in empty-refs case" >&2; echo "$out" >&2; exit 1; }
 echo "$out" | grep -qE '^\| Approach family \|' \
   || { echo "FAIL: missing table header in empty-refs case" >&2; echo "$out" >&2; exit 1; }
-row_count=$(echo "$out" | grep -cE '^\| [A-Z][^|]*\|.*\|.*\|http')
+row_count=$(echo "$out" | grep -cE '^\|.*https?://' || true)
 [[ "$row_count" == "0" ]] \
   || { echo "FAIL: expected 0 data rows in empty case, got $row_count" >&2; echo "$out" >&2; exit 1; }
 echo "$out" | grep -qE 'sweep returned no usable references|trooper-side web search remains available' \
@@ -73,7 +73,7 @@ ref_8=H|8|fits|https://h|na
 ref_9=I|9|fits|https://i|na
 EOF
 )
-row_count=$(echo "$out" | grep -cE '^\| [A-Z] \|')
+row_count=$(echo "$out" | grep -cE '^\| [A-Z] \|' || true)
 [[ "$row_count" == "7" ]] \
   || { echo "FAIL: expected 7 data rows when 9 supplied, got $row_count" >&2; echo "$out" >&2; exit 1; }
 if echo "$out" | grep -qE '^\| H \|'; then

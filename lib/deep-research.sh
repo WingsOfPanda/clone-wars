@@ -862,3 +862,61 @@ cw_deep_research_lane_abandon() {
     lane_abandon_reason="$reason" \
     lane_abandon_ts="$ts"
 }
+
+# cw_deep_research_format_sota_block
+# Reads K=V pairs on stdin, renders the structured sota.md body to stdout.
+# Required keys: topic, metric, sweep_date.
+# Optional keys: queries, ref_1..ref_7 (pipe-separated 5-field rows:
+#   family|best_known|constraint_compliance|source_url|notes).
+# ref_N rows beyond 7 are silently ignored. Empty refs produce an
+# empty-table fallback with a note.
+cw_deep_research_format_sota_block() {
+  local topic="" metric="" sweep_date="" queries=""
+  local -a refs=()
+  local line key val idx
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    key="${line%%=*}"
+    val="${line#*=}"
+    case "$key" in
+      topic)      topic="$val" ;;
+      metric)     metric="$val" ;;
+      sweep_date) sweep_date="$val" ;;
+      queries)    queries="$val" ;;
+      ref_[1-9])
+        idx="${key#ref_}"
+        # Cap at 7; silently drop ref_8 and above.
+        if (( idx >= 1 && idx <= 7 )); then
+          refs[idx]="$val"
+        fi
+        ;;
+    esac
+  done
+
+  [[ -n "$topic" ]]      || { echo "missing required key: topic" >&2; return 2; }
+  [[ -n "$metric" ]]     || { echo "missing required key: metric" >&2; return 2; }
+  [[ -n "$sweep_date" ]] || { echo "missing required key: sweep_date" >&2; return 2; }
+
+  printf '# SOTA reference — %s\n\n' "$topic"
+  printf '> **Sweep date:** %s\n' "$sweep_date"
+  printf '> **Optimizing for:** %s\n' "$metric"
+  [[ -n "$queries" ]] && printf '> **Queries fired:** %s\n' "$queries"
+  printf '\n'
+  printf '| Approach family | Best known | Constraint compliance | Source | Notes |\n'
+  printf '|---|---|---|---|---|\n'
+
+  local rendered=0 i row family best compliance source notes
+  for i in 1 2 3 4 5 6 7; do
+    row="${refs[i]:-}"
+    [[ -z "$row" ]] && continue
+    IFS='|' read -r family best compliance source notes <<<"$row"
+    printf '| %s | %s | %s | %s | %s |\n' \
+      "$family" "$best" "$compliance" "$source" "$notes"
+    rendered=$((rendered + 1))
+  done
+
+  if (( rendered == 0 )); then
+    printf '\n_Note: sweep returned no usable references; trooper-side web search remains available._\n'
+  fi
+  return 0
+}
