@@ -27,15 +27,15 @@ below for the closed-set boundary.
 
 ## Current focus
 
-- **Most recent merge:** v0.44.0 (deep-research SOTA web access —
-  Yoda runs one dual-search SOTA sweep at Phase 1.5 right after metric
-  lock and writes `_deep-research/sota.md`; every per-experiment
-  dispatch inlines sota.md into prompt.md with an explicit web-search
-  liberty clause).
-- **Next priority:** inter-trooper visibility (Item 5 from the
-  2026-05-17 retrospective) — planned next-major per
-  [[project_inter_trooper_messaging]]; GPU resource scheduling (Item 4)
-  also pending but secondary.
+- **Most recent merge:** v0.45.0 (inter-trooper visibility —
+  per-experiment dispatch inlines a `## Peers` snapshot of peer
+  trooper status [phase, current/last exp, approach, best metric,
+  notes excerpt] into prompt.md when N≥2; nothing rendered when N=1
+  solo).
+- **Next priority:** GPU resource scheduling between troopers (Item
+  4 from the 2026-05-17 retrospective) is the remaining unaddressed
+  punch-list item. Otherwise: continued release-gate dogfood for
+  v0.27.0–v0.45.0.
 - **No code freeze.** Feature work in flight should still go through
   the brainstorm → spec → plan → PR loop per `docs/superpowers/`.
 

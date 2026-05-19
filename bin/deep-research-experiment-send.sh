@@ -214,6 +214,12 @@ if [[ -f "$SOTA_MD" ]]; then
   SOTA_BLOCK_VAL=$'## Reference: SOTA\n\n'"$SOTA_CONTENT"$'\n\n### Web search affordance\n\nConsult this reference before starting. Web search (curl / pip install / arXiv / HuggingFace / etc.) is allowed when you hit a plateau or before scaling up. Record any consulted source in notes.md under a `## Sources consulted` heading.'
 fi
 
+# v0.45.0 Lane C: inline peer-status snapshot if ≥2 troopers. Absent
+# (N=1 solo) → empty (helper emits nothing). Helper sources from
+# $ART_DIR/troopers.txt + per-peer state.txt + most-recent
+# exp-NNN/result.json — see lib/deep-research.sh.
+PEERS_BLOCK_VAL=$(cw_deep_research_format_peers_block "$ART_DIR" "$COMMANDER" 2>/dev/null || true)
+
 awk \
   -v topic="$(_awk_esc "$TOPIC_TEXT_VAL")" \
   -v exp_id="$(_awk_esc "$EXP_ID")" \
@@ -226,7 +232,8 @@ awk \
   -v outbox_path="$(_awk_esc "$OUTBOX_PATH")" \
   -v time_budget="$(_awk_esc "$TIME_BUDGET_S")" \
   -v task_context="$(_awk_esc "$TASK_CONTEXT_VAL")" \
-  -v sota_block="$(_awk_esc "$SOTA_BLOCK_VAL")" '
+  -v sota_block="$(_awk_esc "$SOTA_BLOCK_VAL")" \
+  -v peers_block="$(_awk_esc "$PEERS_BLOCK_VAL")" '
 {
   gsub(/\{\{METRIC_BLOCK\}\}/,    metric_block)
   gsub(/\{\{HARDWARE_BLOCK\}\}/,  hardware_block)
@@ -240,6 +247,7 @@ awk \
   gsub(/\{\{TIME_BUDGET_S\}\}/,   time_budget)
   gsub(/\{\{TASK_CONTEXT\}\}/,    task_context)
   gsub(/\{\{SOTA_BLOCK\}\}/,      sota_block)
+  gsub(/\{\{PEERS_BLOCK\}\}/,     peers_block)
   print
 }' "$TEMPLATE" | cw_atomic_write "$PROMPT_FILE"
 

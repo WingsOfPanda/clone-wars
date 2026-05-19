@@ -40,4 +40,9 @@ grep -qE '## Reference: SOTA' "$DIRECTIVE" \
   || { echo "FAIL: directive missing '## Reference: SOTA' documentation in dispatch flow" >&2; exit 1; }
 pass "4. directive documents '## Reference: SOTA' section in dispatch flow"
 
-echo "test_deep_research_directive_lint: 4 invariants locked"
+# Invariant 5 (v0.45.0): Phase 4.a documents '## Peers' callout
+echo "$PHASE4A" | grep -qE '## Peers' \
+  || { echo "FAIL: Phase 4.a missing '## Peers' callout" >&2; exit 1; }
+pass "5. Phase 4.a carries '## Peers' visibility callout"
+
+echo "test_deep_research_directive_lint: 5 invariants locked"

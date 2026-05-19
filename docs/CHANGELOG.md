@@ -7,6 +7,50 @@ a design trail.
 
 ---
 
+## v0.45.0 — inter-trooper visibility (2026-05-19)
+
+**Feature:** `## Peers` snapshot inlined into every experiment prompt.
+
+When the session has ≥2 troopers, `bin/deep-research-experiment-send.sh`
+inlines a `## Peers` Markdown table into each dispatched `prompt.md`
+showing each peer trooper's phase, current/last experiment, approach,
+best metric (value + status), and a 1-line notes excerpt sourced from
+the peer's most recent `result.json`. The default editorial bias is
+**diverge** — convergence on a peer's approach is allowed but must be
+justified in `notes.md`. N=1 solo session omits the section entirely
+(back-compat preserved).
+
+**Files:**
+
+- NEW: `cw_deep_research_format_peers_block` in `lib/deep-research.sh`
+- NEW: `{{PEERS_BLOCK}}` placeholder in
+  `config/prompt-templates/deep-research/experiment.md`, populated by
+  `bin/deep-research-experiment-send.sh`
+- NEW: Phase 4.a callout in `commands/deep-research.md` documenting
+  the peer-visibility behavior + divergence default
+- NEW: `tests/test_deep_research_format_peers_block.sh` (5 cases:
+  N=2 scored, N=1 solo, no-result.json peer, N=3 with abandoned peer,
+  missing art-dir)
+- NEW: `tests/test_deep_research_peers_in_prompt.sh` (dispatch
+  integration; current commander filter)
+- NEW: `tests/test_deep_research_peers_absent_solo.sh` (back-compat
+  regression lock)
+- EXT: `tests/test_deep_research_directive_lint.sh` (+1 invariant
+  for Phase 4.a `## Peers` callout)
+- NEW: `tests/test_v0_45_0_static_wiring.sh` (6 invariants)
+
+**Out of scope (deferred):**
+
+- Trooper-driven direct messaging (rex → keeli without Yoda)
+- Mid-session sota.md mutation (write-once still stands)
+- Peer notes.md full inclusion (variable size)
+- Pub/sub events from peer outbox.jsonl
+- Per-trooper "show me peer X's full result.json" lookup
+
+**Release-gate dogfood status:** pending.
+
+---
+
 ## v0.44.0 — deep-research SOTA web access (2026-05-18)
 
 **Feature:** Phase 1.5 SOTA sweep + trooper-side web affordance.

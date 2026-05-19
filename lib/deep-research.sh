@@ -920,3 +920,116 @@ cw_deep_research_format_sota_block() {
   fi
   return 0
 }
+
+# cw_deep_research_format_peers_block <art-dir> <current-commander>
+# Renders a per-trooper "## Peers" snapshot block for inlining into a
+# trooper's prompt.md. Reads each peer's state.txt + most recent
+# exp-NNN/result.json. Filters out <current-commander> — they don't
+# see themselves. Emits nothing (rc=0, empty stdout) when there are
+# no peers (N=1 solo session). rc=2 only when art-dir is missing or
+# args are missing.
+#
+# Per-row data sources:
+#   Phase        ← state.txt:phase                (fallback '?')
+#   Current/last ← state.txt:current_exp_id       (fallback most-recent exp-NNN dir, then '—')
+#   Approach     ← result.json:approach_label     (fallback '—')
+#   Best metric  ← result.json:metric_value + status
+#   Notes        ← result.json:notes (trimmed to 80 chars, single line)
+cw_deep_research_format_peers_block() {
+  local art_dir="${1:-}" current_cmdr="${2:-}"
+  [[ -n "$art_dir" && -n "$current_cmdr" ]] \
+    || { echo "cw_deep_research_format_peers_block: usage: <art-dir> <current-commander>" >&2; return 2; }
+  [[ -d "$art_dir" ]] \
+    || { echo "cw_deep_research_format_peers_block: art-dir missing: $art_dir" >&2; return 2; }
+
+  # Collect peer commander list (all rostered except current).
+  local rosters_file="$art_dir/troopers.txt"
+  local -a peers=()
+  if [[ -f "$rosters_file" ]]; then
+    local cmdr
+    while IFS= read -r cmdr; do
+      [[ -z "$cmdr" ]] && continue
+      [[ "$cmdr" == "$current_cmdr" ]] && continue
+      peers+=("$cmdr")
+    done < "$rosters_file"
+  fi
+
+  # N=1 (or empty roster): emit nothing.
+  if (( ${#peers[@]} == 0 )); then
+    return 0
+  fi
+
+  # Header + divergence guidance.
+  printf '## Peers\n\n'
+  printf 'Your peer troopers — read for context, not as a target. Your job is\n'
+  printf 'to explore a different corner of the space. If you converge on a\n'
+  printf "peer's approach, justify why in \`notes.md\`.\n\n"
+  printf '| Trooper | Phase | Current/last | Approach | Best metric | Notes |\n'
+  printf '|---------|-------|--------------|----------|-------------|-------|\n'
+
+  local peer phase current latest_exp result approach metric_val
+  for peer in "${peers[@]}"; do
+    # Skip peers with no troopers/$peer/ directory at all (defensive).
+    [[ -d "$art_dir/troopers/$peer" ]] || continue
+
+    # Phase + current_exp_id from state.txt.
+    phase="?"
+    current=""
+    if [[ -f "$art_dir/troopers/$peer/state.txt" ]]; then
+      phase=$(cw_deep_research_trooper_state_field "$art_dir" "$peer" phase 2>/dev/null)
+      current=$(cw_deep_research_trooper_state_field "$art_dir" "$peer" current_exp_id 2>/dev/null)
+      [[ -z "$phase" ]] && phase="?"
+    fi
+
+    # Pick latest exp for this peer: prefer current_exp_id, else lex-greatest dir.
+    latest_exp=""
+    if [[ -n "$current" ]]; then
+      latest_exp="$current"
+    else
+      local exp_dir base
+      shopt -s nullglob
+      for exp_dir in "$art_dir/troopers/$peer/experiments"/exp-[0-9]*/; do
+        base=$(basename "${exp_dir%/}")
+        [[ "$base" =~ ^exp-[0-9]+$ ]] || continue
+        [[ "$base" > "$latest_exp" ]] && latest_exp="$base"
+      done
+      shopt -u nullglob
+    fi
+
+    # Pull approach/metric/notes from latest_exp's result.json (if present).
+    approach="—"
+    metric_val="—"
+    local notes_val="—"
+    if [[ -n "$latest_exp" ]]; then
+      result="$art_dir/troopers/$peer/experiments/$latest_exp/result.json"
+      if [[ -f "$result" ]]; then
+        approach=$(grep -oE '"approach_label"[[:space:]]*:[[:space:]]*"[^"]*"' "$result" \
+          | head -1 | sed -E 's/.*:[[:space:]]*"//;s/"$//')
+        [[ -z "$approach" ]] && approach="—"
+        local mv st
+        mv=$(grep -oE '"metric_value"[[:space:]]*:[[:space:]]*[^,}]+' "$result" \
+          | head -1 | sed -E 's/.*:[[:space:]]*//;s/[[:space:]]*$//')
+        st=$(grep -oE '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$result" \
+          | head -1 | sed -E 's/.*:[[:space:]]*"//;s/"$//')
+        if [[ -n "$mv" && -n "$st" ]]; then
+          metric_val="$mv ($st)"
+        elif [[ -n "$mv" ]]; then
+          metric_val="$mv"
+        fi
+        notes_val=$(grep -oE '"notes"[[:space:]]*:[[:space:]]*"[^"]*"' "$result" \
+          | head -1 | sed -E 's/.*:[[:space:]]*"//;s/"$//')
+        # Trim to 80 chars, collapse whitespace.
+        notes_val=$(printf '%s' "$notes_val" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g')
+        if [[ ${#notes_val} -gt 80 ]]; then
+          notes_val="${notes_val:0:77}..."
+        fi
+        [[ -z "$notes_val" ]] && notes_val="—"
+      fi
+    fi
+
+    [[ -z "$latest_exp" ]] && latest_exp="—"
+    printf '| %s | %s | %s | %s | %s | %s |\n' \
+      "$peer" "$phase" "$latest_exp" "$approach" "$metric_val" "$notes_val"
+  done
+  return 0
+}
