@@ -634,6 +634,16 @@ lookups when the trooper hits a plateau or before scale-up. When
 sota.md is absent (legacy session, manual test harness, etc.) the
 section is omitted entirely — back-compat preserved.
 
+**Peer visibility inlined into every prompt.md (v0.45.0):**
+When the session has ≥2 troopers, `bin/deep-research-experiment-send.sh`
+inlines a `## Peers` section into each dispatched `prompt.md` showing
+each peer trooper's current phase, last experiment, approach, and best
+metric so far. The default editorial bias is **diverge**: the prompt
+instructs the trooper to explore a different corner of the space
+than their peers. Convergence on a peer's approach is allowed but
+must be justified in `notes.md`. When the session has only one
+trooper (N=1 solo), the section is omitted entirely.
+
 #### 4.a — Initial entry (this turn only)
 
 1. **Seed per-trooper state.** For each commander in `troopers.txt`:
