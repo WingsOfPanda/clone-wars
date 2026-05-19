@@ -28,4 +28,16 @@ echo "$PHASE4A" | grep -qiE 'do.{0,5}not.*write.{0,30}context\.md|NOT.{0,30}cont
   || { echo "FAIL: Phase 4.a missing the explicit 'do not write context.md' clause" >&2; exit 1; }
 pass "2. Phase 4.a carries context-file guidance note"
 
-echo "test_deep_research_directive_lint: 2 invariants locked"
+# Invariant 3 (v0.44.0): Phase 1.5 SOTA sweep section present
+grep -qE '^### Phase 1\.5 — SOTA sweep$' "$DIRECTIVE" \
+  || { echo "FAIL: directive missing '### Phase 1.5 — SOTA sweep' heading" >&2; exit 1; }
+grep -qE 'cw_deep_research_format_sota_block' "$DIRECTIVE" \
+  || { echo "FAIL: Phase 1.5 missing cw_deep_research_format_sota_block call" >&2; exit 1; }
+pass "3. directive carries Phase 1.5 SOTA sweep section invoking the helper"
+
+# Invariant 4 (v0.44.0): dispatch documentation references '## Reference: SOTA'
+grep -qE '## Reference: SOTA' "$DIRECTIVE" \
+  || { echo "FAIL: directive missing '## Reference: SOTA' documentation in dispatch flow" >&2; exit 1; }
+pass "4. directive documents '## Reference: SOTA' section in dispatch flow"
+
+echo "test_deep_research_directive_lint: 4 invariants locked"

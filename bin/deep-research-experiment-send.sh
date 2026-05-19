@@ -204,6 +204,16 @@ if [[ -n "$CONTEXT_FILE" ]]; then
   TASK_CONTEXT_VAL=$(<"$CONTEXT_FILE")
 fi
 
+# v0.44.0 Lane C: inline sota.md if present. Absent → empty (template
+# gsub leaves a blank line). Yoda writes sota.md in Phase 1.5; tests
+# may seed it directly.
+SOTA_BLOCK_VAL=""
+SOTA_MD="$ART_DIR/sota.md"
+if [[ -f "$SOTA_MD" ]]; then
+  SOTA_CONTENT=$(<"$SOTA_MD")
+  SOTA_BLOCK_VAL=$'## Reference: SOTA\n\n'"$SOTA_CONTENT"$'\n\n### Web search affordance\n\nConsult this reference before starting. Web search (curl / pip install / arXiv / HuggingFace / etc.) is allowed when you hit a plateau or before scaling up. Record any consulted source in notes.md under a `## Sources consulted` heading.'
+fi
+
 awk \
   -v topic="$(_awk_esc "$TOPIC_TEXT_VAL")" \
   -v exp_id="$(_awk_esc "$EXP_ID")" \
@@ -215,7 +225,8 @@ awk \
   -v hardware_block="$(_awk_esc "$HARDWARE_BLOCK")" \
   -v outbox_path="$(_awk_esc "$OUTBOX_PATH")" \
   -v time_budget="$(_awk_esc "$TIME_BUDGET_S")" \
-  -v task_context="$(_awk_esc "$TASK_CONTEXT_VAL")" '
+  -v task_context="$(_awk_esc "$TASK_CONTEXT_VAL")" \
+  -v sota_block="$(_awk_esc "$SOTA_BLOCK_VAL")" '
 {
   gsub(/\{\{METRIC_BLOCK\}\}/,    metric_block)
   gsub(/\{\{HARDWARE_BLOCK\}\}/,  hardware_block)
@@ -228,6 +239,7 @@ awk \
   gsub(/\{\{METRIC_NAME\}\}/,     metric_name)
   gsub(/\{\{TIME_BUDGET_S\}\}/,   time_budget)
   gsub(/\{\{TASK_CONTEXT\}\}/,    task_context)
+  gsub(/\{\{SOTA_BLOCK\}\}/,      sota_block)
   print
 }' "$TEMPLATE" | cw_atomic_write "$PROMPT_FILE"
 

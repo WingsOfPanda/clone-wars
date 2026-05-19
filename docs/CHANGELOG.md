@@ -7,6 +7,45 @@ a design trail.
 
 ---
 
+## v0.44.0 — deep-research SOTA web access (2026-05-18)
+
+**Feature:** Phase 1.5 SOTA sweep + trooper-side web affordance.
+
+After Phase 1 (metric lock) and before Phase 2 (preflight), Yoda
+fires one round of dual-search (WebSearch + Tavily × 2 queries each
+= 4 parallel calls), curates ≤7 references, writes the result to
+`_deep-research/sota.md` via a new `cw_deep_research_format_sota_block`
+helper. Every per-experiment `prompt.md` then includes a
+`## Reference: SOTA` section inlining sota.md verbatim, plus a "Web
+search affordance" two-liner explicitly authorizing curl/pip/arXiv
+lookups when troopers hit a plateau or before scale-up. Consulted
+sources are recorded in the trooper's `notes.md`.
+
+**Files:**
+
+- NEW: `cw_deep_research_format_sota_block` in `lib/deep-research.sh`
+- NEW: `### Phase 1.5 — SOTA sweep` section in `commands/deep-research.md`
+- NEW: `{{SOTA_BLOCK}}` placeholder in
+  `config/prompt-templates/deep-research/experiment.md`, populated
+  from `$ART_DIR/sota.md` by `bin/deep-research-experiment-send.sh`
+- NEW: `tests/test_deep_research_format_sota_block.sh` (helper unit)
+- NEW: `tests/test_deep_research_sota_in_prompt.sh` (dispatch integration)
+- NEW: `tests/test_deep_research_sota_absent_dispatch.sh` (regression lock)
+- EXT: `tests/test_deep_research_directive_lint.sh` (2 new invariants
+  for Phase 1.5 heading + dispatch documentation)
+- NEW: `tests/test_v0_44_0_static_wiring.sh` (6 invariants)
+
+**Out of scope (deferred):**
+
+- Mid-session sota.md refresh (write-once at Phase 1.5).
+- Per-trooper sota.md (lane-specific reference sets).
+- Web-access opt-out flag — hard-block at OS level instead.
+- Inter-trooper visibility (Item 5; next priority after v0.44.0).
+
+**Release-gate dogfood status:** pending.
+
+---
+
 ## v0.43.0 — 2026-05-18 — deep-research improvements bundle
 
 **Eight quality-of-life closes** for `/clone-wars:deep-research`
