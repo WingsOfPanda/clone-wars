@@ -676,7 +676,7 @@ cw_deep_research_render_summary() {
     topic_dir=$(dirname "$art_dir")
     while read -r cmdr; do
       [[ -n "$cmdr" ]] || continue
-      outbox="$topic_dir/$cmdr-codex/outbox.jsonl"
+      outbox="$(cw_outbox_path_in "$topic_dir" "$cmdr" codex)"
       if [[ -f "$outbox" ]]; then
         tail -10 "$outbox" | while IFS= read -r line; do
           local ts ev
