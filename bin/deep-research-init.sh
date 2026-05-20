@@ -120,8 +120,8 @@ while [[ -d "$TOPIC_DIR" ]]; do
   n=$((n + 1))
 done
 
-mkdir -p "$TOPIC_DIR/_deep-research"
-ART_DIR="$TOPIC_DIR/_deep-research"
+ART_DIR="$(cw_deep_research_art_dir "$TOPIC_NAME")"
+mkdir -p "$ART_DIR"
 
 # topic.txt + metric.txt (metric.txt = heuristic seed for Phase 1 dialogue,
 # not the source of truth. Directive writes metric.md after Phase 1.)

@@ -7,6 +7,62 @@ a design trail.
 
 ---
 
+## v0.46.0 — simplification sweep (2026-05-20)
+
+**Refactor:** Six Low-risk consolidations from the 2026-05-19 code-simplifier
+sweep. ~70-90 lines saved, no behavioral change.
+
+**Path-layer (findings #4, #5, #6):**
+
+- NEW: `cw_deep_research_art_dir` helper in `lib/deep-research.sh`
+  (sibling of `cw_meditate_art_dir` / `cw_deploy_art_dir`); 6 bin scripts
+  migrated from manual `state_root + repo_hash` concat.
+- ADOPT: `cw_outbox_path` / `cw_inbox_path` / `cw_pane_meta_path` (already
+  in `lib/ipc.sh`) at 4 of 6 deep-research call sites that bypassed them.
+  The 2 remaining sites (`bin/deep-research-monitor.sh:36` and
+  `lib/deep-research.sh` `render_summary`) depend on synthetic ART_DIR
+  under `mktemp -d` in their integration tests; deferred to v0.47.0.
+- ADOPT: `cw_pane_meta_read` (already in `lib/ipc.sh`) at 2 sites that
+  rerolled the `pane_id` regex.
+- DROP: duplicate `OUTBOX_PATH` variable in
+  `bin/deep-research-experiment-send.sh` (held identical value to `OUTBOX`).
+
+**Helper extractions (findings #3, #1, #9):**
+
+- NEW: `cw_deep_research_metric_primary` — replaces 3 byte-equal awk blocks
+  for extracting `**Primary metric:**` from metric.md.
+- NEW: `cw_jsonl_string_field` in `lib/ipc.sh` — generalizes
+  `cw_event_name_extract`; 6 open-coded sed sites migrated. Uses awk
+  for first-match-on-duplicate-key semantics. `cw_event_name_extract`
+  stays as a named alias.
+- NEW: `cw_deep_research_trooper_event` — wraps `cw_deep_research_trooper_state_write`,
+  stamps `last_event` + `last_event_ts` internally; 4 callers migrated
+  (3 in bin/ + `cw_deep_research_lane_abandon`). `lane_abandon`'s
+  `last_event` field now reads "lane-abandoned" (previously untouched).
+
+**Tests:**
+
+- NEW: `tests/test_deep_research_art_dir.sh` (3 cases)
+- NEW: `tests/test_deep_research_metric_primary.sh` (4 cases)
+- NEW: `tests/test_deep_research_trooper_event.sh` (3 cases)
+- NEW: `tests/test_jsonl_string_field.sh` (4 cases + 1 back-compat)
+- NEW: `tests/test_v0_46_0_static_wiring.sh` (7 invariants)
+
+**Considered and deferred:**
+
+- #2 (unified `cw_dr_json_field`) — Medium risk; v0.47.0 with focused PR.
+- #5 partial — 2 monitor/render_summary sites bundled into v0.47.0 with
+  the helper-variant or test-fixture rework needed.
+- #8 (project-hook stdin parser) — different surface area; v0.47.0.
+- #7 (parallel `cw_<subsystem>_assert_topic` family) — deliberate per
+  earlier design intent; reopen via separate brainstorm if needed.
+- #10 (lift `_awk_esc` to lib) — YAGNI; single caller; lift when a
+  second one appears.
+
+**Release-gate dogfood status:** pending.
+
+---
+
 ## v0.45.0 — inter-trooper visibility (2026-05-19)
 
 **Feature:** `## Peers` snapshot inlined into every experiment prompt.

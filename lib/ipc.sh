@@ -164,8 +164,32 @@ cw_event_match_pattern() {
 # Echo the value of the first `"event":"..."` field. Empty stdin → empty output
 # (no error). Used by wait-scripts after they grep a tail block — `case
 # "$EVENT" in done|error|question)` is the canonical downstream shape.
+# v0.46.0: thin alias for cw_jsonl_string_field (kept for callers that
+# work specifically on the canonical event field; conveys intent).
 cw_event_name_extract() {
-  printf '%s' "$1" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p'
+  cw_jsonl_string_field "$1" event
+}
+
+# cw_jsonl_string_field <jsonl-line> <key>
+# Echo the value of the first `"<key>":"..."` string field. Empty input
+# or absent key → empty output (no error). Used by monitor / render-summary
+# / wave-wait. The two-arg generalization of cw_event_name_extract.
+# Uses awk for first-match-wins semantics (sed BRE is greedy and would
+# return the last match on duplicate-key lines).
+cw_jsonl_string_field() {
+  local line="${1:-}" key="${2:-}"
+  [[ -n "$key" ]] || return 0
+  printf '%s' "$line" | awk -v k="$key" '
+    {
+      pat = "\"" k "\":\""
+      i = index($0, pat)
+      if (i == 0) next
+      rest = substr($0, i + length(pat))
+      j = index(rest, "\"")
+      if (j == 0) next
+      print substr(rest, 1, j - 1)
+    }
+  '
 }
 
 # cw_outbox_offset <outbox-path>

@@ -15,6 +15,7 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && p
 source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/consult.sh"
+source "$PLUGIN_ROOT/lib/ipc.sh"
 source "$PLUGIN_ROOT/lib/deep-research.sh"
 
 [[ $# -eq 2 ]] || { log_error "Usage: $0 <topic> <commander>"; exit 2; }
@@ -26,8 +27,7 @@ cw_deep_research_normalize_topic TOPIC
 [[ "$COMMANDER" =~ ^[a-z][a-z0-9-]*$ ]] \
   || { log_error "commander must match [a-z][a-z0-9-]*; got '$COMMANDER'"; exit 2; }
 
-TOPIC_DIR="$(cw_topic_state_dir "$TOPIC")"
-ART_DIR="$TOPIC_DIR/_deep-research"
+ART_DIR="$(cw_deep_research_art_dir "$TOPIC")"
 STATE_FILE="$ART_DIR/troopers/$COMMANDER/state.txt"
 [[ -f "$STATE_FILE" ]] \
   || { log_error "trooper state.txt missing: $STATE_FILE"; exit 1; }
@@ -53,19 +53,12 @@ log_info "[fresh-trooper] respawning $COMMANDER ..."
   || { log_error "spawn failed for $COMMANDER on $TOPIC"; exit 1; }
 
 # Reset runtime state (preserve exp_counter so the next dispatch numbers correctly).
-cw_deep_research_trooper_state_write "$ART_DIR" "$COMMANDER" \
+cw_deep_research_trooper_event "$ART_DIR" "$COMMANDER" fresh-trooper-respawn \
   phase=idle \
   current_exp_id= \
   exp_counter="$prev_counter" \
-  last_event_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  last_event=fresh-trooper-respawn \
   probe_sent_ts=
 
 # Surface new pane id (best-effort).
-pane_id=""
-pane_id_file="$TOPIC_DIR/$COMMANDER-codex/pane.json"
-if [[ -f "$pane_id_file" ]]; then
-  pane_id=$(grep -oE '"pane_id"[[:space:]]*:[[:space:]]*"%[0-9]+"' "$pane_id_file" \
-    | grep -oE '%[0-9]+' | head -1)
-fi
+pane_id=$(cw_pane_meta_read "$COMMANDER" codex "$TOPIC" 2>/dev/null || true)
 log_ok "[fresh-trooper] $COMMANDER respawned ${pane_id:+(pane $pane_id) }on $TOPIC; state preserved (exp_counter=$prev_counter)"

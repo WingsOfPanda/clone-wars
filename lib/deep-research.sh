@@ -1,5 +1,7 @@
 # lib/deep-research.sh — helpers for /clone-wars:deep-research.
 # Sourced. Depends on lib/log.sh, lib/state.sh, lib/consult.sh, lib/commanders.sh.
+# v0.46.0: self-sources lib/ipc.sh (cw_event_name_extract / cw_jsonl_string_field)
+# so the ~55 indirect callers don't each need a new source line.
 #
 # Public:
 #   cw_deep_research_extract_metric <topic-text>
@@ -24,6 +26,17 @@
 #   cw_deep_research_assert_topic <topic>
 #       — require explicit 'deep-research-' prefix; exits 2 on invalid topic.
 
+# v0.46.0: self-source lib/ipc.sh so render_summary and other helpers can
+# call cw_jsonl_string_field / cw_event_name_extract without each of the
+# ~55 callers of deep-research.sh adding their own source line. Pattern
+# borrowed from lib/consult.sh (which self-sources consult-prompts.sh).
+_CW_DR_BASH_SOURCE="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+_CW_DR_LIB_DIR="$(cd "$(dirname "$_CW_DR_BASH_SOURCE")" && pwd)"
+unset _CW_DR_BASH_SOURCE
+# Re-sourcing is a no-op (function redefinition is cheap and idempotent).
+source "$_CW_DR_LIB_DIR/ipc.sh"
+unset _CW_DR_LIB_DIR
+
 # cw_deep_research_normalize_topic <topic-var-name>
 # Auto-prefix bare slug with 'deep-research-' if missing, then validate.
 # Mutates the named variable in place. Exits 2 on validation failure.
@@ -41,6 +54,15 @@ cw_deep_research_assert_topic() {
   [[ "$1" == deep-research-* ]] \
     || { log_error "topic must start with 'deep-research-': $1"; exit 2; }
   cw_consult_topic_validate "$1" || { log_error "invalid topic: $1"; exit 2; }
+}
+
+# cw_deep_research_art_dir <topic>
+# Print absolute path to the topic's _deep-research artifact dir.
+# Sibling of cw_meditate_art_dir (lib/meditate.sh) and cw_deploy_art_dir
+# (lib/deploy.sh). Centralizes the path construction that 6+ bin scripts
+# rolled by hand.
+cw_deep_research_art_dir() {
+  printf '%s/_deep-research\n' "$(cw_topic_state_dir "$1")"
 }
 
 # Canonical metric vocabulary. Whole-word case-insensitive match in topic
@@ -407,6 +429,38 @@ cw_deep_research_trooper_state_write() {
   } | cw_atomic_write "$f"
 }
 
+# cw_deep_research_trooper_event <art-dir> <commander> <event-verb> [<k=v>...]
+# Thin wrapper over cw_deep_research_trooper_state_write that stamps
+# last_event_ts (UTC ISO-8601) + last_event=<event-verb>, then forwards
+# extra k=v args verbatim. Centralizes the per-callsite `date -u +…`
+# invocation (3+ open-coded copies as of v0.45.0). rc=2 on missing args.
+cw_deep_research_trooper_event() {
+  local art_dir="${1:-}" commander="${2:-}" verb="${3:-}"
+  [[ -n "$art_dir" && -n "$commander" && -n "$verb" ]] \
+    || { echo "cw_deep_research_trooper_event: usage: <art-dir> <commander> <event-verb> [<k=v>...]" >&2; return 2; }
+  shift 3
+  local ts; ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  cw_deep_research_trooper_state_write "$art_dir" "$commander" \
+    last_event="$verb" \
+    last_event_ts="$ts" \
+    "$@"
+}
+
+# cw_deep_research_metric_primary <metric-md-path>
+# Extract the value of the "**Primary metric:**" line from metric.md.
+# Returns empty on missing file or malformed input (no exit-fail).
+# Replaces 3 byte-equal awk blocks in experiment-send.sh + score.sh +
+# check_completion (see callers).
+cw_deep_research_metric_primary() {
+  local m="${1:-}"
+  [[ -f "$m" ]] || return 0
+  awk '
+    /^\*\*Primary metric:\*\*/ {
+      sub(/^\*\*Primary metric:\*\*[[:space:]]+/, ""); print; exit
+    }
+  ' "$m"
+}
+
 # cw_deep_research_check_completion <scoreboard.md> <metric.md>
 # Compute completion signals from scoreboard rows + metric thresholds.
 # Prints TSV-shape KV block on stdout:
@@ -442,11 +496,7 @@ cw_deep_research_check_completion() {
   # When the scoreboard lacks the metric_name column (legacy / test fixtures
   # using the 7-col shape), row_metric is empty and the filter is a no-op.
   local primary_metric
-  primary_metric=$(awk '
-    /^\*\*Primary metric:\*\*/ {
-      sub(/^\*\*Primary metric:\*\*[[:space:]]+/, ""); print; exit
-    }
-  ' "$m")
+  primary_metric=$(cw_deep_research_metric_primary "$m")
 
   # Helper: numeric compare $1 (op) $2 against threshold $3 via awk.
   # File-scope-prefixed name; defined inside the function for context-locality
@@ -632,8 +682,8 @@ cw_deep_research_render_summary() {
       if [[ -f "$outbox" ]]; then
         tail -10 "$outbox" | while IFS= read -r line; do
           local ts ev
-          ts=$(printf '%s' "$line" | sed -n 's/.*"ts":"\([^"]*\)".*/\1/p')
-          ev=$(printf '%s' "$line" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p')
+          ts=$(cw_jsonl_string_field "$line" ts)
+          ev=$(cw_event_name_extract "$line")
           [[ -n "$ev" ]] && printf '%s\t%s\t%s\n' "$ts" "$cmdr" "$ev" >> "$merged"
         done
       fi
@@ -855,12 +905,10 @@ cw_deep_research_lane_abandon() {
   local art_dir="${1:-}" commander="${2:-}" reason="${3:-}"
   [[ -n "$art_dir" && -n "$commander" && -n "$reason" ]] \
     || { echo "cw_deep_research_lane_abandon: usage: <art-dir> <commander> <reason>" >&2; return 2; }
-  local ts
-  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  cw_deep_research_trooper_state_write "$art_dir" "$commander" \
+  cw_deep_research_trooper_event "$art_dir" "$commander" lane-abandoned \
     phase=abandoned \
     lane_abandon_reason="$reason" \
-    lane_abandon_ts="$ts"
+    lane_abandon_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 
 # cw_deep_research_format_sota_block

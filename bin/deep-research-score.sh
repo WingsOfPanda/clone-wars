@@ -20,10 +20,7 @@ source "$PLUGIN_ROOT/lib/deep-research.sh"
 TOPIC="$1"
 cw_deep_research_assert_topic "$TOPIC"
 
-state_root=$(cw_state_root)
-repo_hash=$(cw_repo_hash)
-TOPIC_DIR="$state_root/state/$repo_hash/$TOPIC"
-ART_DIR="$TOPIC_DIR/_deep-research"
+ART_DIR="$(cw_deep_research_art_dir "$TOPIC")"
 TROOPERS_DIR="$ART_DIR/troopers"
 [[ -d "$TROOPERS_DIR" ]] || { log_error "troopers dir missing: $TROOPERS_DIR"; exit 1; }
 
@@ -38,14 +35,7 @@ trap 'rm -f "$SB_TMP" "$OK_ROWS" "$FAIL_ROWS"' EXIT
 # fixtures that synthesize state directly), fall back to the base validator
 # without metric_name enforcement.
 METRIC_MD="$ART_DIR/metric.md"
-expected_metric=""
-if [[ -f "$METRIC_MD" ]]; then
-  expected_metric=$(awk '
-    /^\*\*Primary metric:\*\*/ {
-      sub(/^\*\*Primary metric:\*\*[[:space:]]+/, ""); print; exit
-    }
-  ' "$METRIC_MD")
-fi
+expected_metric=$(cw_deep_research_metric_primary "$METRIC_MD")
 
 # v0.28.0: per-trooper layout. Iterate _deep-research/troopers/<cmdr>/experiments/<exp-id>/.
 # Commander comes from the parent dir; exp-id is the leaf basename.
@@ -151,10 +141,8 @@ for cmdr_dir in "$TROOPERS_DIR"/*/; do
 
   # Only flip state if the trooper's CURRENT experiment has a result.json.
   if [[ -f "$cmdr_dir/experiments/$current_exp_id/result.json" ]]; then
-    cw_deep_research_trooper_state_write "$ART_DIR" "$cmdr" \
+    cw_deep_research_trooper_event "$ART_DIR" "$cmdr" scored \
       phase=idle \
-      current_exp_id= \
-      last_event_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      last_event=scored
+      current_exp_id=
   fi
 done

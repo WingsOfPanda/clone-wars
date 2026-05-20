@@ -18,6 +18,8 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && p
 source "$PLUGIN_ROOT/lib/log.sh"
 # shellcheck source=../lib/state.sh
 source "$PLUGIN_ROOT/lib/state.sh"
+# shellcheck source=../lib/ipc.sh
+source "$PLUGIN_ROOT/lib/ipc.sh"
 # shellcheck source=../lib/deep-research.sh
 source "$PLUGIN_ROOT/lib/deep-research.sh"
 
@@ -73,7 +75,7 @@ if (( OFFSET > 0 )) && [[ -f "$OUTBOX" ]]; then
     pre_ln=$((pre_ln + 1))
     # +1 byte accounts for the trailing newline that `read` consumes.
     bytes_seen=$((bytes_seen + ${#pre_line} + 1))
-    pre_ev=$(printf '%s' "$pre_line" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p')
+    pre_ev=$(cw_event_name_extract "$pre_line")
     case "$pre_ev" in
       done|error|question)
         if ! grep -qE "^${pre_ln}	${pre_ev}\$" "$RESCAN_CURSOR_FILE" 2>/dev/null; then
@@ -97,10 +99,10 @@ while true; do
     local_size=$(wc -c < "$OUTBOX" | tr -d '[:space:]')
     if (( local_size > OFFSET )); then
       tail -c "+$((OFFSET + 1))" "$OUTBOX" 2>/dev/null | while IFS= read -r line; do
-        ev=$(printf '%s' "$line" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p')
+        ev=$(cw_event_name_extract "$line")
         case "$ev" in
           done|error|question|heartbeat)
-            summary=$(printf '%s' "$line" | sed -n 's/.*"summary":"\([^"]*\)".*/\1/p')
+            summary=$(cw_jsonl_string_field "$line" summary)
             emit "$ev" "$summary"
             ;;
         esac
@@ -137,13 +139,13 @@ while true; do
     line_num=0
     while IFS= read -r rline; do
       line_num=$((line_num + 1))
-      rev=$(printf '%s' "$rline" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p')
+      rev=$(cw_event_name_extract "$rline")
       case "$rev" in
         done|error|question)
           # Dedup against liveness-rescan-emitted.txt — TAB-separated
           # <line-num><TAB><event>.
           if ! grep -qE "^${line_num}	${rev}\$" "$RESCAN_CURSOR_FILE" 2>/dev/null; then
-            rsum=$(printf '%s' "$rline" | sed -n 's/.*"summary":"\([^"]*\)".*/\1/p')
+            rsum=$(cw_jsonl_string_field "$rline" summary)
             emit "$rev" "${rsum} (rescan)"
             printf '%d\t%s\n' "$line_num" "$rev" >> "$RESCAN_CURSOR_FILE"
           fi
