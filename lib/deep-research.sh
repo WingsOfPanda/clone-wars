@@ -43,6 +43,15 @@ cw_deep_research_assert_topic() {
   cw_consult_topic_validate "$1" || { log_error "invalid topic: $1"; exit 2; }
 }
 
+# cw_deep_research_art_dir <topic>
+# Print absolute path to the topic's _deep-research artifact dir.
+# Sibling of cw_meditate_art_dir (lib/meditate.sh) and cw_deploy_art_dir
+# (lib/deploy.sh). Centralizes the path construction that 6+ bin scripts
+# rolled by hand.
+cw_deep_research_art_dir() {
+  printf '%s/_deep-research\n' "$(cw_topic_state_dir "$1")"
+}
+
 # Canonical metric vocabulary. Whole-word case-insensitive match in topic
 # text; first-by-position wins.
 _CW_DEEP_RESEARCH_METRIC_VOCAB=(

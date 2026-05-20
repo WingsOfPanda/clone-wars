@@ -26,7 +26,7 @@ TOPIC_DIR="$(cw_topic_state_dir "$TOPIC")"
 # v0.29.0: shared helper handles 1-col troopers.txt parse + orphan kill +
 # cleanup. No-op if preflight-panes.txt is absent (pre-v0.28.3 archives +
 # happy-path runs where the file was already removed elsewhere).
-ART_DIR="$TOPIC_DIR/_deep-research"
+ART_DIR="$(cw_deep_research_art_dir "$TOPIC")"
 TROOPERS_FILE="$ART_DIR/troopers.txt"
 cw_teardown_with_preflight_orphans "$ART_DIR" "$TROOPERS_FILE" 1col
 

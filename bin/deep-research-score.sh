@@ -20,10 +20,8 @@ source "$PLUGIN_ROOT/lib/deep-research.sh"
 TOPIC="$1"
 cw_deep_research_assert_topic "$TOPIC"
 
-state_root=$(cw_state_root)
-repo_hash=$(cw_repo_hash)
-TOPIC_DIR="$state_root/state/$repo_hash/$TOPIC"
-ART_DIR="$TOPIC_DIR/_deep-research"
+TOPIC_DIR="$(cw_topic_state_dir "$TOPIC")"
+ART_DIR="$(cw_deep_research_art_dir "$TOPIC")"
 TROOPERS_DIR="$ART_DIR/troopers"
 [[ -d "$TROOPERS_DIR" ]] || { log_error "troopers dir missing: $TROOPERS_DIR"; exit 1; }
 

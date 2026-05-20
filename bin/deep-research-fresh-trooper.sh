@@ -27,7 +27,7 @@ cw_deep_research_normalize_topic TOPIC
   || { log_error "commander must match [a-z][a-z0-9-]*; got '$COMMANDER'"; exit 2; }
 
 TOPIC_DIR="$(cw_topic_state_dir "$TOPIC")"
-ART_DIR="$TOPIC_DIR/_deep-research"
+ART_DIR="$(cw_deep_research_art_dir "$TOPIC")"
 STATE_FILE="$ART_DIR/troopers/$COMMANDER/state.txt"
 [[ -f "$STATE_FILE" ]] \
   || { log_error "trooper state.txt missing: $STATE_FILE"; exit 1; }
