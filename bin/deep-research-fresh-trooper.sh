@@ -15,6 +15,7 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && p
 source "$PLUGIN_ROOT/lib/log.sh"
 source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/consult.sh"
+source "$PLUGIN_ROOT/lib/ipc.sh"
 source "$PLUGIN_ROOT/lib/deep-research.sh"
 
 [[ $# -eq 2 ]] || { log_error "Usage: $0 <topic> <commander>"; exit 2; }
@@ -63,7 +64,7 @@ cw_deep_research_trooper_state_write "$ART_DIR" "$COMMANDER" \
 
 # Surface new pane id (best-effort).
 pane_id=""
-pane_id_file="$TOPIC_DIR/$COMMANDER-codex/pane.json"
+pane_id_file="$(cw_pane_meta_path "$COMMANDER" codex "$TOPIC")"
 if [[ -f "$pane_id_file" ]]; then
   pane_id=$(grep -oE '"pane_id"[[:space:]]*:[[:space:]]*"%[0-9]+"' "$pane_id_file" \
     | grep -oE '%[0-9]+' | head -1)

@@ -127,7 +127,7 @@ if [[ -n "$SMOKE_TEST" ]]; then
 fi
 
 # Trooper pane: trooper outbox must exist (means trooper was spawned)
-OUTBOX="$TOPIC_DIR/$COMMANDER-codex/outbox.jsonl"
+OUTBOX="$(cw_outbox_path "$COMMANDER" codex "$TOPIC")"
 [[ -f "$OUTBOX" ]] \
   || { log_error "trooper outbox missing: $OUTBOX (was spawn.sh run for $COMMANDER?)"; exit 1; }
 
@@ -165,7 +165,8 @@ HARDWARE_BLOCK=$(cat "$HW_CURRENT")
 
 # v0.27.2 BUG #5: OUTBOX_PATH placeholder so trooper doesn't need to
 # string-concat the outbox path themselves. Resolved absolute path.
-OUTBOX_PATH="$TOPIC_DIR/$COMMANDER-codex/outbox.jsonl"
+# v0.46.0: reuse $OUTBOX (same value, computed via cw_outbox_path above).
+OUTBOX_PATH="$OUTBOX"
 
 # Render prompt from template
 TEMPLATE="$PLUGIN_ROOT/config/prompt-templates/deep-research/experiment.md"
@@ -261,7 +262,7 @@ if grep -qE '\{\{[A-Z_]+\}\}' "$PROMPT_FILE"; then
 fi
 
 # Write inbox.md (one inbox at a time; trooper reads it on nudge)
-INBOX="$TOPIC_DIR/$COMMANDER-codex/inbox.md"
+INBOX="$(cw_inbox_path "$COMMANDER" codex "$TOPIC")"
 {
   cat "$PROMPT_FILE"
   printf '\nEND_OF_INSTRUCTION\n'
@@ -283,7 +284,7 @@ cw_deep_research_trooper_state_write "$ART_DIR" "$COMMANDER" \
 
 # Nudge the pane unless DRY_RUN
 if [[ "${CW_DEEP_RESEARCH_DRY_RUN:-0}" != "1" ]]; then
-  pane_id_file="$TOPIC_DIR/$COMMANDER-codex/pane.json"
+  pane_id_file="$(cw_pane_meta_path "$COMMANDER" codex "$TOPIC")"
   if [[ -f "$pane_id_file" ]]; then
     pane_id=$(grep -oE '"pane_id"[[:space:]]*:[[:space:]]*"%[0-9]+"' "$pane_id_file" \
       | grep -oE '%[0-9]+' | head -1)
