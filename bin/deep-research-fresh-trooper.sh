@@ -27,7 +27,6 @@ cw_deep_research_normalize_topic TOPIC
 [[ "$COMMANDER" =~ ^[a-z][a-z0-9-]*$ ]] \
   || { log_error "commander must match [a-z][a-z0-9-]*; got '$COMMANDER'"; exit 2; }
 
-TOPIC_DIR="$(cw_topic_state_dir "$TOPIC")"
 ART_DIR="$(cw_deep_research_art_dir "$TOPIC")"
 STATE_FILE="$ART_DIR/troopers/$COMMANDER/state.txt"
 [[ -f "$STATE_FILE" ]] \

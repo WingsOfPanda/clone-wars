@@ -76,7 +76,6 @@ if [[ -n "$SMOKE_TEST" ]]; then
     || { log_error "smoke-test: script not executable: $SMOKE_TEST"; exit 2; }
 fi
 
-TOPIC_DIR="$(cw_topic_state_dir "$TOPIC")"
 ART_DIR="$(cw_deep_research_art_dir "$TOPIC")"
 [[ -d "$ART_DIR" ]] || { log_error "topic state dir missing: $ART_DIR (was deep-research-init.sh run?)"; exit 1; }
 
