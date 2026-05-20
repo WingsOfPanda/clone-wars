@@ -83,23 +83,26 @@ for branch_dir in "$TROOPERS_DIR"/*/experiments/*/; do
 done
 
 {
+  printf '<!-- scoreboard schema_version=2 -->\n'
   printf '# Scoreboard\n\n'
   printf '| Rank | Experiment | Commander | Metric | Status | Runtime | Approach | metric_name |\n'
   printf '|---|---|---|---|---|---|---|---|\n'
   rank=1
   if [[ -s "$OK_ROWS" ]]; then
     while IFS=$'\t' read -r metric exp cmdr status runtime label metric_name; do
-      printf '| %d | %s | %s | %s | %s | %ss | %s | %s |\n' \
-        "$rank" "$exp" "$cmdr" "$metric" "$status" "$runtime" "$label" "$metric_name"
+      printf '| %d | %s | %s | %s |\n' \
+        "$rank" "$exp" "$cmdr" \
+        "$(cw_deep_research_scoreboard_render_row "$metric" "$runtime" "$metric_name" "$status" "$label")"
       rank=$((rank + 1))
-    done < <(sort -t$'\t' -k1,1 -rn "$OK_ROWS")
+    done < <(sort -t$'\t' -k1,1rn -k5,5n -k2,2V "$OK_ROWS")
   fi
   if [[ -s "$FAIL_ROWS" ]]; then
     while IFS=$'\t' read -r exp cmdr status runtime label metric_name; do
-      printf '| %d | %s | %s | n/a | %s | %ss | %s | %s |\n' \
-        "$rank" "$exp" "$cmdr" "$status" "$runtime" "$label" "$metric_name"
+      printf '| %d | %s | %s | %s |\n' \
+        "$rank" "$exp" "$cmdr" \
+        "$(cw_deep_research_scoreboard_render_row "n/a" "$runtime" "$metric_name" "$status" "$label")"
       rank=$((rank + 1))
-    done < <(sort -t$'\t' -k1,1 "$FAIL_ROWS")
+    done < <(sort -t$'\t' -k1,1V "$FAIL_ROWS")
   fi
 } > "$SB_TMP"
 
