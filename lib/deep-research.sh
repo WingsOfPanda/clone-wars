@@ -747,6 +747,30 @@ cw_deep_research_render_summary() {
     printf '_(no events yet)_\n'
   fi
   rm -f "$merged"
+
+  # Section: Halt (rendered only when halt.flag is present)
+  local halt_data halt_format
+  halt_data=$(cw_deep_research_halt_flag_read "$art_dir/halt.flag")
+  halt_format=$(printf '%s\n' "$halt_data" | awk -F= '/^format=/{print $2; exit}')
+  case "$halt_format" in
+    structured)
+      printf '\n## Halt\n\n'
+      printf '```\n'
+      printf '%s\n' "$halt_data" | awk -F= '/^format=/{next} {print}'
+      printf '```\n'
+      printf 'Finalized: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      ;;
+    prose)
+      printf '\n## Halt\n\n'
+      local prose_reason
+      prose_reason=$(printf '%s\n' "$halt_data" | awk -F= '/^reason=/{ sub(/^reason=/,""); print; exit}')
+      printf -- '- Reason: %s\n' "$prose_reason"
+      printf -- '- Finalized: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      ;;
+    missing|*)
+      : # no halt yet — omit the section entirely
+      ;;
+  esac
 }
 
 # cw_deep_research_list_commanders <art-dir>
