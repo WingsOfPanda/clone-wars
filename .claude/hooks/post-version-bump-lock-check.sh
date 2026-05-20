@@ -9,15 +9,10 @@
 # task of parsing escaped JSON quotes out of the Edit tool payload.
 set -uo pipefail
 
-HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-REPO_ROOT=$(cd "$HERE/../.." && pwd)
-
-input=$(cat 2>/dev/null || true)
-
-file_path=$(printf '%s' "$input" \
-  | grep -oE '"file_path"[[:space:]]*:[[:space:]]*"[^"]*"' \
-  | head -1 \
-  | sed -E 's/.*"file_path"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/')
+# shellcheck source=.claude/hooks/_lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+REPO_ROOT=$(cw_hook_repo_root)
+file_path=$(cw_hook_file_path_from_stdin)
 
 case "$file_path" in
   *.claude-plugin/plugin.json) ;;
