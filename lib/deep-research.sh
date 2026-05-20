@@ -1,5 +1,7 @@
 # lib/deep-research.sh — helpers for /clone-wars:deep-research.
 # Sourced. Depends on lib/log.sh, lib/state.sh, lib/consult.sh, lib/commanders.sh.
+# v0.46.0: self-sources lib/ipc.sh (cw_event_name_extract / cw_jsonl_string_field)
+# so the ~55 indirect callers don't each need a new source line.
 #
 # Public:
 #   cw_deep_research_extract_metric <topic-text>
@@ -23,6 +25,17 @@
 #         exits 2 on invalid topic (validates via cw_consult_topic_validate).
 #   cw_deep_research_assert_topic <topic>
 #       — require explicit 'deep-research-' prefix; exits 2 on invalid topic.
+
+# v0.46.0: self-source lib/ipc.sh so render_summary and other helpers can
+# call cw_jsonl_string_field / cw_event_name_extract without each of the
+# ~55 callers of deep-research.sh adding their own source line. Pattern
+# borrowed from lib/consult.sh (which self-sources consult-prompts.sh).
+_CW_DR_BASH_SOURCE="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+_CW_DR_LIB_DIR="$(cd "$(dirname "$_CW_DR_BASH_SOURCE")" && pwd)"
+unset _CW_DR_BASH_SOURCE
+# Re-sourcing is a no-op (function redefinition is cheap and idempotent).
+source "$_CW_DR_LIB_DIR/ipc.sh"
+unset _CW_DR_LIB_DIR
 
 # cw_deep_research_normalize_topic <topic-var-name>
 # Auto-prefix bare slug with 'deep-research-' if missing, then validate.
@@ -652,8 +665,8 @@ cw_deep_research_render_summary() {
       if [[ -f "$outbox" ]]; then
         tail -10 "$outbox" | while IFS= read -r line; do
           local ts ev
-          ts=$(printf '%s' "$line" | sed -n 's/.*"ts":"\([^"]*\)".*/\1/p')
-          ev=$(printf '%s' "$line" | sed -n 's/.*"event":"\([^"]*\)".*/\1/p')
+          ts=$(cw_jsonl_string_field "$line" ts)
+          ev=$(cw_event_name_extract "$line")
           [[ -n "$ev" ]] && printf '%s\t%s\t%s\n' "$ts" "$cmdr" "$ev" >> "$merged"
         done
       fi

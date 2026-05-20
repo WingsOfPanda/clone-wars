@@ -62,7 +62,7 @@ if [[ -z "$MATCHED" ]]; then
   exit 0
 fi
 
-EVENT=$(printf '%s' "$MATCHED" | sed -nE 's/.*"event":"([a-z]+)".*/\1/p')
+EVENT=$(cw_event_name_extract "$MATCHED")
 case "$EVENT" in
   done)
     write_state ok "EVENT=done"
