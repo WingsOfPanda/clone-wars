@@ -2,7 +2,7 @@
 # tests/test_deep_research_json_field.sh — v0.47.0 finding #2
 # Locks: cw_deep_research_json_field(file, key) extracts a JSON field
 # (string / number / bool / null) from result.json. Empty + rc=0 on
-# missing file or missing key. Promoted from private _cw_dr_json_field.
+# missing file or missing key. Promoted to public in v0.47.0.
 set -euo pipefail
 cd "$(dirname "$0")"
 source lib/assert.sh
