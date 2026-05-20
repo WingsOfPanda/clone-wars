@@ -136,14 +136,8 @@ offset=$(cw_outbox_offset "$OUTBOX")
 # Per-experiment wall-clock cap. Defaults per lib/contracts.sh; env override.
 TIME_BUDGET_S="${CW_DEEP_RESEARCH_EXPERIMENT_TIMEOUT_OVERRIDE:-$(cw_consult_timeout experiment)}"
 
-# Metric name = first non-bold non-section line under "**Primary metric:**" header
-METRIC_NAME=$(awk '
-  /^\*\*Primary metric:\*\*/ {
-    sub(/^\*\*Primary metric:\*\*[[:space:]]+/, "")
-    print
-    exit
-  }
-' "$METRIC_MD")
+# Metric name from metric.md's "**Primary metric:**" line.
+METRIC_NAME=$(cw_deep_research_metric_primary "$METRIC_MD")
 [[ -n "$METRIC_NAME" ]] \
   || { log_error "could not parse Primary metric from $METRIC_MD"; exit 1; }
 

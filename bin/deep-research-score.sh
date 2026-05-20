@@ -35,14 +35,7 @@ trap 'rm -f "$SB_TMP" "$OK_ROWS" "$FAIL_ROWS"' EXIT
 # fixtures that synthesize state directly), fall back to the base validator
 # without metric_name enforcement.
 METRIC_MD="$ART_DIR/metric.md"
-expected_metric=""
-if [[ -f "$METRIC_MD" ]]; then
-  expected_metric=$(awk '
-    /^\*\*Primary metric:\*\*/ {
-      sub(/^\*\*Primary metric:\*\*[[:space:]]+/, ""); print; exit
-    }
-  ' "$METRIC_MD")
-fi
+expected_metric=$(cw_deep_research_metric_primary "$METRIC_MD")
 
 # v0.28.0: per-trooper layout. Iterate _deep-research/troopers/<cmdr>/experiments/<exp-id>/.
 # Commander comes from the parent dir; exp-id is the leaf basename.

@@ -416,6 +416,21 @@ cw_deep_research_trooper_state_write() {
   } | cw_atomic_write "$f"
 }
 
+# cw_deep_research_metric_primary <metric-md-path>
+# Extract the value of the "**Primary metric:**" line from metric.md.
+# Returns empty on missing file or malformed input (no exit-fail).
+# Replaces 3 byte-equal awk blocks in experiment-send.sh + score.sh +
+# check_completion (see callers).
+cw_deep_research_metric_primary() {
+  local m="${1:-}"
+  [[ -f "$m" ]] || return 0
+  awk '
+    /^\*\*Primary metric:\*\*/ {
+      sub(/^\*\*Primary metric:\*\*[[:space:]]+/, ""); print; exit
+    }
+  ' "$m"
+}
+
 # cw_deep_research_check_completion <scoreboard.md> <metric.md>
 # Compute completion signals from scoreboard rows + metric thresholds.
 # Prints TSV-shape KV block on stdout:
@@ -451,11 +466,7 @@ cw_deep_research_check_completion() {
   # When the scoreboard lacks the metric_name column (legacy / test fixtures
   # using the 7-col shape), row_metric is empty and the filter is a no-op.
   local primary_metric
-  primary_metric=$(awk '
-    /^\*\*Primary metric:\*\*/ {
-      sub(/^\*\*Primary metric:\*\*[[:space:]]+/, ""); print; exit
-    }
-  ' "$m")
+  primary_metric=$(cw_deep_research_metric_primary "$m")
 
   # Helper: numeric compare $1 (op) $2 against threshold $3 via awk.
   # File-scope-prefixed name; defined inside the function for context-locality
