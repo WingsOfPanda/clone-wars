@@ -53,6 +53,6 @@ cur=$(awk -F= '/^current_exp_id=/{print $2}' "$ART/troopers/rex/state.txt")
 pass "current_exp_id cleared"
 
 # scoreboard.md updated with the row
-grep -qE '\| exp-001 \| rex \| 0\.95 \| ok' "$ART/scoreboard.md" \
+grep -qE '\| exp-001 \| rex \| 0\.9500 \| ok' "$ART/scoreboard.md" \
   || { echo "FAIL: scoreboard row missing or wrong:" >&2; cat "$ART/scoreboard.md" >&2; exit 1; }
 pass "scoreboard.md updated with exp-001 row"

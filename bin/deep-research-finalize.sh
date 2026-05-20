@@ -28,9 +28,8 @@ TD="$(cw_topic_state_dir "$TOPIC")"
 ART="$TD/_deep-research"
 [[ -d "$ART" ]] || { log_error "finalize: art-dir missing: $ART"; exit 1; }
 
-# Halt reason
-REASON=$(cat "$ART/halt.flag" 2>/dev/null | tr -d '\n' || echo "unknown")
-[[ -z "$REASON" ]] && REASON="unknown"
+# Halt reason — parsed inside cw_deep_research_render_summary via
+# cw_deep_research_halt_flag_read. No local variable needed here.
 
 # Update per-trooper phases
 if [[ -f "$ART/troopers.txt" ]]; then
@@ -64,15 +63,7 @@ rm -f "$ART/active.txt"  # legacy v0.39.0 form — kept for backwards-compat cle
 # whatever Yoda last wrote pre-halt. Idempotent atomic write.
 SS="$ART/session-summary.md"
 cw_deep_research_render_summary "$ART" | cw_atomic_write "$SS"
-# Idempotency: don't duplicate Halt section
-if ! grep -q '^## Halt$' "$SS"; then
-  cat >> "$SS" <<EOF
+# render_summary now owns the Halt section; no append needed here.
+# Idempotency comes from the atomic write above (replaces SS wholesale).
 
-## Halt
-
-- Reason: $REASON
-- Finalized: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-EOF
-fi
-
-log_ok "finalize: cleanup complete ($REASON)"
+log_ok "finalize: cleanup complete"

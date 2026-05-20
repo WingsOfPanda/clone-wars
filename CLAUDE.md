@@ -27,17 +27,15 @@ below for the closed-set boundary.
 
 ## Current focus
 
-- **Most recent merge:** v0.47.0 (simplification sweep part 2 —
-  promoted `_cw_dr_json_field` → `cw_deep_research_json_field` and
-  collapsed score.sh's 19-line if-jq/else block; added
-  `cw_outbox_path_in` to unblock the two v0.46.0-deferred path-helper
-  sites; extracted `.claude/hooks/_lib.sh` with stdin + repo-root
-  helpers; ~50-60 lines saved, closes 3 of 4 deferred findings).
-- **Next priority:** GPU resource scheduling (Item 4 from 2026-05-17)
-  is now the remaining unaddressed punch-list item. Otherwise:
-  continued release-gate dogfood for v0.27.0–v0.47.0. The 2026-05-19
-  simplification sweep punch list is closed except #7 (deliberate
-  per memory 23638) and #10 (YAGNI watchlist).
+- **Most recent merge:** v0.48.0 (deep-research halt + scoreboard
+  rendering — closes 7 of 13 archive-triage findings via 2 helpers
+  extracted helper-first, then migrated; halt.flag newlines now
+  preserved, prose-format halts render correctly, scoreboard has
+  multi-key sort + %.4f/%.2fs formatting + schema_version=2 marker).
+- **Next priority:** v0.49 — state-file hygiene cleanup (#8 archive
+  timestamp drift, #9 lane_abandon_reason fragility, #10 stale
+  probe_sent_ts, #12 halt.flag field-name rename). Spec at
+  `docs/superpowers/specs/2026-05-20-v0.48-v0.49-deep-research-archive-fixes-design.md`.
 - **No code freeze.** Feature work in flight should still go through
   the brainstorm → spec → plan → PR loop per `docs/superpowers/`.
 

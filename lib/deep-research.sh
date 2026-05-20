@@ -567,6 +567,60 @@ cw_deep_research_check_completion() {
   printf 'plateau=%s\n' "$plateau"
 }
 
+# cw_deep_research_halt_flag_read <halt-flag-path>
+# Parses halt.flag into a normalized k=v stream on stdout. Detects:
+#   - structured (v0.43+): first non-blank line has `=` and starts with `halted_by=`
+#     -> emit `format=structured\n` followed by the file's lines verbatim
+#   - prose (pre-v0.43): otherwise
+#     -> emit `format=prose\nreason=<full body, single line>`
+#   - missing or empty: emit `format=missing` only.
+# Always emits at least one line; never errors out (returns 0).
+cw_deep_research_halt_flag_read() {
+  local path="${1:-}"
+  if [[ -z "$path" || ! -s "$path" ]]; then
+    printf 'format=missing\n'
+    return 0
+  fi
+  # Strip trailing newline only; preserve embedded newlines for structured form.
+  local body
+  body=$(cat "$path")
+  local first_line
+  first_line=$(printf '%s\n' "$body" | awk 'NF{print; exit}')
+  if [[ "$first_line" == halted_by=* ]]; then
+    printf 'format=structured\n%s\n' "$body"
+  else
+    # Collapse any internal newlines to spaces for prose form so the single
+    # `reason=` line stays parseable by awk -F= consumers downstream.
+    local one_line
+    one_line=$(printf '%s\n' "$body" | tr '\n' ' ' | sed 's/[[:space:]]\+$//')
+    printf 'format=prose\nreason=%s\n' "$one_line"
+  fi
+}
+
+# cw_deep_research_scoreboard_render_row <metric_value> <runtime_s> <metric_name> <status> <approach>
+# Formats one Markdown table row with stable widths:
+#   - metric_value: printf '%.4f' (numeric) or passes through verbatim (non-numeric)
+#   - runtime_s:    printf '%.2fs' (numeric, suffix 's') or empty passes through
+#   - other fields: passed through verbatim
+# Caller is responsible for the leading '| <rank> | <exp> | <cmdr> |' prefix;
+# this helper renders only the value-bearing tail: '<metric> | <status> | <runtime> | <approach> | <metric_name> |'.
+cw_deep_research_scoreboard_render_row() {
+  local metric="${1:-}" runtime="${2:-}" metric_name="${3:-}" status="${4:-}" approach="${5:-}"
+  local metric_fmt runtime_fmt
+  # Numeric check via awk; falls back to verbatim on non-numeric inputs.
+  if [[ -n "$metric" ]] && awk -v m="$metric" 'BEGIN{exit !(m+0 == m)}' 2>/dev/null; then
+    metric_fmt=$(awk -v m="$metric" 'BEGIN{printf "%.4f", m+0}')
+  else
+    metric_fmt="$metric"
+  fi
+  if [[ -n "$runtime" ]] && awk -v r="$runtime" 'BEGIN{exit !(r+0 == r)}' 2>/dev/null; then
+    runtime_fmt=$(awk -v r="$runtime" 'BEGIN{printf "%.2fs", r+0}')
+  else
+    runtime_fmt="$runtime"
+  fi
+  printf '%s | %s | %s | %s | %s' "$metric_fmt" "$status" "$runtime_fmt" "$approach" "$metric_name"
+}
+
 # cw_deep_research_render_summary <art-dir>
 # Renders sections 1, 2, 4, 5 of session-summary.md mechanically from disk.
 # Yoda fills in Direction + Recent decisions sections via Write tool after this.
@@ -693,6 +747,30 @@ cw_deep_research_render_summary() {
     printf '_(no events yet)_\n'
   fi
   rm -f "$merged"
+
+  # Section: Halt (rendered only when halt.flag is present)
+  local halt_data halt_format
+  halt_data=$(cw_deep_research_halt_flag_read "$art_dir/halt.flag")
+  halt_format=$(printf '%s\n' "$halt_data" | awk -F= '/^format=/{print $2; exit}')
+  case "$halt_format" in
+    structured)
+      printf '\n## Halt\n\n'
+      printf '```\n'
+      printf '%s\n' "$halt_data" | awk -F= '/^format=/{next} {print}'
+      printf '```\n'
+      printf 'Finalized: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      ;;
+    prose)
+      printf '\n## Halt\n\n'
+      local prose_reason
+      prose_reason=$(printf '%s\n' "$halt_data" | awk -F= '/^reason=/{ sub(/^reason=/,""); print; exit}')
+      printf -- '- Reason: %s\n' "$prose_reason"
+      printf -- '- Finalized: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      ;;
+    missing|*)
+      : # no halt yet — omit the section entirely
+      ;;
+  esac
 }
 
 # cw_deep_research_list_commanders <art-dir>
