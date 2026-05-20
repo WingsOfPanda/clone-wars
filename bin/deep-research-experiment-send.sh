@@ -283,15 +283,10 @@ cw_deep_research_trooper_state_write "$ART_DIR" "$COMMANDER" \
 
 # Nudge the pane unless DRY_RUN
 if [[ "${CW_DEEP_RESEARCH_DRY_RUN:-0}" != "1" ]]; then
-  pane_id_file="$(cw_pane_meta_path "$COMMANDER" codex "$TOPIC")"
-  if [[ -f "$pane_id_file" ]]; then
-    pane_id=$(grep -oE '"pane_id"[[:space:]]*:[[:space:]]*"%[0-9]+"' "$pane_id_file" \
-      | grep -oE '%[0-9]+' | head -1)
-    if [[ -n "${pane_id:-}" ]]; then
-      "$PLUGIN_ROOT/bin/send.sh" "$COMMANDER" "$TOPIC" "@$INBOX" >/dev/null \
-        || log_warn "[experiment-send] send.sh nudge failed; trooper may not have noticed inbox"
-      log_info "nudging pane $pane_id via send.sh"
-    fi
+  if pane_id=$(cw_pane_meta_read "$COMMANDER" codex "$TOPIC" 2>/dev/null) && [[ -n "$pane_id" ]]; then
+    "$PLUGIN_ROOT/bin/send.sh" "$COMMANDER" "$TOPIC" "@$INBOX" >/dev/null \
+      || log_warn "[experiment-send] send.sh nudge failed; trooper may not have noticed inbox"
+    log_info "nudging pane $pane_id via send.sh"
   fi
 fi
 
