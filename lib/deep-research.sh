@@ -567,6 +567,36 @@ cw_deep_research_check_completion() {
   printf 'plateau=%s\n' "$plateau"
 }
 
+# cw_deep_research_halt_flag_read <halt-flag-path>
+# Parses halt.flag into a normalized k=v stream on stdout. Detects:
+#   - structured (v0.43+): first non-blank line has `=` and starts with `halted_by=`
+#     -> emit `format=structured\n` followed by the file's lines verbatim
+#   - prose (pre-v0.43): otherwise
+#     -> emit `format=prose\nreason=<full body, single line>`
+#   - missing or empty: emit `format=missing` only.
+# Always emits at least one line; never errors out (returns 0).
+cw_deep_research_halt_flag_read() {
+  local path="${1:-}"
+  if [[ -z "$path" || ! -s "$path" ]]; then
+    printf 'format=missing\n'
+    return 0
+  fi
+  # Strip trailing newline only; preserve embedded newlines for structured form.
+  local body
+  body=$(cat "$path")
+  local first_line
+  first_line=$(printf '%s\n' "$body" | awk 'NF{print; exit}')
+  if [[ "$first_line" == halted_by=* ]]; then
+    printf 'format=structured\n%s\n' "$body"
+  else
+    # Collapse any internal newlines to spaces for prose form so the single
+    # `reason=` line stays parseable by awk -F= consumers downstream.
+    local one_line
+    one_line=$(printf '%s\n' "$body" | tr '\n' ' ' | sed 's/[[:space:]]\+$//')
+    printf 'format=prose\nreason=%s\n' "$one_line"
+  fi
+}
+
 # cw_deep_research_render_summary <art-dir>
 # Renders sections 1, 2, 4, 5 of session-summary.md mechanically from disk.
 # Yoda fills in Direction + Recent decisions sections via Write tool after this.
