@@ -32,7 +32,6 @@ REASON="${2:-unspecified}"
 
 cw_deep_research_normalize_topic TOPIC
 
-TOPIC_DIR="$(cw_topic_state_dir "$TOPIC")"
 ART_DIR="$(cw_deep_research_art_dir "$TOPIC")"
 [[ -d "$ART_DIR" ]] \
   || { log_error "no active deep-research session for topic: $TOPIC (art-dir $ART_DIR missing)"; exit 1; }
