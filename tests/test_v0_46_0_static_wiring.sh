@@ -53,7 +53,8 @@ pass "5. lib/ipc.sh exports cw_jsonl_string_field"
 # look like `state_root=$(cw_state_root)` immediately followed (within ~3
 # lines) by a path that splices repo_hash and /_deep-research.
 # Pragmatic detection: grep for the literal string the migration replaced.
-# shellcheck disable=SC2016 — single-quoted regex; $ chars are part of the pattern, not shell vars.
+# Single-quoted regex; the $ chars are part of the grep pattern, not shell vars.
+# shellcheck disable=SC2016
 HITS_4=$(grep -lE '"\$state_root/state/\$repo_hash/\$TOPIC"' bin/deep-research-*.sh 2>/dev/null || true)
 [[ -z "$HITS_4" ]] \
   || { echo "FAIL: manual state_root+repo_hash+TOPIC concat remains in: $HITS_4" >&2; exit 1; }
