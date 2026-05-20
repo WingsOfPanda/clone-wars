@@ -10,6 +10,7 @@ source lib/assert.sh
 PLUGIN_ROOT="$(cd .. && pwd)"
 LIB="$PLUGIN_ROOT/.claude/hooks/_lib.sh"
 [[ -f "$LIB" ]] || { echo "FAIL: $LIB missing" >&2; exit 1; }
+# shellcheck source=/dev/null
 source "$LIB"
 
 # Case 1: cw_hook_file_path_from_stdin extracts present file_path
