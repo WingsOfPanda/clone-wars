@@ -281,9 +281,7 @@ cw_deep_research_validate_result_json_v033() {
   _cw_deep_research_validate_result_grep "$path" || return 1
   # Now the metric_name match
   local actual_metric
-  actual_metric=$(grep -oE '"metric_name"[[:space:]]*:[[:space:]]*"[^"]*"' "$path" \
-    | head -1 \
-    | sed -E 's/.*"([^"]*)"$/\1/')
+  actual_metric=$(cw_deep_research_json_field "$path" metric_name)
   [[ "$actual_metric" == "$expected_metric" ]] \
     || { echo "metric_name '$actual_metric' != metric.md primary '$expected_metric'" >&2; return 1; }
   return 0
@@ -678,7 +676,7 @@ cw_deep_research_render_summary() {
     topic_dir=$(dirname "$art_dir")
     while read -r cmdr; do
       [[ -n "$cmdr" ]] || continue
-      outbox="$topic_dir/$cmdr-codex/outbox.jsonl"
+      outbox="$(cw_outbox_path_in "$topic_dir" "$cmdr" codex)"
       if [[ -f "$outbox" ]]; then
         tail -10 "$outbox" | while IFS= read -r line; do
           local ts ev
@@ -780,13 +778,13 @@ cw_deep_research_render_status_brief() {
         [[ -z "$approach" ]] && approach="—"
         metric="(running)"
       elif [[ -f "$result" ]]; then
-        approach=$(_cw_dr_json_field "$result" approach_label)
+        approach=$(cw_deep_research_json_field "$result" approach_label)
         # Result.json missing approach_label is unexpected — fall back to prompt.md.
         [[ -z "$approach" && -f "$prompt" ]] && approach=$(_cw_dr_approach_from_prompt "$prompt")
         [[ -z "$approach" ]] && approach="—"
         local m s
-        m=$(_cw_dr_json_field "$result" metric_value)
-        s=$(_cw_dr_json_field "$result" status)
+        m=$(cw_deep_research_json_field "$result" metric_value)
+        s=$(cw_deep_research_json_field "$result" status)
         metric="$m $s"
       fi
       printf '| %s | %s | %s | %s | %s |\n' "$cmdr" "$phase" "$last_exp" "$approach" "$metric"
@@ -831,8 +829,10 @@ cw_deep_research_render_status_brief() {
   fi
 }
 
-# _cw_dr_json_field <result.json> <key>
-# Tiny JSON-field reader for status_brief (no jq dependency).
+# cw_deep_research_json_field <result.json> <key>
+# JSON-field reader for result.json (no jq dependency; uses jq when
+# available). Promoted to public in v0.47.0 to replace 3 sets of
+# open-coded grep|sed extractions.
 #
 # LIMITATIONS (acceptable for our flat result.json schema in
 # bin/deep-research-experiment-send.sh's template):
@@ -843,7 +843,7 @@ cw_deep_research_render_status_brief() {
 # For our flat schema (branch_id / approach_label / metric_name /
 # metric_value / status / runtime_s / log_paths / notes), these are
 # non-issues — notes is short single-line free text per the template.
-_cw_dr_json_field() {
+cw_deep_research_json_field() {
   local f="${1:-}" k="${2:-}"
   [[ -f "$f" && -n "$k" ]] || return 1
   if command -v jq >/dev/null 2>&1; then
@@ -1051,21 +1051,17 @@ cw_deep_research_format_peers_block() {
     if [[ -n "$latest_exp" ]]; then
       result="$art_dir/troopers/$peer/experiments/$latest_exp/result.json"
       if [[ -f "$result" ]]; then
-        approach=$(grep -oE '"approach_label"[[:space:]]*:[[:space:]]*"[^"]*"' "$result" \
-          | head -1 | sed -E 's/.*:[[:space:]]*"//;s/"$//')
+        approach=$(cw_deep_research_json_field "$result" approach_label)
         [[ -z "$approach" ]] && approach="—"
         local mv st
-        mv=$(grep -oE '"metric_value"[[:space:]]*:[[:space:]]*[^,}]+' "$result" \
-          | head -1 | sed -E 's/.*:[[:space:]]*//;s/[[:space:]]*$//')
-        st=$(grep -oE '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$result" \
-          | head -1 | sed -E 's/.*:[[:space:]]*"//;s/"$//')
+        mv=$(cw_deep_research_json_field "$result" metric_value)
+        st=$(cw_deep_research_json_field "$result" status)
         if [[ -n "$mv" && -n "$st" ]]; then
           metric_val="$mv ($st)"
         elif [[ -n "$mv" ]]; then
           metric_val="$mv"
         fi
-        notes_val=$(grep -oE '"notes"[[:space:]]*:[[:space:]]*"[^"]*"' "$result" \
-          | head -1 | sed -E 's/.*:[[:space:]]*"//;s/"$//')
+        notes_val=$(cw_deep_research_json_field "$result" notes)
         # Trim to 80 chars, collapse whitespace.
         notes_val=$(printf '%s' "$notes_val" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g')
         if [[ ${#notes_val} -gt 80 ]]; then

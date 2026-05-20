@@ -35,7 +35,7 @@ STUCK_S="${CW_DEEP_RESEARCH_STUCK_S:-1800}"
 RESCAN_EVERY_S="${CW_DEEP_RESEARCH_RESCAN_EVERY_S:-30}"
 
 TOPIC_DIR=$(dirname "$ART_DIR")
-OUTBOX="$TOPIC_DIR/$COMMANDER-codex/outbox.jsonl"
+OUTBOX="$(cw_outbox_path_in "$TOPIC_DIR" "$COMMANDER" codex)"
 CURSOR_FILE="$ART_DIR/troopers/$COMMANDER/liveness-cursor.txt"
 mkdir -p "$(dirname "$CURSOR_FILE")"
 

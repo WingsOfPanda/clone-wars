@@ -31,6 +31,17 @@ cw_identity_path() { printf '%s/identity.md\n'   "$(cw_trooper_dir "$1" "$2" "$3
 cw_status_path()   { printf '%s/status.json\n'   "$(cw_trooper_dir "$1" "$2" "$3")"; }
 cw_pane_meta_path(){ printf '%s/pane.json\n'     "$(cw_trooper_dir "$1" "$2" "$3")"; }
 
+# cw_outbox_path_in <topic_dir> <commander> <model>
+# Variant that takes the topic_dir directly instead of reconstructing it
+# via cw_topic_state_dir. Same physical output as cw_outbox_path for
+# production paths; trusts caller's dir. Used by monitor.sh and
+# render_summary, where the caller already has the dir from a different
+# anchor — and by integration tests that seed synthetic state under
+# mktemp -d (those fixtures don't have a canonical state-root).
+cw_outbox_path_in() {
+  printf '%s/%s-%s/outbox.jsonl\n' "$1" "$2" "$3"
+}
+
 # cw_state_init <commander> <model> <topic>
 # Create a fresh state dir for a trooper, clean any prior IPC files.
 # Touches outbox.jsonl so polling can grep the empty file safely.

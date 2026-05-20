@@ -67,25 +67,12 @@ for branch_dir in "$TROOPERS_DIR"/*/experiments/*/; do
     continue
   fi
 
-  # Extract fields (prefer jq, fall back to grep)
-  if command -v jq >/dev/null 2>&1; then
-    metric=$(jq -r '.metric_value' "$result")
-    status=$(jq -r '.status' "$result")
-    runtime=$(jq -r '.runtime_s' "$result")
-    label=$(jq -r '.approach_label' "$result")
-    metric_name=$(jq -r '.metric_name' "$result")
-  else
-    metric=$(grep -oE '"metric_value"[[:space:]]*:[[:space:]]*[^,}]+' "$result" \
-      | sed 's/.*:[[:space:]]*//' | tr -d ' "')
-    status=$(grep -oE '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$result" \
-      | sed 's/.*"\([^"]*\)"/\1/')
-    runtime=$(grep -oE '"runtime_s"[[:space:]]*:[[:space:]]*[0-9.]+' "$result" \
-      | sed 's/.*:[[:space:]]*//')
-    label=$(grep -oE '"approach_label"[[:space:]]*:[[:space:]]*"[^"]*"' "$result" \
-      | sed 's/.*"\([^"]*\)"/\1/')
-    metric_name=$(grep -oE '"metric_name"[[:space:]]*:[[:space:]]*"[^"]*"' "$result" \
-      | sed 's/.*"\([^"]*\)"/\1/')
-  fi
+  # Extract fields via canonical helper (jq under the hood when available).
+  metric=$(cw_deep_research_json_field "$result" metric_value)
+  status=$(cw_deep_research_json_field "$result" status)
+  runtime=$(cw_deep_research_json_field "$result" runtime_s)
+  label=$(cw_deep_research_json_field "$result" approach_label)
+  metric_name=$(cw_deep_research_json_field "$result" metric_name)
 
   # v0.33.0 D1: scoreboard.md gains metric_name column (8th).
   if [[ "$status" == "ok" ]]; then
