@@ -7,6 +7,61 @@ a design trail.
 
 ---
 
+## v0.47.0 — simplification sweep part 2 (2026-05-20)
+
+**Refactor:** Closes 3 of 4 v0.46.0-deferred findings. ~50-60 lines saved,
+no behavioral change.
+
+**Promotion (finding #2):**
+
+- RENAMED: `_cw_dr_json_field` → `cw_deep_research_json_field` (drops
+  underscore; promotes to public). The helper already handled jq path
+  and unified grep/sed fallback for string/number/bool/null. No body
+  changes.
+- MIGRATED: 3 sites in `lib/deep-research.sh` (`cw_deep_research_format_peers_block`
+  — 4 extractions; `cw_deep_research_validate_result_json_v033` — 1
+  extraction; updated 3 existing callers in `cw_deep_research_render_status_brief`)
+  + `bin/deep-research-score.sh` (collapsed 19-line `if jq / else 5x
+  grep|sed` block to 5 helper calls).
+
+**New helper (finding #5-partial):**
+
+- NEW: `cw_outbox_path_in <topic_dir> <commander> <model>` in
+  `lib/ipc.sh`. Sibling of `cw_outbox_path` that takes the topic dir
+  directly instead of reconstructing via `cw_topic_state_dir`. Unblocks
+  the 2 sites v0.46.0 T3 deferred (`bin/deep-research-monitor.sh`,
+  `lib/deep-research.sh::cw_deep_research_render_summary`).
+
+**New project-hook lib (finding #8):**
+
+- NEW: `.claude/hooks/_lib.sh` with `cw_hook_repo_root` (uses
+  `${BASH_SOURCE[1]}` for the sourcing script's location) and
+  `cw_hook_file_path_from_stdin` (extracts `tool_input.file_path` from
+  hook JSON payload).
+- MIGRATED: both `.claude/hooks/post-edit-hardcoded-paths-lint.sh` and
+  `.claude/hooks/post-version-bump-lock-check.sh` source `_lib.sh`
+  and call the helpers.
+
+**Tests:**
+
+- NEW: `tests/test_deep_research_json_field.sh` (5 cases)
+- NEW: `tests/test_outbox_path_in.sh` (3 cases)
+- NEW: `tests/test_hook_helpers.sh` (5 cases)
+- NEW: `tests/test_v0_47_0_static_wiring.sh` (5 invariants)
+
+**Considered and deferred:**
+
+- #7 (parallel `cw_<subsystem>_assert_topic` family) — still deferred
+  indefinitely; deliberate per memory 23638.
+- #10 (lift `_awk_esc` to lib) — still on YAGNI watchlist; single caller.
+
+After v0.47.0, the 2026-05-19 simplification sweep punch list is
+closed except #7 and #10.
+
+**Release-gate dogfood status:** pending.
+
+---
+
 ## v0.46.0 — simplification sweep (2026-05-20)
 
 **Refactor:** Six Low-risk consolidations from the 2026-05-19 code-simplifier
