@@ -597,6 +597,30 @@ cw_deep_research_halt_flag_read() {
   fi
 }
 
+# cw_deep_research_scoreboard_render_row <metric_value> <runtime_s> <metric_name> <status> <approach>
+# Formats one Markdown table row with stable widths:
+#   - metric_value: printf '%.4f' (numeric) or passes through verbatim (non-numeric)
+#   - runtime_s:    printf '%.2fs' (numeric, suffix 's') or empty passes through
+#   - other fields: passed through verbatim
+# Caller is responsible for the leading '| <rank> | <exp> | <cmdr> |' prefix;
+# this helper renders only the value-bearing tail: '<metric> | <status> | <runtime> | <approach> | <metric_name> |'.
+cw_deep_research_scoreboard_render_row() {
+  local metric="${1:-}" runtime="${2:-}" metric_name="${3:-}" status="${4:-}" approach="${5:-}"
+  local metric_fmt runtime_fmt
+  # Numeric check via awk; falls back to verbatim on non-numeric inputs.
+  if [[ -n "$metric" ]] && awk -v m="$metric" 'BEGIN{exit !(m+0 == m)}' 2>/dev/null; then
+    metric_fmt=$(awk -v m="$metric" 'BEGIN{printf "%.4f", m+0}')
+  else
+    metric_fmt="$metric"
+  fi
+  if [[ -n "$runtime" ]] && awk -v r="$runtime" 'BEGIN{exit !(r+0 == r)}' 2>/dev/null; then
+    runtime_fmt=$(awk -v r="$runtime" 'BEGIN{printf "%.2fs", r+0}')
+  else
+    runtime_fmt="$runtime"
+  fi
+  printf '%s | %s | %s | %s | %s' "$metric_fmt" "$status" "$runtime_fmt" "$approach" "$metric_name"
+}
+
 # cw_deep_research_render_summary <art-dir>
 # Renders sections 1, 2, 4, 5 of session-summary.md mechanically from disk.
 # Yoda fills in Direction + Recent decisions sections via Write tool after this.
