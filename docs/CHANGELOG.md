@@ -7,6 +7,40 @@ a design trail.
 
 ---
 
+## v0.48.0 — deep-research halt + scoreboard rendering (2026-05-20)
+
+Closes 7 of 13 findings from the 5-archive triage (May 15 → May 20):
+
+- **#1** halt.flag newlines no longer stripped in finalize.sh — `## Halt`
+  section in session-summary.md now renders structured k=v as a fenced
+  code block instead of `halted_by=yodahalted_at=…` concatenation.
+- **#2** legacy prose halt.flag (pre-v0.43) now renders as `- Reason:
+  <text>` bullet instead of being silently misparsed.
+- **#3** halt rendering centralized in `cw_deep_research_render_summary`;
+  phase-normalization (idle → complete) stays as a pre-render step in
+  finalize.sh, decoupled from halt parsing.
+- **#5** scoreboard tie-breaker: multi-key sort (metric desc, runtime
+  asc, exp_id version-asc) replaces single-key `sort -k1,1 -rn`.
+- **#6+#7** scoreboard rows now render metric at `%.4f` and runtime at
+  `%.2fs`. Raw values preserved in `result.json` for K-corroboration.
+- **#13** scoreboard.md gains `<!-- scoreboard schema_version=2 -->`
+  first line for cross-run parser dispatch.
+
+New helpers in `lib/deep-research.sh`:
+- `cw_deep_research_halt_flag_read <halt-flag-path>` — normalizes
+  structured/prose/missing halt formats into a `format=…` prefixed
+  k=v stream.
+- `cw_deep_research_scoreboard_render_row <metric> <runtime> <metric_name>
+  <status> <approach>` — formats one row with stable widths.
+
+Dropped from scope after audit: #4 topic re-injection (verified
+marginal: ~21 KB redundancy total, not 250 KB), #11 time-budget
+(verified working — UI defaults to "No limit" but pipeline is alive).
+
+Static-wiring lock: 6 invariants in
+`tests/test_v0_48_0_static_wiring.sh`. v0.47.0 lock starts
+skip-passing at this commit.
+
 ## v0.47.0 — simplification sweep part 2 (2026-05-20)
 
 **Refactor:** Closes 3 of 4 v0.46.0-deferred findings. ~50-60 lines saved,
