@@ -141,10 +141,8 @@ for cmdr_dir in "$TROOPERS_DIR"/*/; do
 
   # Only flip state if the trooper's CURRENT experiment has a result.json.
   if [[ -f "$cmdr_dir/experiments/$current_exp_id/result.json" ]]; then
-    cw_deep_research_trooper_state_write "$ART_DIR" "$cmdr" \
+    cw_deep_research_trooper_event "$ART_DIR" "$cmdr" scored \
       phase=idle \
-      current_exp_id= \
-      last_event_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      last_event=scored
+      current_exp_id=
   fi
 done

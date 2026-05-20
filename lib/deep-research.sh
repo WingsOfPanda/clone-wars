@@ -429,6 +429,23 @@ cw_deep_research_trooper_state_write() {
   } | cw_atomic_write "$f"
 }
 
+# cw_deep_research_trooper_event <art-dir> <commander> <event-verb> [<k=v>...]
+# Thin wrapper over cw_deep_research_trooper_state_write that stamps
+# last_event_ts (UTC ISO-8601) + last_event=<event-verb>, then forwards
+# extra k=v args verbatim. Centralizes the per-callsite `date -u +…`
+# invocation (3+ open-coded copies as of v0.45.0). rc=2 on missing args.
+cw_deep_research_trooper_event() {
+  local art_dir="${1:-}" commander="${2:-}" verb="${3:-}"
+  [[ -n "$art_dir" && -n "$commander" && -n "$verb" ]] \
+    || { echo "cw_deep_research_trooper_event: usage: <art-dir> <commander> <event-verb> [<k=v>...]" >&2; return 2; }
+  shift 3
+  local ts; ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  cw_deep_research_trooper_state_write "$art_dir" "$commander" \
+    last_event="$verb" \
+    last_event_ts="$ts" \
+    "$@"
+}
+
 # cw_deep_research_metric_primary <metric-md-path>
 # Extract the value of the "**Primary metric:**" line from metric.md.
 # Returns empty on missing file or malformed input (no exit-fail).
@@ -888,12 +905,10 @@ cw_deep_research_lane_abandon() {
   local art_dir="${1:-}" commander="${2:-}" reason="${3:-}"
   [[ -n "$art_dir" && -n "$commander" && -n "$reason" ]] \
     || { echo "cw_deep_research_lane_abandon: usage: <art-dir> <commander> <reason>" >&2; return 2; }
-  local ts
-  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  cw_deep_research_trooper_state_write "$art_dir" "$commander" \
+  cw_deep_research_trooper_event "$art_dir" "$commander" lane-abandoned \
     phase=abandoned \
     lane_abandon_reason="$reason" \
-    lane_abandon_ts="$ts"
+    lane_abandon_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 
 # cw_deep_research_format_sota_block

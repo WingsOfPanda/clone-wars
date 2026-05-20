@@ -268,12 +268,10 @@ log_info "wrote inbox at $INBOX"
 prev_counter=$(cw_deep_research_trooper_state_field "$ART_DIR" "$COMMANDER" exp_counter)
 [[ "$prev_counter" =~ ^[0-9]+$ ]] || prev_counter=0
 new_counter=$((prev_counter + 1))
-cw_deep_research_trooper_state_write "$ART_DIR" "$COMMANDER" \
+cw_deep_research_trooper_event "$ART_DIR" "$COMMANDER" dispatched \
   phase=working \
   current_exp_id="$EXP_ID" \
-  exp_counter="$new_counter" \
-  last_event_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  last_event=dispatched
+  exp_counter="$new_counter"
 
 # Nudge the pane unless DRY_RUN
 if [[ "${CW_DEEP_RESEARCH_DRY_RUN:-0}" != "1" ]]; then

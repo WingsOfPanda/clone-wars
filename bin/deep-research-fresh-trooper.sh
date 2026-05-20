@@ -53,12 +53,10 @@ log_info "[fresh-trooper] respawning $COMMANDER ..."
   || { log_error "spawn failed for $COMMANDER on $TOPIC"; exit 1; }
 
 # Reset runtime state (preserve exp_counter so the next dispatch numbers correctly).
-cw_deep_research_trooper_state_write "$ART_DIR" "$COMMANDER" \
+cw_deep_research_trooper_event "$ART_DIR" "$COMMANDER" fresh-trooper-respawn \
   phase=idle \
   current_exp_id= \
   exp_counter="$prev_counter" \
-  last_event_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  last_event=fresh-trooper-respawn \
   probe_sent_ts=
 
 # Surface new pane id (best-effort).
