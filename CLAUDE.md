@@ -27,15 +27,16 @@ below for the closed-set boundary.
 
 ## Current focus
 
-- **Most recent merge:** v0.45.0 (inter-trooper visibility —
-  per-experiment dispatch inlines a `## Peers` snapshot of peer
-  trooper status [phase, current/last exp, approach, best metric,
-  notes excerpt] into prompt.md when N≥2; nothing rendered when N=1
-  solo).
-- **Next priority:** GPU resource scheduling between troopers (Item
-  4 from the 2026-05-17 retrospective) is the remaining unaddressed
-  punch-list item. Otherwise: continued release-gate dogfood for
-  v0.27.0–v0.45.0.
+- **Most recent merge:** v0.46.0 (simplification sweep — six
+  Low-risk consolidations from the 2026-05-19 code-simplifier scan:
+  cw_deep_research_art_dir + adopt cw_outbox_path/cw_inbox_path/
+  cw_pane_meta_path + cw_pane_meta_read at deep-research call
+  sites; plus three helper extractions in lib/ipc.sh and
+  lib/deep-research.sh; ~70-90 lines saved, no behavioral change).
+- **Next priority:** v0.47.0 — JSON-field unification (finding #2,
+  Medium risk) + hook helper extraction (finding #8). GPU resource
+  scheduling (Item 4 from 2026-05-17) remains unaddressed past that.
+  Otherwise: continued release-gate dogfood for v0.27.0–v0.46.0.
 - **No code freeze.** Feature work in flight should still go through
   the brainstorm → spec → plan → PR loop per `docs/superpowers/`.
 
