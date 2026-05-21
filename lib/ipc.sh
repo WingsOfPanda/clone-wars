@@ -79,6 +79,57 @@ cw_state_archive() {
   printf '%s\n' "$dst"
 }
 
+# cw_spawn_capture_failure_forensics <commander> <model> <topic> <pane_id> <reason> [<event_line>]
+# v0.51 #5: capture spawn-bootstrap failure forensics to
+# <trooper-dir>/failure-reason.txt BEFORE cw_state_archive moves the
+# dir. Best-effort: returns rc=1 if the trooper dir is missing or
+# unwritable so the spawn flow can still archive on failure.
+#
+# Fields written:
+#   timestamp, commander, model, topic, pane_id, fail_reason, ready_timeout
+#   ## Pane scrollback (last 50 lines from tmux capture-pane)
+#   ## Event context (the JSONL line if reason=error_event AND event_line passed;
+#                     else "no error event before timeout")
+#
+# Returns rc=0 on success, rc=1 on missing dir, rc=2 on invalid reason.
+cw_spawn_capture_failure_forensics() {
+  local commander="${1:-}" model="${2:-}" topic="${3:-}" pane_id="${4:-}" reason="${5:-}" event_line="${6:-}"
+  [[ -n "$commander" && -n "$model" && -n "$topic" ]] || return 1
+  case "$reason" in
+    timeout|error_event) ;;
+    *) return 2 ;;
+  esac
+  local td
+  td=$(cw_trooper_dir "$commander" "$model" "$topic")
+  [[ -d "$td" && -w "$td" ]] || return 1
+  local out="$td/failure-reason.txt"
+  local ts
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  local rt="${READY_TIMEOUT:-unknown}"
+  local scrollback
+  scrollback=$(tmux capture-pane -p -t "$pane_id" 2>/dev/null | tail -n 50 || true)
+  local event_section
+  if [[ "$reason" == "error_event" && -n "$event_line" ]]; then
+    event_section="$event_line"
+  else
+    event_section="no error event before timeout"
+  fi
+  {
+    printf '# Spawn bootstrap failure\n'
+    printf 'timestamp:     %s\n' "$ts"
+    printf 'commander:     %s\n' "$commander"
+    printf 'model:         %s\n' "$model"
+    printf 'topic:         %s\n' "$topic"
+    printf 'pane_id:       %s\n' "$pane_id"
+    printf 'fail_reason:   %s\n' "$reason"
+    printf 'ready_timeout: %s\n' "$rt"
+    printf '\n## Pane scrollback (last 50 lines, captured BEFORE pane kill)\n'
+    printf '%s\n' "$scrollback"
+    printf '\n## Event context\n'
+    printf '%s\n' "$event_section"
+  } | cw_atomic_write "$out"
+}
+
 # cw_identity_write <commander> <model> <topic>
 # Write identity.md by substituting {{vars}} in the plugin's identity template.
 # Appends a trailing "first action" instruction so the trooper emits {ready}
