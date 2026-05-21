@@ -181,6 +181,29 @@ BRANCH DISCIPLINE (hard rule):
   {"event":"error","reason":"branch-discipline: needed new branch"}
   and let the conductor decide.
 
+BLOCKERS / QUESTIONS (v0.50 protocol — read carefully):
+- If a referenced path, file, checkpoint, git ref, env var, or
+  command is NOT where the design doc says it is, DO NOT search the
+  filesystem yourself, DO NOT "locate the archive", DO NOT invent a
+  workaround. Halt and ask via the trooper-ask helper. The conductor
+  will verify the claim against ground truth and reply via inbox.md.
+- Helper (absolute path, callable from inside your pane):
+    \$CLAUDE_PLUGIN_ROOT/bin/trooper-ask.sh \$TOPIC cody "<why-asking>" <kind> <value>
+  where <kind> is one of: path | git | env | cmd | test.
+- Examples:
+    # design doc cites a checkpoint that's not where it says:
+    \$CLAUDE_PLUGIN_ROOT/bin/trooper-ask.sh \$TOPIC cody "design doc says checkpoint is at X but X is missing" path /abs/path/from/design
+
+    # opinion-bearing question (no claim — escalates to user):
+    \$CLAUDE_PLUGIN_ROOT/bin/trooper-ask.sh \$TOPIC cody "should I keep the legacy fallback or remove it?"
+- The conductor will write the answer to inbox.md and re-engage you.
+  After reading inbox.md, ALWAYS acknowledge with:
+    \$CLAUDE_PLUGIN_ROOT/bin/inbox-ack.sh \$TOPIC cody <inbox-path>
+  so the conductor has protocol-level proof you read the reply.
+- The 'test' kind runs a diagnostic command under a 30s timeout — it
+  is NOT for running your test suite. Running 'bash tests/run.sh' is
+  your job. Banned values fail with rc=2.
+
 END_OF_INSTRUCTION
 EOF
 }
@@ -249,6 +272,17 @@ BRANCH DISCIPLINE (hard rule):
 - If your work genuinely needs a fresh branch, abort with
   {"event":"error","reason":"branch-discipline: needed new branch"}
   and let the conductor decide.
+
+BLOCKERS / QUESTIONS (v0.50 protocol — read carefully):
+- If a referenced path, file, checkpoint, git ref, env var, or
+  command is NOT where the issue notes say it is, DO NOT search the
+  filesystem yourself, DO NOT invent a workaround. Halt and ask:
+    \$CLAUDE_PLUGIN_ROOT/bin/trooper-ask.sh \$TOPIC cody "<why-asking>" <kind> <value>
+  where <kind> is one of: path | git | env | cmd | test.
+- After reading any inbox.md reply, acknowledge with:
+    \$CLAUDE_PLUGIN_ROOT/bin/inbox-ack.sh \$TOPIC cody <inbox-path>
+- The 'test' kind is for diagnostic checks under 30s, not for
+  running your test suite.
 
 END_OF_INSTRUCTION
 EOF
