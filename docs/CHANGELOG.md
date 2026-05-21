@@ -7,6 +7,61 @@ a design trail.
 
 ---
 
+## v0.50.0 — Trooper escalation protocol (2026-05-21)
+
+Closes audit findings #1 (deploy halt-on-blocker), #2 (inbox ack
+contract), #4 (consult prompt alignment) from the 2026-05-21
+archive triage. Findings #3/#5/#6 deferred to v0.51.
+
+**New library:** `lib/trooper-questions.sh`:
+- `cw_trooper_question_verify <kind> <value>` — verifies
+  path/git/env/cmd/test claims; rc=0 verifies, rc=1 disproved,
+  rc=2 unverifiable.
+- `cw_trooper_question_format_reply <kind> <value> <rc> <evidence>`
+  — formats the inbox.md reply body.
+- `cw_trooper_question_validate_line <json-line>` — ASCII-strict
+  validator for question events with optional claim discriminator.
+
+**New library:** `lib/deploy-questions.sh`:
+- `cw_deploy_question_extract_to_payload <json-line> <payload-path>`
+  — mirrors consult's extractor with the new claim discriminator
+  fields (CLAIM_KIND, CLAIM_VALUE, ROUTE).
+
+**New trooper-callable helpers:**
+- `bin/trooper-ask.sh <topic> <commander> <text> [<kind> <value>]`
+  — appends a properly-shaped `{event:"question",...}` event.
+- `bin/inbox-ack.sh <topic> <commander> <inbox-path>` — appends
+  `{event:"ack",inbox_sha256,inbox_tail,ts}` after reading inbox.md.
+
+**Deploy wait extension:**
+- `bin/deploy-turn-wait.sh` now listens for `done|error|question`
+  (was: `done|error`). Question events write
+  `<art_dir>/question-cody-<round>.txt` and exit `TS=question`.
+
+**Prompt-template updates:**
+- `lib/deploy.sh` round1 + fix prompt builders gain a
+  `BLOCKERS / QUESTIONS` section between BRANCH DISCIPLINE and
+  END_OF_INSTRUCTION. Tells troopers to call `bin/trooper-ask.sh`
+  and ACK reads via `bin/inbox-ack.sh`; explicitly bans
+  self-locating filesystem paths and offloading test runs via
+  `kind=test`.
+- `config/prompt-templates/consult/research.md` +
+  `config/prompt-templates/consult/verify.md` gain the same
+  protocol prose.
+
+**Directive update:**
+- `commands/deploy.md` adds a TS=question handler section in the
+  turn-wait loop. Routes ROUTE=verify through
+  `cw_trooper_question_verify` (rc=0/1 auto-reply, rc=2 falls back
+  to escalate) and ROUTE=escalate straight to AskUserQuestion.
+
+**Test surface:**
+- 4 new unit test files (~23 cases): `test_trooper_question_verify`
+  (14), `test_trooper_ask_emits_event` (3),
+  `test_inbox_ack_round_trip` (3), `test_deploy_question_extract` (3).
+- 1 new static-wiring lock: `test_v0_50_0_static_wiring` (7
+  invariants).
+
 ## v0.49.0 — state-file hygiene cleanup (2026-05-21)
 
 Closes 3 findings from the 5-archive triage (May 15 → May 20). Pre-implementation

@@ -27,18 +27,17 @@ below for the closed-set boundary.
 
 ## Current focus
 
-- **Most recent merge:** v0.49.0 (state-file hygiene cleanup —
-  state.txt writer/reader now escape/unescape embedded `\n` so
-  multi-line values like `lane_abandon_reason` round-trip without
-  corruption; resume.md handler clears stale `probe_sent_ts` on
-  done/error/heartbeat events; halt.flag example renames
-  `plateau_window=<N>` → `plateau_observed_n=<N>` to disambiguate
-  from metric.md's config `plateau_window=5`).
-- **Next priority:** GPU resource scheduling between troopers (Item 4
-  from 2026-05-17 retrospective) is the remaining unaddressed
-  punch-list item. The 2026-05-19 simplification sweep is fully
-  closed; the 5-archive triage (May 15→May 20) is closed except for
-  #4 (verified marginal) and #8 (verified not a bug).
+- **Most recent merge:** v0.50.0 (trooper escalation protocol —
+  lib/trooper-questions.sh adds path/git/env/cmd/test claim
+  verification; bin/trooper-ask.sh + bin/inbox-ack.sh give troopers
+  a halt-and-ask protocol with sha256 ack; deploy + consult prompt
+  templates now point troopers at trooper-ask instead of letting
+  them self-rescue; deploy-turn-wait listens for question events).
+- **Next priority:** v0.51 state-file/archive hygiene round 2 —
+  finding #3 (state.txt race vs probe-timeout), #5 (-FAILED trooper
+  forensics), #6 (result.json checkpoint_path key) from the
+  2026-05-21 audit. GPU resource scheduling (Item 4 from 2026-05-17
+  retrospective) remains the broader open item.
 - **No code freeze.** Feature work in flight should still go through
   the brainstorm → spec → plan → PR loop per `docs/superpowers/`.
 

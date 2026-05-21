@@ -39,6 +39,22 @@ primary sources (specifications, official docs, source repos) over blog
 posts. If a tool is not available in your environment, fall back to
 local-only investigation and note the gap as an [unverified] claim.
 
+BLOCKERS / QUESTIONS (v0.50 protocol):
+If a referenced path, file, ref, env var, or command is NOT where the
+topic notes say it is, DO NOT search the filesystem and silently
+work around it. Halt and ask:
+
+  ${CLAUDE_PLUGIN_ROOT}/bin/trooper-ask.sh decide between LRU and LFU <commander> "<why-asking>" <kind> <value>
+
+Where <kind> is one of: path | git | env | cmd | test. Omit the
+<kind> <value> pair for opinion-bearing questions — they escalate to
+the user. After reading any inbox.md reply, acknowledge with:
+
+  ${CLAUDE_PLUGIN_ROOT}/bin/inbox-ack.sh decide between LRU and LFU <commander> <inbox-path>
+
+This protocol gives Master Yoda a clean way to verify the claim
+against ground truth and reply without you having to guess.
+
 Then emit {"event":"done", "summary":"researched decide between LRU and LFU", "ts":"<iso>"} to your outbox.
 
 END_OF_INSTRUCTION

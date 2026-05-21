@@ -640,6 +640,52 @@ Branch on TS:
     sentinel keeps the new payload safe.
   - *Abort* — `bin/deploy-teardown.sh` + `bin/deploy-archive.sh`; exit.
 
+- `TS=question` (v0.50 escalation protocol):
+
+  Cody has halted with a question. The payload file
+  `$ART_DIR/question-cody-$ROUND.txt` contains:
+
+  - `TEXT=<percent-encoded reason>` (decode via the same scheme consult
+    uses: `%0A` → newline, `%09` → tab, `%22` → `"`, `%5C` → `\`,
+    `%2C` → `,`, `%25` → `%` — decode `%25` LAST).
+  - `CLAIM_KIND=<path|git|env|cmd|test|>` (empty when no claim).
+  - `CLAIM_VALUE=<verbatim value>` (empty when no claim).
+  - `ROUTE=<verify|escalate>`.
+
+  Handling:
+
+  1. Read the payload (Bash tool: `cat $ART_DIR/question-cody-$ROUND.txt`).
+  2. If `ROUTE=verify`: source `lib/trooper-questions.sh` and call:
+
+     ```
+     source "${CLAUDE_PLUGIN_ROOT}/lib/trooper-questions.sh"
+     evidence=$(cw_trooper_question_verify "$CLAIM_KIND" "$CLAIM_VALUE" 2>&1)
+     rc=$?
+     reply=$(cw_trooper_question_format_reply "$CLAIM_KIND" "$CLAIM_VALUE" "$rc" "$evidence")
+     ```
+
+     If `rc` is 0 or 1, write `$reply` to a temp file and dispatch via
+     `bin/send.sh $TOPIC cody <reply-path>`. If `rc=2` (unverifiable —
+     unknown kind, timeout, banned value), fall through to the escalate
+     path below.
+
+  3. If `ROUTE=escalate` (or `rc=2` from step 2): present the question
+     to the user via AskUserQuestion with `TEXT` as the question, then
+     write the user's reply to a temp file and dispatch via
+     `bin/send.sh $TOPIC cody <reply-path>`.
+
+  4. After dispatch, re-arm the wait by running
+     `bin/deploy-turn-wait.sh "$TOPIC" "$ROUND"` again (same round
+     counter — the question/answer round-trip is one logical turn). The
+     next event Yoda sees should be the trooper's `ack` (proof they
+     read inbox), followed by the next `progress` / `done` / `error` /
+     `question` event.
+
+  5. On `ack` mismatch (sha256 in the ack event ≠ Yoda's computed
+     sha256 of the dispatched inbox file), re-push the same inbox file
+     once. If the second ack also mismatches, log a warning and
+     continue — do not loop.
+
 ### Step 2 — Cross-verify (per round)
 
 Set task `2` → `in_progress`.
