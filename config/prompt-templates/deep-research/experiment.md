@@ -68,6 +68,7 @@ In ONE turn, do all of the following:
      "status":              "ok" | "fail" | "timeout" | "cost_blown",
      "runtime_s":           <number — wall-clock for the run phase only>,
      "log_paths":           ["./stdout.log", "./stderr.log"],
+     "checkpoint_path":     <absolute path or null>,
      "notes":               "<free-form, max 500 chars>",
 
      "self_reported_count": <integer or null>,
@@ -86,6 +87,10 @@ In ONE turn, do all of the following:
      things and you want to surface them without confusing the scoreboard.
      Only metric_value (matched against metric_name) drives convergence.
    - log_paths MUST exist on disk by the time you write result.json.
+   - checkpoint_path: absolute path to any model checkpoint saved during
+     this run, or null if no checkpoint was produced. Use this for
+     downstream /clone-wars:deploy hand-off — the deploy lane reads this
+     field directly instead of parsing free-text from notes.
    - Write via tmp + rename for atomicity:
        printf '%s' '<json>' > result.json.tmp && mv result.json.tmp result.json
 
