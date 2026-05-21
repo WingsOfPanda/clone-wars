@@ -57,8 +57,13 @@ for t in "$TARGET_DIR"/test_*.sh; do
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
     # Strip the leading "N:" line-number prefix
     val="${line#*CLONE_WARS_HOME=}"
-    # Acceptable: starts with $TMP, $SANDBOX, $(mktemp, "$(mktemp, or is "" (unset)
-    if [[ "$val" =~ ^[\"\']?(\$TMP|\$SANDBOX|\$\(mktemp|\"\$\(mktemp|\$\{TMP|\$\{SANDBOX) ]]; then
+    # Acceptable RHS: any sandbox-derived var. The accept-list is enumerated
+    # rather than open-ended so a stray `CLONE_WARS_HOME=/literal/path` still
+    # fails. Sandbox vars commonly used across the suite: $TMP, $SANDBOX,
+    # $(mktemp ...), $HUB / $HUB_DIR / $ALT / $ART / $TD / $BRANCH / $REPO /
+    # $REPO_DIR / $GIT_DIR / $SLUG / $WORK. Also accept $CLONE_WARS_HOME itself
+    # (re-export passthrough — outer scope already sandboxed).
+    if [[ "$val" =~ ^[\"\']?(\$TMP|\$SANDBOX|\$\(mktemp|\"\$\(mktemp|\$\{TMP|\$\{SANDBOX|\$CLONE_WARS_HOME|\$HUB|\$HUB_DIR|\$ALT|\$ART|\$TD|\$BRANCH|\$REPO|\$REPO_DIR|\$GIT_DIR|\$SLUG|\$WORK) ]]; then
       continue
     fi
     # Acceptable: `unset CLONE_WARS_HOME` or `CLONE_WARS_HOME="" cmd...` test cases
@@ -98,7 +103,7 @@ for t in "$TARGET_DIR"/test_*.sh; do
       fail=1
       fail_lines+=("$base: cd to absolute path: ${line#*:}")
     fi
-  done < <(grep -nE 'cd[[:space:]]+/' "$t" | grep -vE 'dirname[[:space:]]+\"?\$0|\$TMP|\$SANDBOX|\$ART|\$TD|\$BRANCH|\$HUB|\$REPO|\$PLUGIN_ROOT')
+  done < <(grep -nE 'cd[[:space:]]+/' "$t" | grep -vE 'dirname[[:space:]]+\"?\$0|\$TMP|\$SANDBOX|\$ART|\$TD|\$BRANCH|\$HUB|\$REPO|\$PLUGIN_ROOT|^[0-9]+:[[:space:]]*echo')
 
   # --- Warning W1: pgrep -f patterns (informational) ---
   while IFS= read -r line; do
