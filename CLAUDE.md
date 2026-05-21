@@ -27,17 +27,19 @@ below for the closed-set boundary.
 
 ## Current focus
 
-- **Most recent merge:** v0.50.0 (trooper escalation protocol —
-  lib/trooper-questions.sh adds path/git/env/cmd/test claim
-  verification; bin/trooper-ask.sh + bin/inbox-ack.sh give troopers
-  a halt-and-ask protocol with sha256 ack; deploy + consult prompt
-  templates now point troopers at trooper-ask instead of letting
-  them self-rescue; deploy-turn-wait listens for question events).
-- **Next priority:** v0.51 state-file/archive hygiene round 2 —
-  finding #3 (state.txt race vs probe-timeout), #5 (-FAILED trooper
-  forensics), #6 (result.json checkpoint_path key) from the
-  2026-05-21 audit. GPU resource scheduling (Item 4 from 2026-05-17
-  retrospective) remains the broader open item.
+- **Most recent merge:** v0.51.0 (state-file/archive hygiene round 2
+  — cw_deep_research_trooper_state_reconcile replays trooper outbox
+  tails at finalize time and applies terminal done/error events
+  before the phase case-mapping, eliminating the
+  stale→incomplete race; cw_spawn_capture_failure_forensics writes
+  <trooper-dir>/failure-reason.txt before -FAILED archive rename so
+  spawn failures are forensicable; result.json gains nullable
+  checkpoint_path so /clone-wars:deploy can read checkpoints
+  programmatically instead of parsing free-text notes).
+- **Next priority:** GPU resource scheduling between troopers (Item
+  4 from 2026-05-17 retrospective) is the remaining open punch-list
+  item. The 2026-05-21 5-archive triage is fully closed (findings
+  #1, #2, #4 in v0.50; #3, #5, #6 in v0.51).
 - **No code freeze.** Feature work in flight should still go through
   the brainstorm → spec → plan → PR loop per `docs/superpowers/`.
 
