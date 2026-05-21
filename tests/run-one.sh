@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # tests/run-one.sh — runs one test_*.sh, captures stdout/stderr to a
 # tempfile, prints "=== test_X ===" + log + "  test_X: ok|FAIL" footer
-# atomically via flock(1). Exit code is the test's rc (0=ok, non-zero=fail).
+# atomically via flock. Exit code is the test's rc (0=ok, non-zero=fail).
 #
 # Usage: bash tests/run-one.sh <test_file>
 #
 # Output: a single atomic block per test. Concurrent run-one.sh
-# processes coordinate via flock 1 (a kernel-level lock on stdout's
-# file descriptor); blocks never interleave. Block order is
-# completion-time, not argv order.
+# processes coordinate by opening this script ($0) as fd 200 and flock'ing
+# fd 200 — every parallel invocation locks the same inode (this file).
+# Block order is completion-time, not argv order.
 
 set -uo pipefail
 [[ $# -eq 1 ]] || { echo "Usage: $0 <test_file>" >&2; exit 2; }
@@ -25,13 +25,14 @@ else
   rc=1
 fi
 
-# Atomic print: flock 1 holds an exclusive kernel lock on stdout's fd
-# for the duration of the brace group. Released when the group exits.
-{
-  flock 1
-  echo "=== $t ==="
-  cat "$log"
-  echo "  $t: $status"
-}
+# Atomic print: open this script as fd 200, take an exclusive flock on
+# it. The lock is held as long as the shell keeps fd 200 open. All
+# parallel run-one.sh invocations open the same inode → the kernel
+# serializes them. Lock releases when fd 200 closes (shell exit).
+exec 200<"$0"
+flock 200
+echo "=== $t ==="
+cat "$log"
+echo "  $t: $status"
 
 exit "$rc"
