@@ -149,6 +149,43 @@ from the code:
   Documentation-only changes (`docs:` commits) skip the brainstorm gate;
   spec/plan pairs still go under `docs/superpowers/{specs,plans}/`.
 
+## Parallel test runner contract
+
+`tests/run.sh` is parallel by default (`xargs -P $(nproc) -I{} bash run-one.sh {}`);
+each test runs in its own bash subshell with output wrapped atomically by
+`tests/run-one.sh` (which opens itself as fd 200 and `flock 200`s — every
+parallel invocation locks the same inode, so output blocks never interleave).
+Tests must satisfy the isolation contract enforced by
+`tests/audit-parallel-safety.sh` (which runs as a **precondition** before any
+test dispatches — `rc=2` if it fails):
+
+1. **No fixed `/tmp/<name>` paths.** Use `mktemp -d` for sandboxes or `mktemp`
+   for individual files.
+2. **`CLONE_WARS_HOME`** assigned only to a sandboxed path. The audit accepts
+   `$TMP`, `$SANDBOX`, `$(mktemp ...)`, `$HUB`, `$HUB_DIR`, `$ALT`, `$ART`,
+   `$TD`, `$BRANCH`, `$REPO`, `$REPO_DIR`, `$GIT_DIR`, `$SLUG`, `$WORK`, or
+   `$CLONE_WARS_HOME` (re-export passthrough).
+3. **tmux session/window names** include `$$` or `${RANDOM}` (the established
+   `cw-<topic>-$$-${RANDOM}` pattern).
+4. **No `cd`** to an absolute path outside the test's sandbox. `cd "$(dirname
+   "$0")"` is the canonical first-line allowed pattern.
+5. **`pgrep -f` patterns** are flagged for review (informational warning, not
+   a fail) — confirm the pattern can't match a concurrently-running sibling
+   test's command line. Combined with the saved-memory rule that `pgrep -f`
+   polling loops are banned outright, parallel-safety here means: if you must
+   use `pgrep -f`, the pattern must be unique to your test's own command line.
+
+Run modes:
+- `bash tests/run.sh` — parallel, default
+- `bash tests/run.sh --serial` — sequential (debugging a flake)
+- `bash tests/run.sh --jobs N` — explicit parallelism
+- `bash tests/run.sh --filter PAT` — regex on filenames (debugging a single
+  test or a related set)
+
+If a test passes under `--serial` but fails under default parallel, it has a
+parallel-safety bug not covered by the 5 invariants above — extend the audit
+and fix the test, do not paper over by quarantining.
+
 ## What is explicitly out of scope
 
 Re-stating from `docs/DESIGN.md` so you don't drift:
