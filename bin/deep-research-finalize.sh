@@ -37,6 +37,11 @@ if [[ -f "$ART/troopers.txt" ]]; then
     [[ -n "$cmdr" ]] || continue
     state_file="$ART/troopers/$cmdr/state.txt"
     [[ -f "$state_file" ]] || continue
+    # v0.51 #3: replay outbox tail and apply terminal events BEFORE
+    # the phase case-mapping. Catches done events that arrived after
+    # the last resume.md handler ran (or never got processed at all
+    # because the session ended).
+    cw_deep_research_trooper_state_reconcile "$ART" "$cmdr"
     cur_phase=$(cw_deep_research_trooper_state_field "$ART" "$cmdr" phase)
     case "$cur_phase" in
       working|stale|stuck|blocked)

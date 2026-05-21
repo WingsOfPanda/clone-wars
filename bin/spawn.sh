@@ -245,12 +245,19 @@ cw_pane_send "$PANE" "Read $IDENTITY and follow its instructions exactly."
 
 # ------------------------------------------------------------ Wait for {ready}
 
-# _spawn_bootstrap_fail — shared cleanup for both timeout and {error} paths:
-# capture the pane's last 25 lines (BEFORE kill so the buffer is still live),
-# hard-kill the pane, archive state with FAILED suffix, and exit 1.
+# _spawn_bootstrap_fail <reason> [<event_line>] — shared cleanup for both
+# timeout and {error} paths: capture the pane's last 25 lines to stderr
+# (preserved for user visibility), write failure-reason.txt forensics file
+# BEFORE archive (v0.51 #5), hard-kill the pane, archive state with FAILED
+# suffix, and exit 1. <reason> is `timeout` or `error_event`. <event_line>
+# is the JSONL line for the error_event path; ignored on timeout.
 _spawn_bootstrap_fail() {
+  local reason="${1:-timeout}" event_line="${2:-}"
   log_error "pane content (last 25 lines, captured BEFORE kill):"
   tmux capture-pane -p -t "$PANE" 2>/dev/null | tail -n 25 >&2 || true
+  cw_spawn_capture_failure_forensics \
+    "$COMMANDER" "$MODEL" "$TOPIC" "$PANE" "$reason" "$event_line" \
+    || log_warn "failure-reason.txt write failed (continuing to archive)"
   cw_pane_kill_now "$PANE"
   local failed_archive
   failed_archive=$(cw_state_archive "$COMMANDER" "$MODEL" "$TOPIC" FAILED)
@@ -263,11 +270,11 @@ event_line=$(cw_outbox_wait "$COMMANDER" "$MODEL" "$TOPIC" ready error "$READY_T
 if [[ -z "$event_line" ]]; then
   log_error "$COMMANDER timed out on {ready,error}"
   log_error "outbox:"; cw_outbox_dump "$COMMANDER" "$MODEL" "$TOPIC" >&2
-  _spawn_bootstrap_fail
+  _spawn_bootstrap_fail timeout
 fi
 if [[ "$event_line" == *'"event":"error"'* ]]; then
   log_error "$COMMANDER reported {error} during bootstrap: $event_line"
-  _spawn_bootstrap_fail
+  _spawn_bootstrap_fail error_event "$event_line"
 fi
 log_ok "$COMMANDER is ready"
 

@@ -437,6 +437,57 @@ cw_deep_research_trooper_state_write() {
   } | cw_atomic_write "$f"
 }
 
+# cw_deep_research_trooper_state_reconcile <art_dir> <commander>
+# v0.51 #3: pre-finalize state reconciler. Replays the trooper's outbox
+# tail since liveness-cursor.txt and applies terminal done/error events
+# to state.txt before finalize.sh's phase case-mapping runs. Catches the
+# race where a done event arrives but the session ends before Yoda
+# processes it — finalize would otherwise map phase=stale to
+# phase=incomplete.
+#
+# Branches (in this evaluation order):
+#   LAST event is `error` (anywhere in tail) → phase=failed
+#   LAST event is `done` AND result.json exists → phase=idle
+#   LAST event is `done` AND result.json missing → no write
+#   No terminal event in tail → no write
+#
+# Idempotent — calling twice produces same final state.
+# Returns rc=0 on every branch; rc=1 only on missing args.
+cw_deep_research_trooper_state_reconcile() {
+  local art_dir="${1:-}" cmdr="${2:-}"
+  [[ -n "$art_dir" && -n "$cmdr" ]] || return 1
+  local outbox="$art_dir/troopers/$cmdr/outbox.jsonl"
+  local cursor_file="$art_dir/troopers/$cmdr/liveness-cursor.txt"
+  [[ -f "$outbox" ]] || return 0
+  local offset=0
+  if [[ -f "$cursor_file" ]]; then
+    offset=$(cat "$cursor_file" 2>/dev/null)
+    [[ "$offset" =~ ^[0-9]+$ ]] || offset=0
+  fi
+  # Scan tail for terminal events; track LAST done and LAST error.
+  local last_done="" last_error=""
+  while IFS= read -r line; do
+    case "$line" in
+      *'"event":"done"'*)  last_done=1 ;;
+      *'"event":"error"'*) last_error=1 ;;
+    esac
+  done < <(tail -c "+$((offset + 1))" "$outbox" 2>/dev/null)
+  # error wins over done when both appear in the tail — an error after a
+  # premature done means the trooper is in a failed state.
+  if [[ -n "$last_error" ]]; then
+    cw_deep_research_trooper_state_write "$art_dir" "$cmdr" phase=failed
+    return 0
+  fi
+  if [[ -n "$last_done" ]]; then
+    local exp_id
+    exp_id=$(cw_deep_research_trooper_state_field "$art_dir" "$cmdr" current_exp_id 2>/dev/null)
+    if [[ -n "$exp_id" && -f "$art_dir/troopers/$cmdr/experiments/$exp_id/result.json" ]]; then
+      cw_deep_research_trooper_state_write "$art_dir" "$cmdr" phase=idle
+    fi
+  fi
+  return 0
+}
+
 # cw_deep_research_trooper_event <art-dir> <commander> <event-verb> [<k=v>...]
 # Thin wrapper over cw_deep_research_trooper_state_write that stamps
 # last_event_ts (UTC ISO-8601) + last_event=<event-verb>, then forwards

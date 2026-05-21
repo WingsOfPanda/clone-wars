@@ -7,6 +7,51 @@ a design trail.
 
 ---
 
+## v0.51.0 — State-file / archive hygiene round 2 (2026-05-21)
+
+Closes audit findings #3 (state.txt race vs probe-timeout), #5
+(-FAILED trooper forensics), #6 (result.json checkpoint_path key)
+from the 2026-05-21 archive triage. With v0.50's #1/#2/#4 fixes,
+the 2026-05-21 audit is fully closed.
+
+**New library helpers:**
+- `cw_deep_research_trooper_state_reconcile <art_dir> <commander>`
+  (lib/deep-research.sh): replays trooper outbox tail since
+  liveness-cursor.txt and applies terminal done/error events to
+  state.txt. Called from bin/deep-research-finalize.sh BEFORE the
+  phase case-mapping. Catches the race where a done event arrived
+  but the session ended before Yoda's resume.md handler processed
+  it — finalize would otherwise map phase=stale to phase=incomplete
+  despite the trooper having finished cleanly.
+- `cw_spawn_capture_failure_forensics <commander> <model> <topic>
+  <pane_id> <reason> [<event_line>]` (lib/ipc.sh): writes
+  <trooper-dir>/failure-reason.txt before cw_state_archive renames
+  the dir with -FAILED suffix. File contains timestamp, identity,
+  pane scrollback (last 50 lines), and the {event:"error"} JSONL
+  line when the fail path was an error event.
+
+**Spawn flow:**
+- `bin/spawn.sh::_spawn_bootstrap_fail` signature changes from 0
+  args to `<reason> [<event_line>]`. Both call sites updated:
+  timeout path passes `timeout`; error_event path passes
+  `error_event "$event_line"`. Forensics file write is best-effort
+  (rc=1 logs a warning but the archive still happens).
+
+**Schema:**
+- `config/prompt-templates/deep-research/experiment.md` schema
+  gains nullable `"checkpoint_path"` field between log_paths and
+  notes. Explanatory bullet added to the schema-rules list. No
+  validator in score.sh, no legacy-archive scanner — pure additive
+  future-proofing. Future deploy runs read the field directly
+  instead of parsing free-text from notes.
+
+**Test surface:**
+- 2 new unit test files (8 cases): `test_deep_research_state_reconcile`
+  (5), `test_spawn_failure_forensics` (3).
+- 1 new static-wiring lock: `test_v0_51_0_static_wiring` (5 invariants).
+
+---
+
 ## v0.50.0 — Trooper escalation protocol (2026-05-21)
 
 Closes audit findings #1 (deploy halt-on-blocker), #2 (inbox ack
