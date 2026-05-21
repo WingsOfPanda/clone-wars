@@ -46,11 +46,11 @@ If `$ART_DIR/halt.flag` exists OR `cw_deep_research_check_time_budget` returns t
 
 For each `<task-notification>` in this turn's context, route by event type. Initialize `RAN_SCORE=0` and `LAST_CMDR=`/`LAST_EXP=` accumulators before the loop; Step 3.b reads them.
 
-- **done | error** → run `bin/deep-research-score.sh "$TOPIC"`. This iterates all per-trooper experiments, appends scoreboard rows, and sets state.txt `phase=idle` for each commander whose `current_exp_id` has a `result.json` on disk (v0.28.1 fix). If the exit code is 0, set `RAN_SCORE=1`; record `LAST_CMDR=<cmdr>` and `LAST_EXP=<exp-id>` from the `<task-notification>` event JSON (`trooper` field + `summary`-derived `exp-NNN`). Do NOT render the status brief here — Step 3.b handles that once.
+- **done | error** → run `bin/deep-research-score.sh "$TOPIC"`. This iterates all per-trooper experiments, appends scoreboard rows, and sets state.txt `phase=idle` for each commander whose `current_exp_id` has a `result.json` on disk (v0.28.1 fix). If the exit code is 0, set `RAN_SCORE=1`; record `LAST_CMDR=<cmdr>` and `LAST_EXP=<exp-id>` from the `<task-notification>` event JSON (`trooper` field + `summary`-derived `exp-NNN`). **v0.49 #10:** if the event's trooper has a non-empty `probe_sent_ts` in state.txt, clear it via `cw_deep_research_trooper_state_write "$ART_DIR" "<cmdr>" probe_sent_ts=` — the trooper has recovered, so the pending probe is stale. Do NOT render the status brief here — Step 3.b handles that once.
 - **question** → surface the trooper's question to user in chat; set `cw_deep_research_trooper_state_write "$ART_DIR" "<cmdr>" phase=blocked`. Do NOT auto-dispatch — wait for user direction.
 - **stale** → send `status?` probe via `bin/send.sh "<cmdr>" "$TOPIC" "status? brief update on current experiment please"`. Set `phase=stale, probe_sent_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)`. Debounce: skip if `probe_sent_ts` was already set within `LIVENESS_STUCK_S` window.
 - **stuck** → use Yoda judgment. Either abort (Ctrl-C trooper pane via tmux, set `phase=failed`) or extend (clear `probe_sent_ts`, give more time).
-- **heartbeat** → just update `last_event_ts` via `cw_deep_research_trooper_state_write`. No further action.
+- **heartbeat** → update `last_event_ts` via `cw_deep_research_trooper_state_write`. **v0.49 #10:** if the trooper has a non-empty `probe_sent_ts`, clear it in the same write (`probe_sent_ts=`) — heartbeat means the trooper is responsive, so a pending probe is no longer relevant. No further action.
 
 ### Step 3.b — Render status brief once (v0.28.2)
 
