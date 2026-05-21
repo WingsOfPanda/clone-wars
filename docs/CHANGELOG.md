@@ -7,6 +7,33 @@ a design trail.
 
 ---
 
+## v0.49.0 — state-file hygiene cleanup (2026-05-21)
+
+Closes 3 findings from the 5-archive triage (May 15 → May 20). Pre-implementation
+audit dropped #8 (verified not a bug — the 8s archive timestamp drift is between
+two independent teardown scripts, each correctly stamping its own archive) and
+reframed #10 from a monitor.sh fix to a directive-prose fix (monitor.sh doesn't
+write state.txt; `probe_sent_ts` lives in Yoda's directive prose).
+
+- **#9** `cw_deep_research_trooper_state_write` now escapes embedded `\n` as
+  literal `\n` (two chars) in values before writing each k=v record. The
+  symmetric `cw_deep_research_trooper_state_field` reader unescapes after awk
+  extraction. Round-trip equality now holds for multi-line free-form values
+  like `lane_abandon_reason`. The `=` case was already handled by first-=
+  split.
+- **#10** `commands/deep-research-resume.md` Step 3.a handler now clears stale
+  `probe_sent_ts` on `done`/`error`/`heartbeat` events. When a stale trooper
+  recovers, Yoda no longer sees a phantom outstanding probe.
+- **#12** `commands/deep-research.md` halt.flag example block renames
+  `plateau_window=<N>` → `plateau_observed_n=<N>` for the *measured* plateau
+  width. The *configured* `plateau_window` in metric.md (read by
+  `cw_deep_research_check_completion`) is unchanged — that's authoritative.
+
+No new helpers. No code change for #10 or #12 (directive prose only).
+
+Static-wiring lock: 5 invariants in `tests/test_v0_49_0_static_wiring.sh`.
+v0.48.0 lock starts skip-passing at this commit.
+
 ## v0.48.0 — deep-research halt + scoreboard rendering (2026-05-20)
 
 Closes 7 of 13 findings from the 5-archive triage (May 15 → May 20):
