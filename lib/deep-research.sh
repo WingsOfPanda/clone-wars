@@ -391,7 +391,12 @@ cw_deep_research_trooper_state_field() {
   local art_dir="$1" cmdr="$2" key="$3"
   local f="$art_dir/troopers/$cmdr/state.txt"
   [[ -f "$f" ]] || { log_error "state.txt missing: $f"; return 1; }
-  awk -F= -v k="$key" '$1==k{print substr($0, index($0,"=")+1); exit}' "$f"
+  # v0.49 #9: unescape literal \n (two chars) back to real newline. Writer
+  # (cw_deep_research_trooper_state_write) escapes on write; this is the
+  # symmetric reverse so round-trip equality holds.
+  local raw
+  raw=$(awk -F= -v k="$key" '$1==k{print substr($0, index($0,"=")+1); exit}' "$f")
+  printf '%s' "${raw//\\n/$'\n'}"
 }
 
 # cw_deep_research_trooper_state_write <art-dir> <commander> <k>=<v> [<k>=<v>...]
@@ -422,7 +427,12 @@ cw_deep_research_trooper_state_write() {
   done
   {
     for k in "${!kv[@]}"; do
-      printf '%s=%s\n' "$k" "${kv[$k]}"
+      # v0.49 #9: escape embedded newlines as literal \n (two chars) so each
+      # k=v record stays on one line. Reader (cw_deep_research_trooper_state_field)
+      # unescapes on extraction. Values containing '=' need no escaping —
+      # first-= split in both reader (awk index) and writer (${pair#*=}) handles them.
+      v="${kv[$k]//$'\n'/\\n}"
+      printf '%s=%s\n' "$k" "$v"
     done
   } | cw_atomic_write "$f"
 }
