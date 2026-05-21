@@ -5,6 +5,9 @@ cd "$(dirname "$0")"
 source lib/assert.sh
 source ../lib/state.sh
 
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
 # 1. Default root is $PWD/.clone-wars when CLONE_WARS_HOME is unset (v0.31.0:
 #    project-local state — the directive's Bash blocks run in the conductor's
 #    invocation cwd, so $PWD resolves there. CLONE_WARS_HOME stays as a
@@ -13,13 +16,12 @@ unset CLONE_WARS_HOME
 assert_eq "$(cw_state_root)" "$PWD/.clone-wars" "default root (v0.31.0 project-local)"
 pass "default root"
 
-# 2. Override via CLONE_WARS_HOME.
-CLONE_WARS_HOME=/tmp/cw-test assert_eq "$(CLONE_WARS_HOME=/tmp/cw-test cw_state_root)" "/tmp/cw-test" "override"
+# 2. Override via CLONE_WARS_HOME. (Uses a sandboxed path; cw_state_root
+#    returns the value verbatim — no fs operations on the path.)
+CLONE_WARS_HOME="$TMP/cw-test" assert_eq "$(CLONE_WARS_HOME="$TMP/cw-test" cw_state_root)" "$TMP/cw-test" "override"
 pass "override root"
 
 # 3. cw_state_ensure creates root + standard subdirs and is idempotent.
-TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
 CLONE_WARS_HOME="$TMP/cw" cw_state_ensure
 assert_file_exists "$TMP/cw" "root created"
 assert_file_exists "$TMP/cw/state" "state subdir"

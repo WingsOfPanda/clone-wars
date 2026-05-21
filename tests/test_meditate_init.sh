@@ -30,8 +30,8 @@ opencode:
 EOF
 
 # Run init
-output=$("$PLUGIN_ROOT/bin/meditate-init.sh" "explore SOTA continuous batching" 2>/tmp/cw-meditate-init.err)
-[[ -n "$output" ]] || { echo "FAIL: init produced no stdout (topic)"; cat /tmp/cw-meditate-init.err; exit 1; }
+output=$("$PLUGIN_ROOT/bin/meditate-init.sh" "explore SOTA continuous batching" 2>"$SANDBOX/cw-meditate-init.err")
+[[ -n "$output" ]] || { echo "FAIL: init produced no stdout (topic)"; cat "$SANDBOX/cw-meditate-init.err"; exit 1; }
 
 # Topic should be meditate-<slug>
 [[ "$output" =~ ^meditate-explore-sota ]] \

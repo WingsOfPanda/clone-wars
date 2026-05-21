@@ -43,9 +43,9 @@ echo '{"pane_id":"%99","spawned_at":"2026-05-13T08:00:00Z"}' > "$TD/rex-codex/pa
 
 # Dispatch exp-001 to rex
 rc=0; "$PLUGIN_ROOT/bin/deep-research-experiment-send.sh" \
-  "$SLUG" rex exp-001 "test-approach" "test direction" 2>/tmp/dispatch.err || rc=$?
+  "$SLUG" rex exp-001 "test-approach" "test direction" 2>"$TMP/dispatch.err" || rc=$?
 [[ "$rc" == "0" ]] \
-  || { echo "FAIL: dispatch rc=$rc" >&2; cat /tmp/dispatch.err >&2; exit 1; }
+  || { echo "FAIL: dispatch rc=$rc" >&2; cat "$TMP/dispatch.err" >&2; exit 1; }
 
 # Per-trooper experiment dir exists
 [[ -d "$ART/troopers/rex/experiments/exp-001" ]] \
