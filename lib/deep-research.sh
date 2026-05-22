@@ -809,6 +809,17 @@ cw_deep_research_render_summary() {
   fi
   rm -f "$merged"
 
+  # Section: Warnings (v0.52.0 #24 — only when warnings.txt is non-empty)
+  if [[ -s "$art_dir/warnings.txt" ]]; then
+    printf '\n## Warnings\n\n'
+    local w_kind w_path w_size w_count
+    while IFS=$'\t' read -r w_kind w_path w_size w_count; do
+      case "$w_kind" in
+        size_warn) printf -- '- size_warn: %s %s GB (%s files)\n' "$w_path" "$w_size" "$w_count" ;;
+      esac
+    done < "$art_dir/warnings.txt"
+  fi
+
   # Section: Halt (rendered only when halt.flag is present)
   local halt_data halt_format
   halt_data=$(cw_deep_research_halt_flag_read "$art_dir/halt.flag")
@@ -1309,5 +1320,39 @@ cw_deep_research_link_pane_artifacts() {
       ln -sfn "$rel" "$target_dir/$f"
     done
   done < "$art_dir/troopers.txt"
+  return 0
+}
+
+# cw_deep_research_compute_size_warnings <art-dir>
+#
+# For each experiment dir, du -sB1 and if >= CW_DEEP_RESEARCH_SIZE_WARN_GB
+# * 1G, append a TSV line to <art-dir>/warnings.txt:
+#   size_warn<TAB><cmdr>/<exp-id><TAB><size_gb_1dec><TAB><file_count>
+# Truncates warnings.txt at the start so re-runs are idempotent.
+cw_deep_research_compute_size_warnings() {
+  local art_dir="${1:-}"
+  [[ -d "$art_dir" ]] \
+    || { echo "cw_deep_research_compute_size_warnings: art-dir missing: $art_dir" >&2; return 2; }
+
+  local threshold_gb="${CW_DEEP_RESEARCH_SIZE_WARN_GB:-2}"
+  local threshold_bytes=$(( threshold_gb * 1073741824 ))
+  local warnings="$art_dir/warnings.txt"
+  : > "$warnings"
+
+  shopt -s nullglob
+  local exp_dir cmdr exp_id size_bytes size_gb file_count
+  for exp_dir in "$art_dir"/troopers/*/experiments/exp-*/; do
+    exp_dir="${exp_dir%/}"
+    size_bytes=$(du -sB1 --apparent-size "$exp_dir" 2>/dev/null | awk '{print $1}')
+    [[ -n "$size_bytes" ]] || continue
+    if (( size_bytes >= threshold_bytes )); then
+      cmdr=$(basename "$(dirname "$(dirname "$exp_dir")")")
+      exp_id=$(basename "$exp_dir")
+      size_gb=$(awk -v b="$size_bytes" 'BEGIN{ printf "%.1f", b/1073741824 }')
+      file_count=$(find "$exp_dir" -maxdepth 1 -type f 2>/dev/null | wc -l)
+      printf 'size_warn\t%s/%s\t%s\t%s\n' "$cmdr" "$exp_id" "$size_gb" "$file_count" >> "$warnings"
+    fi
+  done
+  shopt -u nullglob
   return 0
 }
