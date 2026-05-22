@@ -1277,3 +1277,37 @@ cw_deep_research_prune_intermediate_checkpoints() {
   shopt -u nullglob
   return 0
 }
+
+# cw_deep_research_link_pane_artifacts <art-dir> <topic-dir>
+#
+# For each commander in <art-dir>/troopers.txt, create relative
+# symlinks from <art-dir>/troopers/<cmdr>/{outbox.jsonl,inbox.md} to
+# <topic-dir>/<cmdr>-codex/{outbox.jsonl,inbox.md}. Idempotent.
+#
+# deep-research is codex-fixed per v0.27.0; v0.53.0 will generalize.
+cw_deep_research_link_pane_artifacts() {
+  local art_dir="${1:-}" topic_dir="${2:-}"
+  [[ -d "$art_dir" ]] \
+    || { echo "cw_deep_research_link_pane_artifacts: art-dir missing: $art_dir" >&2; return 2; }
+  [[ -d "$topic_dir" ]] \
+    || { echo "cw_deep_research_link_pane_artifacts: topic-dir missing: $topic_dir" >&2; return 2; }
+  [[ -f "$art_dir/troopers.txt" ]] || return 0
+
+  local cmdr pane_dir target_dir f src rel
+  while read -r cmdr; do
+    [[ -n "$cmdr" ]] || continue
+    pane_dir="$topic_dir/$cmdr-codex"
+    target_dir="$art_dir/troopers/$cmdr"
+    mkdir -p "$target_dir"
+    for f in outbox.jsonl inbox.md; do
+      src="$pane_dir/$f"
+      if [[ ! -f "$src" ]]; then
+        log_warn "link_pane_artifacts: pane file missing for $cmdr: $f"
+        continue
+      fi
+      rel=$(realpath --relative-to="$target_dir" "$src")
+      ln -sfn "$rel" "$target_dir/$f"
+    done
+  done < "$art_dir/troopers.txt"
+  return 0
+}

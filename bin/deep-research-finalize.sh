@@ -72,6 +72,9 @@ rm -f "$ART/active.txt"  # legacy v0.39.0 form — kept for backwards-compat cle
 CW_DEEP_RESEARCH_KEEP_INTERMEDIATE="$KEEP_INTERMEDIATE" \
   cw_deep_research_prune_intermediate_checkpoints "$ART"
 
+# v0.52.0 #20: co-locate pane outbox/inbox into the artifact tree.
+cw_deep_research_link_pane_artifacts "$ART" "$TD"
+
 # Append Halt section to session-summary.md.
 # v0.43.0 Lane A: unconditional re-render so the summary reflects the
 # FINAL per-trooper state (post Step-2 phase normalization above), not
