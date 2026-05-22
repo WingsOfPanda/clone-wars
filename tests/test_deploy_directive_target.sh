@@ -28,14 +28,13 @@ grep -qE 'git -C "?\$TARGET_CWD"?' "$D" \
 pass "directive's cross-verify uses git -C \$TARGET_CWD"
 
 # No leftover bare 'git checkout -b' / 'git log/diff' WITHOUT git -C in the directive.
-if grep -nE '^\s*git (log|diff|checkout)' "$D" | grep -v 'git -C' >/tmp/_bare_git.$$; then
-  if [[ -s /tmp/_bare_git.$$ ]]; then
-    cat /tmp/_bare_git.$$ >&2
-    rm -f /tmp/_bare_git.$$
+BARE_GIT=$(mktemp); trap 'rm -f "$BARE_GIT"' EXIT
+if grep -nE '^\s*git (log|diff|checkout)' "$D" | grep -v 'git -C' > "$BARE_GIT"; then
+  if [[ -s "$BARE_GIT" ]]; then
+    cat "$BARE_GIT" >&2
     echo "FAIL: leftover bare git invocation in directive (must use git -C)" >&2; exit 1
   fi
 fi
-rm -f /tmp/_bare_git.$$
 pass "no leftover bare git invocations in directive"
 
 # v0.31.0: directive MUST NOT export CW_TOPIC_REPO_CWD. State is project-local;

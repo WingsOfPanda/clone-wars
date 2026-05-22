@@ -23,12 +23,17 @@ actual=$(cw_consult_build_research_prompt "decide between LRU and LFU" "/tmp/fin
 pass "research prompt byte-equal to v0.4.2 baseline"
 
 # Case 2: verify prompt regression.
-cat > /tmp/items.txt <<'EOF'
+SANDBOX=$(mktemp -d); trap 'rm -rf "$SANDBOX"' EXIT
+ITEMS="$SANDBOX/items.txt"
+cat > "$ITEMS" <<'EOF'
 [src/auth/store.py:42] sessions are stored as plaintext
 [https://example.com/rfc] RFC says X
 EOF
 expected="$(cat fixtures/v0.4.2-verify-prompt.txt)"
-actual=$(cw_consult_build_verify_prompt /tmp/items.txt /tmp/verify.md)
+# /tmp/verify.md stays as a literal string argument: the helper embeds it
+# verbatim in the prompt body (fixture references it on line 11) but does
+# not open or write to the path. Items.txt IS read so it needs sandboxing.
+actual=$(cw_consult_build_verify_prompt "$ITEMS" "/tmp/verify.md")
 [[ "$actual" == "$expected" ]] || {
   diff <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") | head -20
   echo "FAIL c2: verify prompt diverged from v0.4.2 baseline"

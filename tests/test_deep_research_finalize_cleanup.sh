@@ -69,8 +69,8 @@ cat > "$ART/metric.md" <<'EOF'
 EOF
 
 # Run finalize
-rc=0; "$PLUGIN_ROOT/bin/deep-research-finalize.sh" "$TOPIC" >/tmp/finalize.out 2>&1 || rc=$?
-[[ "$rc" == "0" ]] || { echo "FAIL: finalize rc=$rc" >&2; cat /tmp/finalize.out >&2; exit 1; }
+rc=0; "$PLUGIN_ROOT/bin/deep-research-finalize.sh" "$TOPIC" >"$TMP/finalize.out" 2>&1 || rc=$?
+[[ "$rc" == "0" ]] || { echo "FAIL: finalize rc=$rc" >&2; cat "$TMP/finalize.out" >&2; exit 1; }
 
 # active-<sid>.txt removed (v0.40.0)
 [[ ! -f "$ART/active-${SID}.txt" ]] \

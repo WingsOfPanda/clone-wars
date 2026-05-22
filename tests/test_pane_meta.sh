@@ -56,8 +56,8 @@ mkdir -p "$(cw_trooper_dir cody codex demo)"
 META_OLD=$(cw_pane_meta_path cody codex demo)
 printf '{"pane_id":"%%55","spawned_at":"2026-04-26T00:00:00Z"}\n' > "$META_OLD"
 unset _CW_PANE_META_FALLBACK_WARNED
-out=$(cw_pane_meta_model cody codex demo 2>&1 1>/tmp/cw-meta-out)
-val=$(cat /tmp/cw-meta-out); rm -f /tmp/cw-meta-out
+out=$(cw_pane_meta_model cody codex demo 2>&1 1>"$TMP/cw-meta-out")
+val=$(cat "$TMP/cw-meta-out"); rm -f "$TMP/cw-meta-out"
 assert_eq "$val" "codex" "fallback returns dir-parsed model"
 assert_contains "$out" "missing 'commander'/'model' fields" "fallback emits deprecation warning"
 pass "backward-compat fallback (model)"
