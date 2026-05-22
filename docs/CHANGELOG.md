@@ -7,6 +7,44 @@ a design trail.
 
 ---
 
+## v0.52.0 — Archive hygiene round 3 + per-experiment timeout (2026-05-22)
+
+Conductor-side deep-research hygiene bundle from the 2026-05-22 overnight
+post-mortem (train-a-real-alpha left 77 GB on disk; the deployable winner
+was ~100 MB):
+
+- **#19 checkpoint pruning at finalize**: new
+  `cw_deep_research_prune_intermediate_checkpoints` helper deletes every
+  `*.pt` in an experiment dir except the file named by
+  `result.json:checkpoint_path`. Default-on; `--keep-intermediate` on
+  `bin/deep-research-finalize.sh` (or `CW_DEEP_RESEARCH_KEEP_INTERMEDIATE=1`)
+  opts out. Skips experiments with missing or `null` `checkpoint_path`
+  (forensics preserved). Would have cut the 2026-05-21 session from
+  77 GB → ~5 GB.
+- **#20 outbox/inbox co-location**: new
+  `cw_deep_research_link_pane_artifacts` helper creates relative
+  symlinks from `_deep-research/troopers/<cmdr>/{outbox.jsonl,inbox.md}`
+  to the pane dir's files at `<topic-dir>/<cmdr>-codex/`. Makes the
+  artifact tree self-contained instead of split across sibling pane
+  dirs. Idempotent.
+- **#24 per-experiment size warnings**: new
+  `cw_deep_research_compute_size_warnings` helper writes TSV rows to
+  `<art-dir>/warnings.txt` for every experiment dir exceeding
+  `CW_DEEP_RESEARCH_SIZE_WARN_GB` (default 2 GB, post-prune).
+  `cw_deep_research_render_summary` gains a `## Warnings` section
+  sourced from that file (omitted when empty).
+- **#26 `--timeout N` flag on `bin/deep-research-experiment-send.sh`**:
+  per-dispatch timeout override. Precedence: CLI flag >
+  `CW_DEEP_RESEARCH_EXPERIMENT_TIMEOUT_OVERRIDE` env var >
+  `cw_consult_timeout experiment` default. Enables Yoda to give
+  short-default timeouts to exploratory experiments and long ceilings
+  to scaled-up runs without flipping the global env var.
+
+Trooper-protocol changes (result.json schema enforcement, shared
+`_deep-research/lib/`, knob-consistency audit, K_corroboration
+semantics) deferred to v0.53.0 — they require lockstep prompt-template
++ finalize-parser edits and have their own spec.
+
 ## v0.51.0 — State-file / archive hygiene round 2 (2026-05-21)
 
 Closes audit findings #3 (state.txt race vs probe-timeout), #5
