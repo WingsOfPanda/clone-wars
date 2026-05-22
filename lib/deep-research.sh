@@ -1237,6 +1237,10 @@ cw_deep_research_format_peers_block() {
 # Skips dirs with no result.json or checkpoint_path=null (forensics
 # preserved). Honors CW_DEEP_RESEARCH_KEEP_INTERMEDIATE=1 as a global
 # short-circuit.
+#
+# Requires GNU coreutils (stat -c%s). The freed-bytes log line silently
+# reports 0B on BSD stat; the prune itself still works. Deep-research as
+# a whole is Linux-only in practice (GPU training jobs).
 cw_deep_research_prune_intermediate_checkpoints() {
   local art_dir="${1:-}"
   [[ -d "$art_dir" ]] \
@@ -1296,6 +1300,10 @@ cw_deep_research_prune_intermediate_checkpoints() {
 # <topic-dir>/<cmdr>-codex/{outbox.jsonl,inbox.md}. Idempotent.
 #
 # deep-research is codex-fixed per v0.27.0; v0.53.0 will generalize.
+#
+# Requires GNU coreutils (realpath --relative-to). BSD realpath lacks
+# this flag; on macOS the symlinks would resolve to absolute paths or
+# fail. Deep-research is Linux-only in practice (GPU training jobs).
 cw_deep_research_link_pane_artifacts() {
   local art_dir="${1:-}" topic_dir="${2:-}"
   [[ -d "$art_dir" ]] \
@@ -1329,6 +1337,10 @@ cw_deep_research_link_pane_artifacts() {
 # * 1G, append a TSV line to <art-dir>/warnings.txt:
 #   size_warn<TAB><cmdr>/<exp-id><TAB><size_gb_1dec><TAB><file_count>
 # Truncates warnings.txt at the start so re-runs are idempotent.
+#
+# Requires GNU coreutils (du -B1 --apparent-size). BSD du lacks both
+# flags; on macOS this returns nothing and the threshold check never
+# fires. Deep-research is Linux-only in practice (GPU training jobs).
 cw_deep_research_compute_size_warnings() {
   local art_dir="${1:-}"
   [[ -d "$art_dir" ]] \

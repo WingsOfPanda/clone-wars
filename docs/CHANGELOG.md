@@ -40,6 +40,13 @@ was ~100 MB):
   short-default timeouts to exploratory experiments and long ceilings
   to scaled-up runs without flipping the global env var.
 
+**Portability note:** the three new helpers use GNU coreutils flags
+(`realpath --relative-to`, `du -B1 --apparent-size`, `stat -c%s`) that
+BSD coreutils on macOS don't accept. Deep-research as a whole is
+already Linux-only in practice (GPU training, large checkpoints), so
+this codifies an existing constraint rather than introducing a new
+one. The rest of the plugin remains macOS-compatible per CLAUDE.md.
+
 Trooper-protocol changes (result.json schema enforcement, shared
 `_deep-research/lib/`, knob-consistency audit, K_corroboration
 semantics) deferred to v0.53.0 — they require lockstep prompt-template

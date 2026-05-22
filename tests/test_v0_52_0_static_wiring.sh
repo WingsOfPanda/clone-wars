@@ -40,9 +40,14 @@ grep -qE '^cw_deep_research_compute_size_warnings\(\)' \
   || { echo "FAIL INV4: compute_size_warnings helper not defined" >&2; exit 1; }
 pass "INV4. cw_deep_research_compute_size_warnings defined"
 
-# Invariant 5: render_summary references warnings.txt
-grep -qE 'warnings\.txt' "$PLUGIN_ROOT/lib/deep-research.sh" \
-  || { echo "FAIL INV5: render_summary doesn't reference warnings.txt" >&2; exit 1; }
+# Invariant 5: render_summary references warnings.txt INSIDE its body.
+# (The compute helper also references warnings.txt; scoping to
+# render_summary's body specifically ensures the ## Warnings section
+# can't be silently deleted while the file still mentions warnings.txt
+# elsewhere.)
+awk '/^cw_deep_research_render_summary\(\)/,/^}$/' \
+  "$PLUGIN_ROOT/lib/deep-research.sh" | grep -q 'warnings\.txt' \
+  || { echo "FAIL INV5: cw_deep_research_render_summary doesn't reference warnings.txt in its body" >&2; exit 1; }
 pass "INV5. render_summary reads warnings.txt"
 
 # Invariant 6: finalize.sh accepts --keep-intermediate
