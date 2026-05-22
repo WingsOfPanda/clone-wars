@@ -20,7 +20,13 @@ source "$PLUGIN_ROOT/lib/state.sh"
 source "$PLUGIN_ROOT/lib/consult.sh"
 source "$PLUGIN_ROOT/lib/deep-research.sh"
 
-[[ $# -eq 1 ]] || { echo "Usage: $0 <topic>" >&2; exit 2; }
+# v0.52.0 #19: --keep-intermediate opts out of checkpoint pruning.
+KEEP_INTERMEDIATE="${CW_DEEP_RESEARCH_KEEP_INTERMEDIATE:-}"
+if [[ "${1:-}" == "--keep-intermediate" ]]; then
+  KEEP_INTERMEDIATE=1
+  shift
+fi
+[[ $# -eq 1 ]] || { echo "Usage: $0 [--keep-intermediate] <topic>" >&2; exit 2; }
 TOPIC="$1"
 cw_consult_assert_topic "$TOPIC"
 
@@ -61,6 +67,16 @@ fi
 session_id="${CLAUDE_CODE_SESSION_ID:-unknown}"
 rm -f "$ART/active-${session_id}.txt"
 rm -f "$ART/active.txt"  # legacy v0.39.0 form — kept for backwards-compat cleanup
+
+# v0.52.0 #19: prune intermediate checkpoints (unless opted out).
+CW_DEEP_RESEARCH_KEEP_INTERMEDIATE="$KEEP_INTERMEDIATE" \
+  cw_deep_research_prune_intermediate_checkpoints "$ART"
+
+# v0.52.0 #20: co-locate pane outbox/inbox into the artifact tree.
+cw_deep_research_link_pane_artifacts "$ART" "$TD"
+
+# v0.52.0 #24: compute size warnings (post-prune).
+cw_deep_research_compute_size_warnings "$ART"
 
 # Append Halt section to session-summary.md.
 # v0.43.0 Lane A: unconditional re-render so the summary reflects the

@@ -29,6 +29,7 @@ source "$PLUGIN_ROOT/lib/deep-research.sh"
 INPUTS=""
 CONTEXT_FILE=""
 SMOKE_TEST=""
+TIMEOUT_FLAG=""   # v0.52.0 #26: per-call override; precedence CLI > env > default
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --inputs=*)        INPUTS="${1#*=}";       shift ;;
@@ -37,12 +38,24 @@ while [[ $# -gt 0 ]]; do
     --context-file)    CONTEXT_FILE="$2";      shift 2 ;;
     --smoke-test=*)    SMOKE_TEST="${1#*=}";   shift ;;
     --smoke-test)      SMOKE_TEST="$2";        shift 2 ;;
+    --timeout=*)
+      TIMEOUT_FLAG="${1#*=}"
+      [[ "$TIMEOUT_FLAG" =~ ^[1-9][0-9]*$ ]] \
+        || { echo "error: --timeout must be a positive integer (seconds); got '$TIMEOUT_FLAG'" >&2; exit 2; }
+      shift
+      ;;
+    --timeout)
+      TIMEOUT_FLAG="$2"
+      [[ "$TIMEOUT_FLAG" =~ ^[1-9][0-9]*$ ]] \
+        || { echo "error: --timeout must be a positive integer (seconds); got '$TIMEOUT_FLAG'" >&2; exit 2; }
+      shift 2
+      ;;
     --) shift; break ;;
     *)  break ;;
   esac
 done
 
-[[ $# -eq 5 ]] || { log_error "Usage: $0 [--inputs=<paths>] [--context-file=<path>] [--smoke-test=<script>] <topic> <commander> <exp-id> <approach-label> <approach-brief>"; exit 2; }
+[[ $# -eq 5 ]] || { log_error "Usage: $0 [--inputs=<paths>] [--context-file=<path>] [--smoke-test=<script>] [--timeout <s>] <topic> <commander> <exp-id> <approach-label> <approach-brief>"; exit 2; }
 TOPIC="$1"
 COMMANDER="$2"
 EXP_ID="$3"
@@ -133,8 +146,9 @@ OUTBOX="$(cw_outbox_path "$COMMANDER" codex "$TOPIC")"
 # Compute current outbox offset (for cw_consult_wait OFFSET= state file)
 offset=$(cw_outbox_offset "$OUTBOX")
 
-# Per-experiment wall-clock cap. Defaults per lib/contracts.sh; env override.
-TIME_BUDGET_S="${CW_DEEP_RESEARCH_EXPERIMENT_TIMEOUT_OVERRIDE:-$(cw_consult_timeout experiment)}"
+# v0.52.0 #26: precedence chain CLI flag > env var > cw_consult_timeout default.
+TIME_BUDGET_S="${TIMEOUT_FLAG:-${CW_DEEP_RESEARCH_EXPERIMENT_TIMEOUT_OVERRIDE:-$(cw_consult_timeout experiment)}}"
+log_info "dispatch: time_budget=$TIME_BUDGET_S exp_id=$EXP_ID"
 
 # Metric name from metric.md's "**Primary metric:**" line.
 METRIC_NAME=$(cw_deep_research_metric_primary "$METRIC_MD")

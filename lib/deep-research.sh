@@ -809,6 +809,17 @@ cw_deep_research_render_summary() {
   fi
   rm -f "$merged"
 
+  # Section: Warnings (v0.52.0 #24 — only when warnings.txt is non-empty)
+  if [[ -s "$art_dir/warnings.txt" ]]; then
+    printf '\n## Warnings\n\n'
+    local w_kind w_path w_size w_count
+    while IFS=$'\t' read -r w_kind w_path w_size w_count; do
+      case "$w_kind" in
+        size_warn) printf -- '- size_warn: %s %s GB (%s files)\n' "$w_path" "$w_size" "$w_count" ;;
+      esac
+    done < "$art_dir/warnings.txt"
+  fi
+
   # Section: Halt (rendered only when halt.flag is present)
   local halt_data halt_format
   halt_data=$(cw_deep_research_halt_flag_read "$art_dir/halt.flag")
@@ -1214,5 +1225,146 @@ cw_deep_research_format_peers_block() {
     printf '| %s | %s | %s | %s | %s | %s |\n' \
       "$peer" "$phase" "$latest_exp" "$approach" "$metric_val" "$notes_val"
   done
+  return 0
+}
+
+# cw_deep_research_prune_intermediate_checkpoints <art-dir>
+#
+# For each <art-dir>/troopers/<cmdr>/experiments/exp-*/ dir, read
+# result.json:checkpoint_path. If non-null + non-empty + stays inside
+# the experiment dir, delete every other *.pt file in that dir.
+#
+# Skips dirs with no result.json or checkpoint_path=null (forensics
+# preserved). Honors CW_DEEP_RESEARCH_KEEP_INTERMEDIATE=1 as a global
+# short-circuit.
+#
+# Requires GNU coreutils (stat -c%s). The freed-bytes log line silently
+# reports 0B on BSD stat; the prune itself still works. Deep-research as
+# a whole is Linux-only in practice (GPU training jobs).
+cw_deep_research_prune_intermediate_checkpoints() {
+  local art_dir="${1:-}"
+  [[ -d "$art_dir" ]] \
+    || { echo "cw_deep_research_prune_intermediate_checkpoints: art-dir missing: $art_dir" >&2; return 2; }
+
+  if [[ -n "${CW_DEEP_RESEARCH_KEEP_INTERMEDIATE:-}" ]]; then
+    log_info "keep_intermediate=1; pruning skipped"
+    return 0
+  fi
+
+  local exp_dir result kept_rel kept_abs cmdr exp_id removed freed_bytes
+  shopt -s nullglob
+  for exp_dir in "$art_dir"/troopers/*/experiments/exp-*/; do
+    exp_dir="${exp_dir%/}"
+    result="$exp_dir/result.json"
+    [[ -f "$result" ]] || continue
+    kept_rel=$(cw_deep_research_json_field "$result" checkpoint_path 2>/dev/null)
+    [[ -n "$kept_rel" && "$kept_rel" != "null" ]] || continue
+
+    # Resolve relative to exp_dir; reject paths that escape.
+    kept_abs=$(cd "$exp_dir" && realpath -m "$kept_rel" 2>/dev/null)
+    case "$kept_abs" in
+      "$exp_dir"/*) ;;
+      *)
+        log_warn "prune: checkpoint_path escapes exp dir: $kept_rel (in $exp_dir); skipping"
+        continue
+        ;;
+    esac
+
+    cmdr=$(basename "$(dirname "$(dirname "$exp_dir")")")
+    exp_id=$(basename "$exp_dir")
+    removed=0
+    freed_bytes=0
+    local pt
+    for pt in "$exp_dir"/*.pt; do
+      [[ -f "$pt" ]] || continue
+      if [[ "$pt" != "$kept_abs" ]]; then
+        freed_bytes=$(( freed_bytes + $(stat -c%s "$pt" 2>/dev/null || echo 0) ))
+        rm -f "$pt"
+        removed=$(( removed + 1 ))
+      fi
+    done
+    if (( removed > 0 )); then
+      local freed_human
+      freed_human=$(numfmt --to=iec --suffix=B "$freed_bytes" 2>/dev/null || echo "${freed_bytes}B")
+      log_info "pruned: $cmdr/$exp_id kept=$(basename "$kept_abs") removed=$removed freed=$freed_human"
+    fi
+  done
+  shopt -u nullglob
+  return 0
+}
+
+# cw_deep_research_link_pane_artifacts <art-dir> <topic-dir>
+#
+# For each commander in <art-dir>/troopers.txt, create relative
+# symlinks from <art-dir>/troopers/<cmdr>/{outbox.jsonl,inbox.md} to
+# <topic-dir>/<cmdr>-codex/{outbox.jsonl,inbox.md}. Idempotent.
+#
+# deep-research is codex-fixed per v0.27.0; v0.53.0 will generalize.
+#
+# Requires GNU coreutils (realpath --relative-to). BSD realpath lacks
+# this flag; on macOS the symlinks would resolve to absolute paths or
+# fail. Deep-research is Linux-only in practice (GPU training jobs).
+cw_deep_research_link_pane_artifacts() {
+  local art_dir="${1:-}" topic_dir="${2:-}"
+  [[ -d "$art_dir" ]] \
+    || { echo "cw_deep_research_link_pane_artifacts: art-dir missing: $art_dir" >&2; return 2; }
+  [[ -d "$topic_dir" ]] \
+    || { echo "cw_deep_research_link_pane_artifacts: topic-dir missing: $topic_dir" >&2; return 2; }
+  [[ -f "$art_dir/troopers.txt" ]] || return 0
+
+  local cmdr pane_dir target_dir f src rel
+  while read -r cmdr; do
+    [[ -n "$cmdr" ]] || continue
+    pane_dir="$topic_dir/$cmdr-codex"
+    target_dir="$art_dir/troopers/$cmdr"
+    mkdir -p "$target_dir"
+    for f in outbox.jsonl inbox.md; do
+      src="$pane_dir/$f"
+      if [[ ! -f "$src" ]]; then
+        log_warn "link_pane_artifacts: pane file missing for $cmdr: $f"
+        continue
+      fi
+      rel=$(realpath --relative-to="$target_dir" "$src")
+      ln -sfn "$rel" "$target_dir/$f"
+    done
+  done < "$art_dir/troopers.txt"
+  return 0
+}
+
+# cw_deep_research_compute_size_warnings <art-dir>
+#
+# For each experiment dir, du -sB1 and if >= CW_DEEP_RESEARCH_SIZE_WARN_GB
+# * 1G, append a TSV line to <art-dir>/warnings.txt:
+#   size_warn<TAB><cmdr>/<exp-id><TAB><size_gb_1dec><TAB><file_count>
+# Truncates warnings.txt at the start so re-runs are idempotent.
+#
+# Requires GNU coreutils (du -B1 --apparent-size). BSD du lacks both
+# flags; on macOS this returns nothing and the threshold check never
+# fires. Deep-research is Linux-only in practice (GPU training jobs).
+cw_deep_research_compute_size_warnings() {
+  local art_dir="${1:-}"
+  [[ -d "$art_dir" ]] \
+    || { echo "cw_deep_research_compute_size_warnings: art-dir missing: $art_dir" >&2; return 2; }
+
+  local threshold_gb="${CW_DEEP_RESEARCH_SIZE_WARN_GB:-2}"
+  local threshold_bytes=$(( threshold_gb * 1073741824 ))
+  local warnings="$art_dir/warnings.txt"
+  : > "$warnings"
+
+  shopt -s nullglob
+  local exp_dir cmdr exp_id size_bytes size_gb file_count
+  for exp_dir in "$art_dir"/troopers/*/experiments/exp-*/; do
+    exp_dir="${exp_dir%/}"
+    size_bytes=$(du -sB1 --apparent-size "$exp_dir" 2>/dev/null | awk '{print $1}')
+    [[ -n "$size_bytes" ]] || continue
+    if (( size_bytes >= threshold_bytes )); then
+      cmdr=$(basename "$(dirname "$(dirname "$exp_dir")")")
+      exp_id=$(basename "$exp_dir")
+      size_gb=$(awk -v b="$size_bytes" 'BEGIN{ printf "%.1f", b/1073741824 }')
+      file_count=$(find "$exp_dir" -maxdepth 1 -type f 2>/dev/null | wc -l)
+      printf 'size_warn\t%s/%s\t%s\t%s\n' "$cmdr" "$exp_id" "$size_gb" "$file_count" >> "$warnings"
+    fi
+  done
+  shopt -u nullglob
   return 0
 }

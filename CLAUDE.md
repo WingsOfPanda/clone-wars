@@ -27,19 +27,21 @@ below for the closed-set boundary.
 
 ## Current focus
 
-- **Most recent merge:** v0.51.0 (state-file/archive hygiene round 2
-  — cw_deep_research_trooper_state_reconcile replays trooper outbox
-  tails at finalize time and applies terminal done/error events
-  before the phase case-mapping, eliminating the
-  stale→incomplete race; cw_spawn_capture_failure_forensics writes
-  <trooper-dir>/failure-reason.txt before -FAILED archive rename so
-  spawn failures are forensicable; result.json gains nullable
-  checkpoint_path so /clone-wars:deploy can read checkpoints
-  programmatically instead of parsing free-text notes).
-- **Next priority:** GPU resource scheduling between troopers (Item
-  4 from 2026-05-17 retrospective) is the remaining open punch-list
-  item. The 2026-05-21 5-archive triage is fully closed (findings
-  #1, #2, #4 in v0.50; #3, #5, #6 in v0.51).
+- **Most recent merge:** v0.52.0 (archive hygiene round 3 —
+  cw_deep_research_prune_intermediate_checkpoints keeps only
+  result.json:checkpoint_path's named file per experiment;
+  cw_deep_research_link_pane_artifacts symlinks pane outbox/inbox into
+  _deep-research/ tree so the artifact tree is self-contained;
+  cw_deep_research_compute_size_warnings emits TSV rows into a
+  warnings.txt sourced by a new ## Warnings section in render_summary;
+  bin/deep-research-experiment-send.sh gains --timeout N with
+  precedence CLI > env > default).
+- **Next priority:** v0.53.0 trooper-protocol bundle (items
+  #21/#22/#23/#25/#27 from the 2026-05-22 post-overnight survey:
+  result.json schema enforcement, shared _deep-research/lib/, audit
+  knob-consistency, color-rotation helper, K_corroboration semantics).
+  Needs its own brainstorm — lockstep prompt-template + finalize-parser
+  edits.
 - **No code freeze.** Feature work in flight should still go through
   the brainstorm → spec → plan → PR loop per `docs/superpowers/`.
 
