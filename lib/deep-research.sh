@@ -1216,3 +1216,64 @@ cw_deep_research_format_peers_block() {
   done
   return 0
 }
+
+# cw_deep_research_prune_intermediate_checkpoints <art-dir>
+#
+# For each <art-dir>/troopers/<cmdr>/experiments/exp-*/ dir, read
+# result.json:checkpoint_path. If non-null + non-empty + stays inside
+# the experiment dir, delete every other *.pt file in that dir.
+#
+# Skips dirs with no result.json or checkpoint_path=null (forensics
+# preserved). Honors CW_DEEP_RESEARCH_KEEP_INTERMEDIATE=1 as a global
+# short-circuit.
+cw_deep_research_prune_intermediate_checkpoints() {
+  local art_dir="${1:-}"
+  [[ -d "$art_dir" ]] \
+    || { echo "cw_deep_research_prune_intermediate_checkpoints: art-dir missing: $art_dir" >&2; return 2; }
+
+  if [[ -n "${CW_DEEP_RESEARCH_KEEP_INTERMEDIATE:-}" ]]; then
+    log_info "keep_intermediate=1; pruning skipped"
+    return 0
+  fi
+
+  local exp_dir result kept_rel kept_abs cmdr exp_id removed freed_bytes
+  shopt -s nullglob
+  for exp_dir in "$art_dir"/troopers/*/experiments/exp-*/; do
+    exp_dir="${exp_dir%/}"
+    result="$exp_dir/result.json"
+    [[ -f "$result" ]] || continue
+    kept_rel=$(cw_deep_research_json_field "$result" checkpoint_path 2>/dev/null)
+    [[ -n "$kept_rel" && "$kept_rel" != "null" ]] || continue
+
+    # Resolve relative to exp_dir; reject paths that escape.
+    kept_abs=$(cd "$exp_dir" && realpath -m "$kept_rel" 2>/dev/null)
+    case "$kept_abs" in
+      "$exp_dir"/*) ;;
+      *)
+        log_warn "prune: checkpoint_path escapes exp dir: $kept_rel (in $exp_dir); skipping"
+        continue
+        ;;
+    esac
+
+    cmdr=$(basename "$(dirname "$(dirname "$exp_dir")")")
+    exp_id=$(basename "$exp_dir")
+    removed=0
+    freed_bytes=0
+    local pt
+    for pt in "$exp_dir"/*.pt; do
+      [[ -f "$pt" ]] || continue
+      if [[ "$pt" != "$kept_abs" ]]; then
+        freed_bytes=$(( freed_bytes + $(stat -c%s "$pt" 2>/dev/null || echo 0) ))
+        rm -f "$pt"
+        removed=$(( removed + 1 ))
+      fi
+    done
+    if (( removed > 0 )); then
+      local freed_human
+      freed_human=$(numfmt --to=iec --suffix=B "$freed_bytes" 2>/dev/null || echo "${freed_bytes}B")
+      log_info "pruned: $cmdr/$exp_id kept=$(basename "$kept_abs") removed=$removed freed=$freed_human"
+    fi
+  done
+  shopt -u nullglob
+  return 0
+}
